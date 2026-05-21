@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: hangzhou-zhihang-mp-adapter-zada
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: WEB_ADVISOR_BASE_URL
+        value: https://hangzhou-zhihang-study-advisor-zada.onrender.com
+      - key: WEB_ACCESS_PASSWORD
+        sync: false
+      - key: WECHAT_APPID
+        sync: false
+      - key: WECHAT_SECRET
+        sync: false
+      - key: MP_ALLOWED_OPENIDS
+        sync: false
+      - key: MP_ALLOW_DEV_LOGIN
+        value: "false"
+      - key: MP_LOG_DENIED_OPENID
+        value: "false"
+      - key: MP_USER_ENTITLEMENTS_JSON
+        sync: false
