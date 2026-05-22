@@ -11,6 +11,7 @@ const WECHAT_SECRET = process.env.WECHAT_SECRET || "";
 const MP_ALLOWED_OPENIDS = splitCsv(process.env.MP_ALLOWED_OPENIDS || "");
 const MP_DEV_OPENID = process.env.MP_DEV_OPENID || "dev-openid";
 const MP_ALLOW_DEV_LOGIN = process.env.MP_ALLOW_DEV_LOGIN === "true";
+const MP_OPEN_LOGIN = process.env.MP_OPEN_LOGIN === "true";
 const MP_LOG_DENIED_OPENID = process.env.MP_LOG_DENIED_OPENID === "true";
 const ENTITLEMENTS_FILE = process.env.MP_ENTITLEMENTS_FILE || path.join(__dirname, "entitlements.json");
 const MAX_REQUEST_BYTES = 22 * 1024 * 1024;
@@ -239,7 +240,7 @@ async function handleUserLogin(req, res) {
     }
 
     const login = await codeToOpenid(code);
-    const allowed = MP_ALLOWED_OPENIDS.includes(login.openid);
+    const allowed = MP_OPEN_LOGIN || MP_ALLOWED_OPENIDS.includes(login.openid);
     if (!allowed) {
       if (MP_LOG_DENIED_OPENID) {
         console.warn(`Denied Mini Program login openid: ${login.openid}`);
@@ -423,6 +424,7 @@ const server = http.createServer((req, res) => {
       service: "liude-xiaozhan-miniprogram-backend",
       upstream: WEB_ADVISOR_BASE_URL,
       wechatConfigured: Boolean(WECHAT_APPID && WECHAT_SECRET),
+      openLogin: MP_OPEN_LOGIN,
       whitelistSize: MP_ALLOWED_OPENIDS.length,
       deniedOpenidLogging: MP_LOG_DENIED_OPENID,
     });

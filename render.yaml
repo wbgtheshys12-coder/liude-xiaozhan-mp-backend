@@ -18,6 +18,8 @@ services:
         sync: false
       - key: MP_ALLOW_DEV_LOGIN
         value: "false"
+      - key: MP_OPEN_LOGIN
+        value: "false"
       - key: MP_LOG_DENIED_OPENID
         value: "false"
       - key: MP_USER_ENTITLEMENTS_JSON
