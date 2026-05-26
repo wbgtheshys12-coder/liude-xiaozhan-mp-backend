@@ -171,7 +171,7 @@ async function callWebAdvisor(pathname, options = {}, retry = true) {
     });
     return payload;
   } catch (error) {
-    if (retry && error.statusCode === 401) {
+    if (retry && (error.statusCode === 401 || error.statusCode === 429)) {
       webCookie = "";
       return callWebAdvisor(pathname, options, false);
     }
