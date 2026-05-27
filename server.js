@@ -52,6 +52,14 @@ function readBody(req) {
   });
 }
 
+function isJsonParseError(error) {
+  return error instanceof SyntaxError && /JSON/i.test(error.message || "");
+}
+
+function sendBadJson(res) {
+  sendJson(res, 400, { error: "请求格式不是合法 JSON，请重新提交。" });
+}
+
 function getBearerToken(req) {
   const header = req.headers.authorization || "";
   const match = header.match(/^Bearer\s+(.+)$/i);
@@ -271,6 +279,10 @@ async function handleUserLogin(req, res) {
       entitlements,
     });
   } catch (error) {
+    if (isJsonParseError(error)) {
+      sendBadJson(res);
+      return;
+    }
     sendJson(res, 500, { error: error.message || "微信登录失败。" });
   }
 }
@@ -353,6 +365,10 @@ async function handleRecommend(req, res) {
     });
     sendJson(res, 200, payload);
   } catch (error) {
+    if (isJsonParseError(error)) {
+      sendBadJson(res);
+      return;
+    }
     sendJson(res, error.statusCode || 502, { error: `推荐生成失败：${error.message}` });
   }
 }
@@ -397,6 +413,10 @@ async function handleMaterialDraft(req, res) {
     });
     sendJson(res, 200, payload);
   } catch (error) {
+    if (isJsonParseError(error)) {
+      sendBadJson(res);
+      return;
+    }
     sendJson(res, error.statusCode || 502, { error: `材料初稿生成失败：${error.message}` });
   }
 }
