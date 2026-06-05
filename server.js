@@ -14,7 +14,7 @@ const MP_ALLOW_DEV_LOGIN = process.env.MP_ALLOW_DEV_LOGIN === "true";
 const MP_OPEN_LOGIN = process.env.MP_OPEN_LOGIN === "true";
 const MP_LOG_DENIED_OPENID = process.env.MP_LOG_DENIED_OPENID === "true";
 const ENTITLEMENTS_FILE = process.env.MP_ENTITLEMENTS_FILE || path.join(__dirname, "entitlements.json");
-const MAX_REQUEST_BYTES = 22 * 1024 * 1024;
+const MAX_REQUEST_BYTES = Number(process.env.MAX_REQUEST_BYTES || 40 * 1024 * 1024);
 
 const sessions = new Map();
 let webCookie = "";
@@ -367,6 +367,10 @@ async function handleRecommend(req, res) {
   } catch (error) {
     if (isJsonParseError(error)) {
       sendBadJson(res);
+      return;
+    }
+    if (/Payload too large/i.test(error.message || "")) {
+      sendJson(res, 413, { error: "上传文件过大，请减少文件数量、压缩照片，或改传清晰 PDF 后再试。" });
       return;
     }
     sendJson(res, error.statusCode || 502, { error: `推荐生成失败：${error.message}` });
