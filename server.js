@@ -563,6 +563,7 @@ function normalizeBooking(body, session) {
       openid: maskOpenid(session.openid),
       storageKey: createUserStorageKey(session.openid),
     },
+    status: "confirmed",
     createdAt: new Date().toISOString(),
   };
 }
@@ -574,6 +575,50 @@ function appendBookingRecord(booking) {
   } catch (error) {
     console.warn("预约记录写入失败:", error.message);
   }
+}
+
+function readBookingRecords() {
+  if (!fs.existsSync(MP_BOOKINGS_FILE)) return [];
+  try {
+    return fs
+      .readFileSync(MP_BOOKINGS_FILE, "utf8")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        try {
+          return JSON.parse(line);
+        } catch (error) {
+          return null;
+        }
+      })
+      .filter(Boolean);
+  } catch (error) {
+    console.warn("预约记录读取失败:", error.message);
+    return [];
+  }
+}
+
+function isActiveBooking(booking) {
+  return !["cancelled", "rejected", "expired"].includes(String(booking.status || "confirmed"));
+}
+
+function getUnavailableBookingTimes(advisorKey, date) {
+  const times = readBookingRecords()
+    .filter((booking) => isActiveBooking(booking) && booking.advisorKey === advisorKey && booking.date === date)
+    .map((booking) => booking.time)
+    .filter(Boolean);
+  return Array.from(new Set(times)).sort();
+}
+
+function findBookingConflict(booking) {
+  return readBookingRecords().find(
+    (item) =>
+      isActiveBooking(item) &&
+      item.advisorKey === booking.advisorKey &&
+      item.date === booking.date &&
+      item.time === booking.time
+  );
 }
 
 function getAdvisorOpenids(advisorKey) {
@@ -728,6 +773,15 @@ async function handleBooking(req, res) {
     const rawBody = await readBody(req);
     const body = JSON.parse(rawBody || "{}");
     const booking = normalizeBooking(body, session);
+    if (findBookingConflict(booking)) {
+      sendJson(res, 409, {
+        ok: false,
+        slotTaken: true,
+        error: "该时间段已被预约，请重新选择其他时间。",
+        unavailableTimes: getUnavailableBookingTimes(booking.advisorKey, booking.date),
+      });
+      return;
+    }
     appendBookingRecord(booking);
     const notifyResult = await sendBookingNotifications(booking);
     sendJson(res, 200, {
@@ -747,6 +801,39 @@ async function handleBooking(req, res) {
       channels: [],
     });
   }
+}
+
+function handleBookingSlots(req, res, url) {
+  const session = requireSession(req, res);
+  if (!session) return;
+
+  const advisorKey = normalizeBookingText(url.searchParams.get("advisorKey") || "a1", 20);
+  const date = normalizeBookingText(url.searchParams.get("date") || "", 20);
+  if (!date) {
+    sendJson(res, 400, { error: "缺少预约日期。" });
+    return;
+  }
+
+  sendJson(res, 200, {
+    ok: true,
+    advisorKey,
+    date,
+    unavailableTimes: getUnavailableBookingTimes(advisorKey, date),
+  });
+}
+
+function handleBookingConfig(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return;
+
+  sendJson(res, 200, {
+    ok: true,
+    subscribeEnabled: Boolean(MP_BOOKING_TEMPLATE_ID),
+    templateId: MP_BOOKING_TEMPLATE_ID,
+    teacherNotificationConfigured: Boolean(
+      MP_BOOKING_NOTIFY_ENABLED && MP_BOOKING_TEMPLATE_ID && Object.keys(MP_TEACHER_OPENIDS).length
+    ),
+  });
 }
 
 function requiresPaidRecommendationCount(session, body) {
@@ -921,6 +1008,16 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "POST" && url.pathname === "/api/mp/material-draft") {
     handleMaterialDraft(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/mp/booking/slots") {
+    handleBookingSlots(req, res, url);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/mp/booking/config") {
+    handleBookingConfig(req, res);
     return;
   }
 

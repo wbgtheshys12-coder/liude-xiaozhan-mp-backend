@@ -40,3 +40,5 @@ services:
         sync: false
       - key: MP_BOOKING_MINIPROGRAM_STATE
         value: "formal"
+      - key: MP_BOOKINGS_FILE
+        value: data/bookings.jsonl
