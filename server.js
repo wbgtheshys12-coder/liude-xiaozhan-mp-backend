@@ -13,17 +13,44 @@ const MP_DEV_OPENID = process.env.MP_DEV_OPENID || "dev-openid";
 const MP_ALLOW_DEV_LOGIN = process.env.MP_ALLOW_DEV_LOGIN === "true";
 const MP_OPEN_LOGIN = process.env.MP_OPEN_LOGIN === "true";
 const MP_LOG_DENIED_OPENID = process.env.MP_LOG_DENIED_OPENID === "true";
+const MP_FREE_RECOMMENDATION_COUNTS = parseIntegerList(process.env.MP_FREE_RECOMMENDATION_COUNTS || "1,3,6");
+const MP_BOOKING_NOTIFY_ENABLED = process.env.MP_BOOKING_NOTIFY_ENABLED === "true";
+const MP_BOOKING_TEMPLATE_ID = process.env.MP_BOOKING_TEMPLATE_ID || "";
+const MP_BOOKING_TEMPLATE_FIELDS = parseJsonEnv("MP_BOOKING_TEMPLATE_FIELDS_JSON", {});
+const MP_BOOKING_MINIPROGRAM_STATE = process.env.MP_BOOKING_MINIPROGRAM_STATE || "formal";
+const MP_TEACHER_OPENIDS = parseJsonEnv("MP_TEACHER_OPENIDS_JSON", {});
+const MP_BOOKING_WEBHOOK_URL = process.env.MP_BOOKING_WEBHOOK_URL || "";
+const MP_BOOKING_TEACHER_WEBHOOKS = parseJsonEnv("MP_BOOKING_TEACHER_WEBHOOKS_JSON", {});
 const ENTITLEMENTS_FILE = process.env.MP_ENTITLEMENTS_FILE || path.join(__dirname, "entitlements.json");
+const MP_BOOKINGS_FILE = process.env.MP_BOOKINGS_FILE || path.join(__dirname, "data", "bookings.jsonl");
 const MAX_REQUEST_BYTES = Number(process.env.MAX_REQUEST_BYTES || 40 * 1024 * 1024);
 
 const sessions = new Map();
 let webCookie = "";
+let wechatAccessToken = { value: "", expiresAt: 0 };
 
 function splitCsv(value) {
   return String(value || "")
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function parseIntegerList(value) {
+  return splitCsv(value)
+    .map((item) => Number(item))
+    .filter((item) => Number.isInteger(item) && item > 0);
+}
+
+function parseJsonEnv(name, fallback) {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    console.warn(`${name} 解析失败:`, error.message);
+    return fallback;
+  }
 }
 
 function sendJson(res, statusCode, payload, extraHeaders = {}) {
@@ -128,6 +155,163 @@ function createUserStorageKey(openid) {
   return crypto.createHash("sha256").update(String(openid || "")).digest("hex").slice(0, 16);
 }
 
+const FALLBACK_PROGRAMS = [
+  { domains: ["data", "cs", "ai"], university: "University of Stuttgart", program: "Artificial Intelligence and Data Science", city: "Stuttgart" },
+  { domains: ["data", "cs", "ai"], university: "Technical University of Munich", program: "Data Engineering and Analytics", city: "Munich" },
+  { domains: ["cs", "software"], university: "TU Berlin", program: "Computer Science (Informatik), M.Sc", city: "Berlin" },
+  { domains: ["mechanical", "engineering"], university: "Technical University of Munich", program: "Development, Production and Management in Mechanical Engineering", city: "Munich" },
+  { domains: ["mechanical", "engineering"], university: "University of Stuttgart", program: "Mechanical Engineering", city: "Stuttgart" },
+  { domains: ["robotics", "automation", "engineering"], university: "University of Stuttgart", program: "Engineering Cybernetics", city: "Stuttgart" },
+  { domains: ["electrical", "engineering"], university: "Karlsruhe Institute of Technology", program: "Electrical Engineering and Information Technology Master of Science", city: "Karlsruhe" },
+  { domains: ["business", "management"], university: "University of Cologne", program: "Business Analytics & Econometrics, Master of Science (M.Sc.)", city: "Cologne" },
+  { domains: ["business", "management"], university: "University of Mannheim", program: "Mannheim Master in Management", city: "Mannheim" },
+  { domains: ["finance", "business"], university: "University of Mannheim", program: "Mannheim Master in Finance, Accounting and Taxation", city: "Mannheim" },
+  { domains: ["law", "data"], university: "TU Dresden", program: "International Studies in Intellectual Property Law and Data Law (Master)", city: "Dresden" },
+  { domains: ["design", "textile", "engineering"], university: "TU Dresden", program: "Textile and Clothing Technology related Master options", city: "Dresden" },
+  { domains: ["environment", "sustainability"], university: "TU Berlin", program: "Ecology and Environmental Planning, M.Sc", city: "Berlin" },
+  { domains: ["civil", "engineering"], university: "Technical University of Munich", program: "Civil Engineering", city: "Munich" },
+  { domains: ["general"], university: "FAU Erlangen-Nurnberg", program: "Interdisciplinary Master options matching the submitted profile", city: "Erlangen" },
+];
+
+function normalizeMiniText(value) {
+  return String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function normalizeRecommendationCount(value) {
+  const count = Number(value || 1);
+  return [1, 3, 6, 10].includes(count) ? count : 1;
+}
+
+function detectFallbackDomains(profile) {
+  const corpus = normalizeMiniText(
+    [
+      profile.major,
+      profile.targetField,
+      profile.courses,
+      profile.thesisTopic,
+      profile.projects,
+      profile.internships,
+      profile.experience,
+      profile.notes,
+    ].join(" ")
+  );
+  const domains = [];
+  const add = (domain, pattern) => {
+    if (pattern.test(corpus) && !domains.includes(domain)) domains.push(domain);
+  };
+
+  add("ai", /人工智能|机器学习|深度学习|ai|artificial intelligence|machine learning/);
+  add("data", /数据|统计|analytics|data|database|econometrics/);
+  add("cs", /计算机|软件|算法|computer|software|informatik|programming/);
+  add("robotics", /机器人|自动化|控制|robot|automation|control/);
+  add("mechanical", /机械|车辆|汽车|制造|mechatronics|mechanical|automotive/);
+  add("electrical", /电气|电子|通信|electrical|electronics|communication/);
+  add("business", /管理|商科|市场|business|management|marketing|supply chain/);
+  add("finance", /金融|会计|财务|finance|accounting|taxation/);
+  add("law", /法律|法学|知识产权|law|legal|regulatory|intellectual property/);
+  add("design", /设计|服装|纺织|fashion|textile|clothing|garment/);
+  add("environment", /环境|可持续|sustainability|environment|ecology/);
+  add("civil", /土木|结构|civil|structural/);
+  add("engineering", /工程|engineering/);
+
+  return domains.length ? domains : ["general"];
+}
+
+function buildFallbackRecommendation(body, error) {
+  const domains = detectFallbackDomains(body || {});
+  const count = normalizeRecommendationCount(body?.recommendationCount);
+  const target = body?.targetField || body?.major || "当前申请方向";
+  const selected = [];
+
+  for (const program of FALLBACK_PROGRAMS) {
+    if (program.domains.some((domain) => domains.includes(domain)) && !selected.some((item) => item.university === program.university && item.program === program.program)) {
+      selected.push(program);
+    }
+    if (selected.length >= count) break;
+  }
+  for (const program of FALLBACK_PROGRAMS) {
+    if (selected.length >= count) break;
+    if (!selected.some((item) => item.university === program.university && item.program === program.program)) selected.push(program);
+  }
+
+  return {
+    studentSummary: `已根据当前已填写的部分资料和本地院校专业数据库，为“${target}”生成初步推荐。`,
+    positioning: "当前资料完整度有限，推荐结果按保守策略排序；后续补充成绩、语言、课程和项目经历后可再次精排。",
+    transcriptSummary: {
+      filesRead: Array.isArray(body?.files) ? body.files.length : 0,
+      methods: [],
+      confidence: "低",
+      extractedScoreText: body?.gpa || "未稳定识别",
+      extractedMajor: body?.major || "未稳定识别",
+      keywords: domains,
+      summary: "本次使用本地数据库兜底生成；如上传文件未被稳定识别，仍会继续给出初步推荐。",
+      preview: "资料不完整或上游繁忙时，系统已自动切换到本地数据库兜底推荐。",
+    },
+    inputQuality: {
+      level: "低",
+      score: 30,
+      warnings: ["当前资料较少，建议后续补充完整成绩单、课程描述、语言成绩和目标方向。"],
+      strengths: domains.includes("general") ? [] : ["已根据已填写文本识别到初步申请方向。"],
+    },
+    accuracyNotes: [
+      "当前为本地数据库兜底推荐，已经避免 429 或资料不完整导致流程中断。",
+      "由于学生资料尚不完整，匹配度做了保守处理，结果适合作为初筛清单。",
+      error?.message ? `上游服务提示：${error.message}` : "",
+    ].filter(Boolean),
+    recommendationQuality: {
+      level: "基础",
+      notes: ["兜底结果来自本地规则和院校专业候选库，正式递交前仍需顾问核对官网要求。"],
+    },
+    recommendationCount: selected.length,
+    recommendations: selected.map((program, index) => ({
+      rank: index + 1,
+      university: program.university,
+      program: program.program,
+      degree: body?.targetDegree || "硕士",
+      city: program.city,
+      matchPercent: Math.max(58, 72 - index * 3),
+      matchLevel: "初步匹配",
+      evaluation: "可作为初筛候选",
+      reason: `根据已填写的${target}方向和本地数据库信号，暂列为初步候选；资料补全后建议重新生成精确排序。`,
+      detail: {
+        matchReasonDetails: ["本地数据库兜底推荐", "资料完整度较低，匹配度已保守处理"],
+        fitHighlights: ["方向存在初步相关性，可进入顾问复核。"],
+        riskHighlights: ["需要补充课程、成绩和语言信息后再判断申请把握。"],
+        requirementHighlights: ["正式申请前请核对官网 Zulassungsvoraussetzungen、语言要求和截止日期。"],
+        sourceEvidence: [],
+        facts: {
+          duration: "",
+          ects: "",
+          languages: [],
+          applicationPeriod: "",
+          catalogCoverage: "兜底候选",
+          catalogCoverageScore: 45,
+        },
+      },
+      qualityAudit: {
+        status: "兜底推荐，需人工复核",
+        evidenceScore: 45,
+        level: "基础",
+      },
+    })),
+    nextSteps: ["补充成绩单或课程描述后再次生成。", "由顾问核对候选项目官网要求。"],
+    source: "mini-program-local-fallback",
+    aiReview: {
+      enabled: false,
+      status: "fallback",
+      model: "",
+      summary: "上游繁忙或资料不足时，已自动切换为本地数据库兜底推荐。",
+      reliabilityNotes: [],
+    },
+  };
+}
+
+function shouldUseRecommendationFallback(error) {
+  const status = Number(error?.statusCode || 0);
+  if ([400, 401, 408, 429, 500, 502, 503, 504].includes(status)) return true;
+  return /429|rate|too many|timeout|timed out|fetch failed|ECONNRESET|ENOTFOUND|ETIMEDOUT|繁忙|频繁|限流|请求失败/i.test(error?.message || "");
+}
+
 async function requestJson(url, options = {}) {
   const response = await fetch(url, options);
   const payload = await response.json().catch(() => ({}));
@@ -179,7 +363,7 @@ async function callWebAdvisor(pathname, options = {}, retry = true) {
     });
     return payload;
   } catch (error) {
-    if (retry && (error.statusCode === 401 || error.statusCode === 429)) {
+    if (retry && error.statusCode === 401) {
       webCookie = "";
       return callWebAdvisor(pathname, options, false);
     }
@@ -336,18 +520,252 @@ async function handleDemoCase(req, res, caseId) {
   }
 }
 
-function requiresPaidRecommendationCount(session, body) {
-  const requested = Number(body.recommendationCount || 1);
-  return session.mode === "user" && requested > 1 && !session.entitlements?.recommendationCount;
+function normalizeBookingText(value, maxLength = 20) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
 }
 
-async function handleRecommend(req, res) {
+function normalizeBooking(body, session) {
+  const date = normalizeBookingText(body.date, 20);
+  const dateDisplay = normalizeBookingText(body.dateDisplay || body.date, 30);
+  const time = normalizeBookingText(body.time, 12);
+  const advisorKey = normalizeBookingText(body.advisorKey || "a1", 20);
+  const advisorName = normalizeBookingText(body.advisorName || (advisorKey === "a2" ? "陆老师" : "张老师"), 20);
+  const studentName = normalizeBookingText(body.studentName || "微信用户", 20);
+  const note = normalizeBookingText(body.note || "预约德国留学申请沟通", 50);
+  const dateTime = normalizeBookingText(`${dateDisplay} ${time}`, 30);
+  const id = `bk_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
+  const bookingText =
+    body.bookingText ||
+    [
+      "留德小栈预约信息",
+      `学生：${studentName}`,
+      `日期：${dateDisplay}`,
+      `时间：${time}`,
+      `顾问：${advisorName}`,
+      `备注：${note || "无"}`,
+    ].join("\n");
+
+  return {
+    id,
+    advisorKey,
+    advisorName,
+    studentName,
+    date,
+    dateDisplay,
+    time,
+    dateTime,
+    note,
+    bookingText: String(bookingText || "").slice(0, 800),
+    user: {
+      openid: maskOpenid(session.openid),
+      storageKey: createUserStorageKey(session.openid),
+    },
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function appendBookingRecord(booking) {
+  try {
+    fs.mkdirSync(path.dirname(MP_BOOKINGS_FILE), { recursive: true });
+    fs.appendFileSync(MP_BOOKINGS_FILE, `${JSON.stringify(booking)}\n`, "utf8");
+  } catch (error) {
+    console.warn("预约记录写入失败:", error.message);
+  }
+}
+
+function getAdvisorOpenids(advisorKey) {
+  const raw = MP_TEACHER_OPENIDS[advisorKey] || [];
+  return Array.isArray(raw) ? raw.filter(Boolean) : [raw].filter(Boolean);
+}
+
+function buildBookingSubscribeData(booking) {
+  const valueByName = {
+    studentName: booking.studentName,
+    advisorName: booking.advisorName,
+    dateTime: booking.dateTime,
+    date: booking.dateDisplay || booking.date,
+    time: booking.time,
+    note: booking.note || "预约沟通",
+  };
+  const fields =
+    Object.keys(MP_BOOKING_TEMPLATE_FIELDS).length > 0
+      ? MP_BOOKING_TEMPLATE_FIELDS
+      : {
+          thing1: "studentName",
+          time2: "dateTime",
+          thing3: "advisorName",
+          thing4: "note",
+        };
+
+  return Object.entries(fields).reduce((data, [templateKey, sourceKey]) => {
+    data[templateKey] = { value: normalizeBookingText(valueByName[sourceKey] || sourceKey, 20) };
+    return data;
+  }, {});
+}
+
+async function getWechatAccessToken() {
+  if (wechatAccessToken.value && Date.now() < wechatAccessToken.expiresAt) {
+    return wechatAccessToken.value;
+  }
+
+  const url = new URL("https://api.weixin.qq.com/cgi-bin/token");
+  url.searchParams.set("grant_type", "client_credential");
+  url.searchParams.set("appid", WECHAT_APPID);
+  url.searchParams.set("secret", WECHAT_SECRET);
+
+  const { payload } = await requestJson(url.toString());
+  if (!payload.access_token) {
+    throw new Error(payload.errmsg || "微信 access_token 获取失败");
+  }
+
+  wechatAccessToken = {
+    value: payload.access_token,
+    expiresAt: Date.now() + Math.max(Number(payload.expires_in || 7200) - 300, 60) * 1000,
+  };
+  return wechatAccessToken.value;
+}
+
+async function sendWechatSubscribeMessage(openid, booking) {
+  if (!MP_BOOKING_NOTIFY_ENABLED) {
+    return { sent: false, channel: "wechat-subscribe", reason: "MP_BOOKING_NOTIFY_ENABLED 未开启" };
+  }
+  if (!WECHAT_APPID || !WECHAT_SECRET || !MP_BOOKING_TEMPLATE_ID) {
+    return { sent: false, channel: "wechat-subscribe", reason: "微信订阅消息配置不完整" };
+  }
+
+  const accessToken = await getWechatAccessToken();
+  const { payload } = await requestJson(
+    `https://api.weixin.qq.com/cgi-bin/message/subscribe/send?access_token=${encodeURIComponent(accessToken)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        touser: openid,
+        template_id: MP_BOOKING_TEMPLATE_ID,
+        page: "pages/booking/booking",
+        miniprogram_state: MP_BOOKING_MINIPROGRAM_STATE,
+        lang: "zh_CN",
+        data: buildBookingSubscribeData(booking),
+      }),
+    }
+  );
+
+  if (payload.errcode && payload.errcode !== 0) {
+    throw new Error(payload.errmsg || `微信订阅消息发送失败：${payload.errcode}`);
+  }
+  return { sent: true, channel: "wechat-subscribe", openid: maskOpenid(openid) };
+}
+
+async function sendBookingWebhook(url, booking) {
+  if (!url) return { sent: false, channel: "webhook", reason: "未配置预约 Webhook" };
+
+  const content = [
+    "留德小栈新预约",
+    `学生：${booking.studentName}`,
+    `顾问：${booking.advisorName}`,
+    `时间：${booking.dateDisplay} ${booking.time}`,
+    `备注：${booking.note || "无"}`,
+  ].join("\n");
+
+  const { payload } = await requestJson(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      msgtype: "text",
+      text: { content },
+    }),
+  });
+
+  if (payload.errcode && payload.errcode !== 0) {
+    throw new Error(payload.errmsg || `预约 Webhook 发送失败：${payload.errcode}`);
+  }
+  return { sent: true, channel: "webhook" };
+}
+
+async function sendBookingNotifications(booking) {
+  const tasks = [];
+  const advisorWebhook = MP_BOOKING_TEACHER_WEBHOOKS[booking.advisorKey] || MP_BOOKING_WEBHOOK_URL;
+  if (advisorWebhook) tasks.push(sendBookingWebhook(advisorWebhook, booking));
+  for (const openid of getAdvisorOpenids(booking.advisorKey)) {
+    tasks.push(sendWechatSubscribeMessage(openid, booking));
+  }
+
+  if (!tasks.length) {
+    return {
+      notified: false,
+      message: "老师通知通道暂未配置完成，请复制预约信息后联系留德小栈客服或对应老师确认。",
+      channels: [],
+    };
+  }
+
+  const settled = await Promise.allSettled(tasks);
+  const channels = settled
+    .filter((item) => item.status === "fulfilled" && item.value?.sent)
+    .map((item) => item.value);
+  if (channels.length) {
+    return { notified: true, message: "预约通知已发送。", channels };
+  }
+
+  const reason = settled
+    .map((item) => (item.status === "rejected" ? item.reason?.message : item.value?.reason))
+    .filter(Boolean)
+    .join("；");
+  return {
+    notified: false,
+    message: reason || "老师通知暂时未送达，请复制预约信息后联系顾问确认。",
+    channels: [],
+  };
+}
+
+async function handleBooking(req, res) {
   const session = requireSession(req, res);
   if (!session) return;
 
   try {
     const rawBody = await readBody(req);
     const body = JSON.parse(rawBody || "{}");
+    const booking = normalizeBooking(body, session);
+    appendBookingRecord(booking);
+    const notifyResult = await sendBookingNotifications(booking);
+    sendJson(res, 200, {
+      ok: true,
+      bookingId: booking.id,
+      ...notifyResult,
+    });
+  } catch (error) {
+    if (isJsonParseError(error)) {
+      sendBadJson(res);
+      return;
+    }
+    sendJson(res, 200, {
+      ok: true,
+      notified: false,
+      message: error.message || "预约已保存，但老师通知暂时未送达，请复制预约信息后联系顾问确认。",
+      channels: [],
+    });
+  }
+}
+
+function requiresPaidRecommendationCount(session, body) {
+  const requested = Number(body.recommendationCount || 1);
+  return (
+    session.mode === "user" &&
+    !MP_FREE_RECOMMENDATION_COUNTS.includes(requested) &&
+    !session.entitlements?.recommendationCount
+  );
+}
+
+async function handleRecommend(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return;
+
+  let body = {};
+  try {
+    const rawBody = await readBody(req);
+    body = JSON.parse(rawBody || "{}");
 
     if (requiresPaidRecommendationCount(session, body)) {
       sendJson(res, 402, {
@@ -371,6 +789,10 @@ async function handleRecommend(req, res) {
     }
     if (/Payload too large/i.test(error.message || "")) {
       sendJson(res, 413, { error: "上传文件过大，请减少文件数量、压缩照片，或改传清晰 PDF 后再试。" });
+      return;
+    }
+    if (shouldUseRecommendationFallback(error)) {
+      sendJson(res, 200, buildFallbackRecommendation(body, error));
       return;
     }
     sendJson(res, error.statusCode || 502, { error: `推荐生成失败：${error.message}` });
@@ -451,6 +873,12 @@ const server = http.createServer((req, res) => {
       openLogin: MP_OPEN_LOGIN,
       whitelistSize: MP_ALLOWED_OPENIDS.length,
       deniedOpenidLogging: MP_LOG_DENIED_OPENID,
+      freeRecommendationCounts: MP_FREE_RECOMMENDATION_COUNTS,
+      bookingNotificationConfigured: Boolean(
+        MP_BOOKING_WEBHOOK_URL ||
+          Object.keys(MP_BOOKING_TEACHER_WEBHOOKS).length ||
+          (MP_BOOKING_NOTIFY_ENABLED && MP_BOOKING_TEMPLATE_ID && Object.keys(MP_TEACHER_OPENIDS).length)
+      ),
     });
     return;
   }
@@ -493,6 +921,11 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "POST" && url.pathname === "/api/mp/material-draft") {
     handleMaterialDraft(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/mp/booking") {
+    handleBooking(req, res);
     return;
   }
 

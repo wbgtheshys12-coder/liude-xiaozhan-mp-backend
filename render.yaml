@@ -24,3 +24,19 @@ services:
         value: "false"
       - key: MP_USER_ENTITLEMENTS_JSON
         sync: false
+      - key: MP_FREE_RECOMMENDATION_COUNTS
+        value: "1,3,6"
+      - key: MP_BOOKING_NOTIFY_ENABLED
+        value: "false"
+      - key: MP_BOOKING_TEMPLATE_ID
+        sync: false
+      - key: MP_BOOKING_TEMPLATE_FIELDS_JSON
+        sync: false
+      - key: MP_TEACHER_OPENIDS_JSON
+        sync: false
+      - key: MP_BOOKING_WEBHOOK_URL
+        sync: false
+      - key: MP_BOOKING_TEACHER_WEBHOOKS_JSON
+        sync: false
+      - key: MP_BOOKING_MINIPROGRAM_STATE
+        value: "formal"
