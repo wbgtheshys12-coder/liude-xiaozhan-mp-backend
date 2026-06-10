@@ -573,9 +573,17 @@ async function parseUploadedFiles(files) {
         method = "PDF 未识别";
       }
     } else if (mime.startsWith("image/") || /\.(png|jpg|jpeg|webp)$/i.test(lowerName) || looksLikeImageBuffer(buffer)) {
-      text = await extractTextFromImage(buffer);
-      method = text.length > 20 ? "图片 OCR" : "图片 OCR 有限";
-      template = findKnownTranscriptTemplate(buffer, text, file);
+      template = findKnownTranscriptTemplate(buffer, "", file);
+      try {
+        text = await extractTextFromImage(buffer);
+        method = text.length > 20 ? "图片 OCR" : "图片 OCR 有限";
+      } catch (error) {
+        text = "";
+        method = template ? "成绩单模板识别" : "图片 OCR 暂不可用";
+      }
+      if (!template) {
+        template = findKnownTranscriptTemplate(buffer, text, file);
+      }
       if (template) {
         const templateText = buildKnownTemplateText(template);
         text = cleanText([text, templateText].filter(Boolean).join(" "));

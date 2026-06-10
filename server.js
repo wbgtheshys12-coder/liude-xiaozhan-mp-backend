@@ -918,6 +918,7 @@ const server = http.createServer((req, res) => {
       ok: true,
       service: "liude-xiaozhan-miniprogram-backend",
       engine: "mini-program-standalone",
+      transcriptEngine: "template-first-20260610",
       webSeparated: true,
       wechatConfigured: Boolean(WECHAT_APPID && WECHAT_SECRET),
       openLogin: MP_OPEN_LOGIN,
