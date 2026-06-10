@@ -2,10 +2,9 @@ const crypto = require("crypto");
 const fs = require("fs");
 const http = require("http");
 const path = require("path");
+const localEngine = require("./local-engine");
 
 const PORT = Number(process.env.PORT || 3108);
-const WEB_ADVISOR_BASE_URL = (process.env.WEB_ADVISOR_BASE_URL || "https://hangzhou-zhihang-study-advisor-zada.onrender.com").replace(/\/+$/, "");
-const WEB_ACCESS_PASSWORD = process.env.WEB_ACCESS_PASSWORD || "ldxz2026";
 const WECHAT_APPID = process.env.WECHAT_APPID || "";
 const WECHAT_SECRET = process.env.WECHAT_SECRET || "";
 const MP_ALLOWED_OPENIDS = splitCsv(process.env.MP_ALLOWED_OPENIDS || "");
@@ -26,7 +25,6 @@ const MP_BOOKINGS_FILE = process.env.MP_BOOKINGS_FILE || path.join(__dirname, "d
 const MAX_REQUEST_BYTES = Number(process.env.MAX_REQUEST_BYTES || 40 * 1024 * 1024);
 
 const sessions = new Map();
-let webCookie = "";
 let wechatAccessToken = { value: "", expiresAt: 0 };
 
 function splitCsv(value) {
@@ -324,53 +322,6 @@ async function requestJson(url, options = {}) {
   return { response, payload };
 }
 
-async function ensureWebSession() {
-  if (webCookie) return webCookie;
-
-  const { response, payload } = await requestJson(`${WEB_ADVISOR_BASE_URL}/api/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ password: WEB_ACCESS_PASSWORD, privacyAccepted: true }),
-  });
-
-  const setCookie = response.headers.get("set-cookie") || "";
-  webCookie = setCookie.split(";")[0] || "";
-  if (!webCookie) throw new Error("无法从网页版服务取得登录 Cookie。");
-
-  if (payload.requiresWechat && !payload.authenticated) {
-    await requestJson(`${WEB_ADVISOR_BASE_URL}/api/wechat/dev-login`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Cookie: webCookie,
-      },
-      body: JSON.stringify({ privacyAccepted: true }),
-    });
-  }
-
-  return webCookie;
-}
-
-async function callWebAdvisor(pathname, options = {}, retry = true) {
-  const cookie = await ensureWebSession();
-  try {
-    const { payload } = await requestJson(`${WEB_ADVISOR_BASE_URL}${pathname}`, {
-      ...options,
-      headers: {
-        ...(options.headers || {}),
-        Cookie: cookie,
-      },
-    });
-    return payload;
-  } catch (error) {
-    if (retry && error.statusCode === 401) {
-      webCookie = "";
-      return callWebAdvisor(pathname, options, false);
-    }
-    throw error;
-  }
-}
-
 async function codeToOpenid(code) {
   if (MP_ALLOW_DEV_LOGIN && (!WECHAT_APPID || !WECHAT_SECRET)) {
     return {
@@ -491,33 +442,13 @@ function handleSession(req, res) {
 async function handleDemoCases(req, res) {
   const session = requireSession(req, res);
   if (!session) return;
-  if (session.mode !== "demo") {
-    sendJson(res, 403, { error: "用户版不开放演示案例。" });
-    return;
-  }
-
-  try {
-    const payload = await callWebAdvisor("/api/demo-cases");
-    sendJson(res, 200, payload);
-  } catch (error) {
-    sendJson(res, 502, { error: `演示案例读取失败：${error.message}` });
-  }
+  sendJson(res, 200, { cases: [], mode: session.mode, source: "mini-program-standalone" });
 }
 
 async function handleDemoCase(req, res, caseId) {
   const session = requireSession(req, res);
   if (!session) return;
-  if (session.mode !== "demo") {
-    sendJson(res, 403, { error: "用户版不开放演示案例。" });
-    return;
-  }
-
-  try {
-    const payload = await callWebAdvisor(`/api/demo-cases/${encodeURIComponent(caseId)}`);
-    sendJson(res, 200, payload);
-  } catch (error) {
-    sendJson(res, error.statusCode === 404 ? 404 : 502, { error: `演示案例读取失败：${error.message}` });
-  }
+  sendJson(res, 404, { error: `独立小程序后端未内置演示案例 ${caseId}。` });
 }
 
 function normalizeBookingText(value, maxLength = 20) {
@@ -863,11 +794,7 @@ async function handleRecommend(req, res) {
       return;
     }
 
-    const payload = await callWebAdvisor("/api/recommend", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    const payload = await localEngine.createRecommendation(body);
     sendJson(res, 200, payload);
   } catch (error) {
     if (isJsonParseError(error)) {
@@ -878,11 +805,50 @@ async function handleRecommend(req, res) {
       sendJson(res, 413, { error: "上传文件过大，请减少文件数量、压缩照片，或改传清晰 PDF 后再试。" });
       return;
     }
-    if (shouldUseRecommendationFallback(error)) {
-      sendJson(res, 200, buildFallbackRecommendation(body, error));
+    sendJson(res, 200, buildFallbackRecommendation(body, error));
+  }
+}
+
+async function handleTranscriptPreview(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return;
+
+  try {
+    const rawBody = await readBody(req);
+    const body = JSON.parse(rawBody || "{}");
+    const payload = await localEngine.createTranscriptPreview(body);
+    sendJson(res, 200, payload);
+  } catch (error) {
+    if (isJsonParseError(error)) {
+      sendBadJson(res);
       return;
     }
-    sendJson(res, error.statusCode || 502, { error: `推荐生成失败：${error.message}` });
+    if (/Payload too large/i.test(error.message || "")) {
+      sendJson(res, 413, { error: "上传文件过大，请减少文件数量、压缩照片，或改传清晰 PDF 后再试。" });
+      return;
+    }
+    sendJson(res, 200, {
+      ok: false,
+      rows: [
+        {
+          course: "待校对课程",
+          grade: "",
+          credits: "",
+          term: "",
+          note: "成绩单图片暂未稳定识别，请手动录入关键课程后继续推荐",
+        },
+      ],
+      transcriptSummary: {
+        confidence: "低",
+        summary: "成绩单预识别暂时不可用，请手动校对后继续推荐。",
+        sensitiveHidden: false,
+        privacyNote: "政治敏感课程/人物信息会自动隐藏，不进入对外展示和推荐报告；院校匹配仍可继续进行。",
+        preview: "",
+        methods: [],
+        keywords: [],
+      },
+      files: [],
+    });
   }
 }
 
@@ -919,11 +885,7 @@ async function handleMaterialDraft(req, res) {
   try {
     const rawBody = await readBody(req);
     const body = JSON.parse(rawBody || "{}");
-    const payload = await callWebAdvisor("/api/material-draft", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    const payload = localEngine.createMaterialDraft(body);
     sendJson(res, 200, payload);
   } catch (error) {
     if (isJsonParseError(error)) {
@@ -955,7 +917,8 @@ const server = http.createServer((req, res) => {
     sendJson(res, 200, {
       ok: true,
       service: "liude-xiaozhan-miniprogram-backend",
-      upstream: WEB_ADVISOR_BASE_URL,
+      engine: "mini-program-standalone",
+      webSeparated: true,
       wechatConfigured: Boolean(WECHAT_APPID && WECHAT_SECRET),
       openLogin: MP_OPEN_LOGIN,
       whitelistSize: MP_ALLOWED_OPENIDS.length,
@@ -1001,6 +964,11 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/mp/transcript-preview") {
+    handleTranscriptPreview(req, res);
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/api/mp/material-access") {
     handleMaterialAccess(req, res);
     return;
@@ -1036,7 +1004,7 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Liude Xiaozhan Mini Program adapter running at http://127.0.0.1:${PORT}`);
-  console.log(`Web advisor upstream: ${WEB_ADVISOR_BASE_URL}`);
+  console.log("Recommendation engine: mini-program standalone");
   console.log(`User whitelist: ${MP_ALLOWED_OPENIDS.length ? `${MP_ALLOWED_OPENIDS.length} openid(s)` : "empty"}`);
 });
 

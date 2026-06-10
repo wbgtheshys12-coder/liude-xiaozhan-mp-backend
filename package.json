@@ -6,8 +6,14 @@
   "scripts": {
     "start": "node server.js"
   },
+  "dependencies": {
+    "@tesseract.js-data/chi_sim": "^1.0.0",
+    "@tesseract.js-data/eng": "^1.0.0",
+    "pdfjs-dist": "^5.4.54",
+    "sharp": "^0.33.5",
+    "tesseract.js": "^6.0.1"
+  },
   "engines": {
     "node": ">=20"
   }
 }
-

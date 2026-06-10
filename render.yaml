@@ -6,14 +6,14 @@ services:
     buildCommand: npm install
     startCommand: npm start
     envVars:
-      - key: WEB_ADVISOR_BASE_URL
-        value: https://hangzhou-zhihang-study-advisor-zada.onrender.com
-      - key: WEB_ACCESS_PASSWORD
-        sync: false
       - key: WECHAT_APPID
         sync: false
       - key: WECHAT_SECRET
         sync: false
+      - key: OCR_ALLOW_REMOTE_TESSDATA
+        value: "false"
+      - key: OCR_TESSDATA_DIR
+        value: ./tessdata
       - key: MP_ALLOWED_OPENIDS
         sync: false
       - key: MP_ALLOW_DEV_LOGIN
