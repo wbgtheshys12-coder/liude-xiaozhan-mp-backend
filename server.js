@@ -12,12 +12,14 @@ const MP_DEV_OPENID = process.env.MP_DEV_OPENID || "dev-openid";
 const MP_ALLOW_DEV_LOGIN = process.env.MP_ALLOW_DEV_LOGIN === "true";
 const MP_OPEN_LOGIN = process.env.MP_OPEN_LOGIN === "true";
 const MP_LOG_DENIED_OPENID = process.env.MP_LOG_DENIED_OPENID === "true";
+const MP_LOG_LOGIN_OPENID = process.env.MP_LOG_LOGIN_OPENID === "true";
 const MP_FREE_RECOMMENDATION_COUNTS = parseIntegerList(process.env.MP_FREE_RECOMMENDATION_COUNTS || "1,3,6");
 const MP_BOOKING_NOTIFY_ENABLED = process.env.MP_BOOKING_NOTIFY_ENABLED === "true";
 const MP_BOOKING_TEMPLATE_ID = process.env.MP_BOOKING_TEMPLATE_ID || "";
 const MP_BOOKING_TEMPLATE_FIELDS = parseJsonEnv("MP_BOOKING_TEMPLATE_FIELDS_JSON", {});
 const MP_BOOKING_MINIPROGRAM_STATE = process.env.MP_BOOKING_MINIPROGRAM_STATE || "formal";
 const MP_TEACHER_OPENIDS = parseJsonEnv("MP_TEACHER_OPENIDS_JSON", {});
+const MP_ADMIN_OPENIDS = parseJsonEnv("MP_ADMIN_OPENIDS_JSON", []);
 const MP_BOOKING_WEBHOOK_URL = process.env.MP_BOOKING_WEBHOOK_URL || "";
 const MP_BOOKING_TEACHER_WEBHOOKS = parseJsonEnv("MP_BOOKING_TEACHER_WEBHOOKS_JSON", {});
 const ENTITLEMENTS_FILE = process.env.MP_ENTITLEMENTS_FILE || path.join(__dirname, "entitlements.json");
@@ -157,8 +159,11 @@ const FALLBACK_PROGRAMS = [
   { domains: ["data", "cs", "ai"], university: "University of Stuttgart", program: "Artificial Intelligence and Data Science", city: "Stuttgart" },
   { domains: ["data", "cs", "ai"], university: "Technical University of Munich", program: "Data Engineering and Analytics", city: "Munich" },
   { domains: ["cs", "software"], university: "TU Berlin", program: "Computer Science (Informatik), M.Sc", city: "Berlin" },
+  { domains: ["energy", "mechanical", "engineering"], university: "Technical University of Munich", program: "Energy and Process Engineering", city: "Munich" },
+  { domains: ["energy", "environment", "engineering"], university: "FAU Erlangen-Nurnberg", program: "Clean Energy Processes (M.Sc.)", city: "Erlangen" },
   { domains: ["mechanical", "engineering"], university: "Technical University of Munich", program: "Development, Production and Management in Mechanical Engineering", city: "Munich" },
   { domains: ["mechanical", "engineering"], university: "University of Stuttgart", program: "Mechanical Engineering", city: "Stuttgart" },
+  { domains: ["materials", "engineering"], university: "University of Stuttgart", program: "Materials Science (Materialwissenschaft)", city: "Stuttgart" },
   { domains: ["robotics", "automation", "engineering"], university: "University of Stuttgart", program: "Engineering Cybernetics", city: "Stuttgart" },
   { domains: ["electrical", "engineering"], university: "Karlsruhe Institute of Technology", program: "Electrical Engineering and Information Technology Master of Science", city: "Karlsruhe" },
   { domains: ["business", "management"], university: "University of Cologne", program: "Business Analytics & Econometrics, Master of Science (M.Sc.)", city: "Cologne" },
@@ -198,12 +203,14 @@ function detectFallbackDomains(profile) {
     if (pattern.test(corpus) && !domains.includes(domain)) domains.push(domain);
   };
 
-  add("ai", /人工智能|机器学习|深度学习|ai|artificial intelligence|machine learning/);
+  add("ai", /人工智能|机器学习|深度学习|\bai\b|artificial intelligence|machine learning/);
   add("data", /数据|统计|analytics|data|database|econometrics/);
   add("cs", /计算机|软件|算法|computer|software|informatik|programming/);
   add("robotics", /机器人|自动化|控制|robot|automation|control/);
-  add("mechanical", /机械|车辆|汽车|制造|mechatronics|mechanical|automotive/);
+  add("energy", /能源|动力|热能|内燃机|传热|发动机|energy|power|thermal|combustion|clean energy|process engineering/);
+  add("mechanical", /机械|车辆|汽车|制造|动力|内燃机|传热|mechatronics|mechanical|automotive/);
   add("electrical", /电气|电子|通信|electrical|electronics|communication/);
+  add("materials", /材料|materials?|material science|werkstoff/);
   add("business", /管理|商科|市场|business|management|marketing|supply chain/);
   add("finance", /金融|会计|财务|finance|accounting|taxation/);
   add("law", /法律|法学|知识产权|law|legal|regulatory|intellectual property/);
@@ -383,6 +390,9 @@ async function handleUserLogin(req, res) {
     }
 
     const login = await codeToOpenid(code);
+    if (MP_LOG_LOGIN_OPENID) {
+      console.warn(`Mini Program login openid: ${login.openid}`);
+    }
     const allowed = MP_OPEN_LOGIN || MP_ALLOWED_OPENIDS.includes(login.openid);
     if (!allowed) {
       if (MP_LOG_DENIED_OPENID) {
@@ -410,8 +420,10 @@ async function handleUserLogin(req, res) {
         openid: maskOpenid(login.openid),
         storageKey: createUserStorageKey(login.openid),
         source: login.source,
+        isAdmin: isAdminSession({ openid: login.openid }),
       },
       entitlements,
+      isAdmin: isAdminSession({ openid: login.openid }),
     });
   } catch (error) {
     if (isJsonParseError(error)) {
@@ -434,8 +446,10 @@ function handleSession(req, res) {
     user: {
       openid: maskOpenid(session.openid),
       storageKey: createUserStorageKey(session.openid),
+      isAdmin: isAdminSession(session),
     },
     entitlements: session.entitlements || {},
+    isAdmin: isAdminSession(session),
   });
 }
 
@@ -557,6 +571,26 @@ function getAdvisorOpenids(advisorKey) {
   return Array.isArray(raw) ? raw.filter(Boolean) : [raw].filter(Boolean);
 }
 
+function compactStringArray(values) {
+  return Array.from(new Set((values || []).flatMap((value) => (Array.isArray(value) ? value : [value])).map((value) => String(value || "").trim()).filter(Boolean)));
+}
+
+function getAllTeacherOpenids() {
+  return compactStringArray(Object.values(MP_TEACHER_OPENIDS));
+}
+
+function getAdminOpenids() {
+  return compactStringArray([MP_ADMIN_OPENIDS, getAllTeacherOpenids()]);
+}
+
+function isAdminSession(session) {
+  return Boolean(session?.openid && getAdminOpenids().includes(session.openid));
+}
+
+function getBookingWebhookUrls() {
+  return compactStringArray([MP_BOOKING_WEBHOOK_URL, ...Object.values(MP_BOOKING_TEACHER_WEBHOOKS)]);
+}
+
 function buildBookingSubscribeData(booking) {
   const valueByName = {
     studentName: booking.studentName,
@@ -663,9 +697,10 @@ async function sendBookingWebhook(url, booking) {
 
 async function sendBookingNotifications(booking) {
   const tasks = [];
-  const advisorWebhook = MP_BOOKING_TEACHER_WEBHOOKS[booking.advisorKey] || MP_BOOKING_WEBHOOK_URL;
-  if (advisorWebhook) tasks.push(sendBookingWebhook(advisorWebhook, booking));
-  for (const openid of getAdvisorOpenids(booking.advisorKey)) {
+  for (const webhookUrl of getBookingWebhookUrls()) {
+    tasks.push(sendBookingWebhook(webhookUrl, booking));
+  }
+  for (const openid of getAllTeacherOpenids()) {
     tasks.push(sendWechatSubscribeMessage(openid, booking));
   }
 
@@ -762,8 +797,60 @@ function handleBookingConfig(req, res) {
     subscribeEnabled: Boolean(MP_BOOKING_TEMPLATE_ID),
     templateId: MP_BOOKING_TEMPLATE_ID,
     teacherNotificationConfigured: Boolean(
-      MP_BOOKING_NOTIFY_ENABLED && MP_BOOKING_TEMPLATE_ID && Object.keys(MP_TEACHER_OPENIDS).length
+      MP_BOOKING_NOTIFY_ENABLED && MP_BOOKING_TEMPLATE_ID && getAllTeacherOpenids().length
     ),
+    notifyAllConfiguredTeachers: true,
+    teacherOpenidCount: getAllTeacherOpenids().length,
+    webhookCount: getBookingWebhookUrls().length,
+  });
+}
+
+function sanitizeBookingForAdmin(booking) {
+  return {
+    id: booking.id,
+    advisorKey: booking.advisorKey,
+    advisorName: booking.advisorName,
+    studentName: booking.studentName,
+    date: booking.date,
+    dateDisplay: booking.dateDisplay,
+    time: booking.time,
+    dateTime: booking.dateTime,
+    note: booking.note,
+    bookingText: booking.bookingText,
+    status: booking.status || "confirmed",
+    createdAt: booking.createdAt,
+    user: booking.user || {},
+  };
+}
+
+function handleAdminBookings(req, res, url) {
+  const session = requireSession(req, res);
+  if (!session) return;
+  if (!isAdminSession(session)) {
+    sendJson(res, 403, { error: "当前微信号没有预约管理权限。" });
+    return;
+  }
+
+  const advisorKey = normalizeBookingText(url.searchParams.get("advisorKey") || "all", 20);
+  const status = normalizeBookingText(url.searchParams.get("status") || "active", 20);
+  const records = readBookingRecords()
+    .filter((booking) => (advisorKey === "all" ? true : booking.advisorKey === advisorKey))
+    .filter((booking) => (status === "all" ? true : isActiveBooking(booking)))
+    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")))
+    .slice(0, 120);
+  const today = new Date().toISOString().slice(0, 10);
+  const activeRecords = records.filter(isActiveBooking);
+  const occupiedSlots = activeRecords
+    .map((booking) => `${booking.advisorName || booking.advisorKey} ${booking.dateDisplay || booking.date} ${booking.time}`)
+    .filter(Boolean);
+
+  sendJson(res, 200, {
+    ok: true,
+    isAdmin: true,
+    count: records.length,
+    todayCount: activeRecords.filter((booking) => booking.date === today).length,
+    occupiedSlots,
+    records: records.map(sanitizeBookingForAdmin),
   });
 }
 
@@ -924,12 +1011,15 @@ const server = http.createServer((req, res) => {
       openLogin: MP_OPEN_LOGIN,
       whitelistSize: MP_ALLOWED_OPENIDS.length,
       deniedOpenidLogging: MP_LOG_DENIED_OPENID,
+      loginOpenidLogging: MP_LOG_LOGIN_OPENID,
       freeRecommendationCounts: MP_FREE_RECOMMENDATION_COUNTS,
       bookingNotificationConfigured: Boolean(
         MP_BOOKING_WEBHOOK_URL ||
           Object.keys(MP_BOOKING_TEACHER_WEBHOOKS).length ||
-          (MP_BOOKING_NOTIFY_ENABLED && MP_BOOKING_TEMPLATE_ID && Object.keys(MP_TEACHER_OPENIDS).length)
+          (MP_BOOKING_NOTIFY_ENABLED && MP_BOOKING_TEMPLATE_ID && getAllTeacherOpenids().length)
       ),
+      bookingNotifyAllTeachers: true,
+      bookingTeacherOpenidCount: getAllTeacherOpenids().length,
     });
     return;
   }
@@ -987,6 +1077,11 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "GET" && url.pathname === "/api/mp/booking/config") {
     handleBookingConfig(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/mp/admin/bookings") {
+    handleAdminBookings(req, res, url);
     return;
   }
 
