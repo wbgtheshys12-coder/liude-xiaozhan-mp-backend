@@ -1,0 +1,46 @@
+services:
+  - type: web
+    name: hangzhou-zhihang-mp-adapter-zada
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: WECHAT_APPID
+        sync: false
+      - key: WECHAT_SECRET
+        sync: false
+      - key: OCR_ALLOW_REMOTE_TESSDATA
+        value: "false"
+      - key: OCR_TESSDATA_DIR
+        value: ./tessdata
+      - key: MP_ALLOWED_OPENIDS
+        sync: false
+      - key: MP_ALLOW_DEV_LOGIN
+        value: "false"
+      - key: MP_OPEN_LOGIN
+        value: "false"
+      - key: MP_LOG_DENIED_OPENID
+        value: "false"
+      - key: MP_USER_ENTITLEMENTS_JSON
+        sync: false
+      - key: MP_FREE_RECOMMENDATION_COUNTS
+        value: "1,3,6"
+      - key: MP_BOOKING_NOTIFY_ENABLED
+        value: "false"
+      - key: MP_BOOKING_TEMPLATE_ID
+        sync: false
+      - key: MP_BOOKING_TEMPLATE_FIELDS_JSON
+        sync: false
+      - key: MP_TEACHER_OPENIDS_JSON
+        sync: false
+      - key: MP_OWNER_OPENIDS_JSON
+        sync: false
+      - key: MP_BOOKING_WEBHOOK_URL
+        sync: false
+      - key: MP_BOOKING_TEACHER_WEBHOOKS_JSON
+        sync: false
+      - key: MP_BOOKING_MINIPROGRAM_STATE
+        value: "formal"
+      - key: MP_BOOKINGS_FILE
+        value: data/bookings.jsonl
