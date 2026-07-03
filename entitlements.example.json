@@ -1,11 +1,19 @@
-{
-  "openid_1": {
-    "recommendationCount": true,
-    "materialAssistant": true
-  },
-  "openid_2": {
-    "recommendationCount": false,
-    "materialAssistant": false
-  }
-}
-
+PORT=3108
+WECHAT_APPID=change_to_miniprogram_appid
+WECHAT_SECRET=change_to_miniprogram_appsecret
+OCR_ALLOW_REMOTE_TESSDATA=false
+OCR_TESSDATA_DIR=./tessdata
+MP_ALLOWED_OPENIDS=openid_1,openid_2
+MP_ALLOW_DEV_LOGIN=false
+MP_OPEN_LOGIN=false
+MP_LOG_DENIED_OPENID=false
+MP_USER_ENTITLEMENTS_JSON={}
+MP_FREE_RECOMMENDATION_COUNTS=1,3,6
+MP_BOOKING_NOTIFY_ENABLED=false
+MP_BOOKING_TEMPLATE_ID=
+MP_BOOKING_TEMPLATE_FIELDS_JSON={}
+MP_TEACHER_OPENIDS_JSON={}
+MP_BOOKING_WEBHOOK_URL=
+MP_BOOKING_TEACHER_WEBHOOKS_JSON={}
+MP_BOOKING_MINIPROGRAM_STATE=formal
+MP_BOOKINGS_FILE=data/bookings.jsonl
