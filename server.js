@@ -25,6 +25,12 @@ const MP_BOOKING_WEBHOOK_URL = process.env.MP_BOOKING_WEBHOOK_URL || "";
 const MP_BOOKING_TEACHER_WEBHOOKS = parseJsonEnv("MP_BOOKING_TEACHER_WEBHOOKS_JSON", {});
 const ENTITLEMENTS_FILE = process.env.MP_ENTITLEMENTS_FILE || path.join(__dirname, "entitlements.json");
 const MP_BOOKINGS_FILE = process.env.MP_BOOKINGS_FILE || path.join(__dirname, "data", "bookings.jsonl");
+const MP_COURSES_FILE = process.env.MP_COURSES_FILE || path.join(__dirname, "data", "courses.jsonl");
+const MP_UPLOADS_FILE = process.env.MP_UPLOADS_FILE || path.join(__dirname, "data", "uploads.jsonl");
+const MP_PROFILES_FILE = process.env.MP_PROFILES_FILE || path.join(__dirname, "data", "profiles.jsonl");
+const MP_USAGE_FILE = process.env.MP_USAGE_FILE || path.join(__dirname, "data", "usage.jsonl");
+const MP_STUDENT_UPLOAD_DIR = process.env.MP_STUDENT_UPLOAD_DIR || path.join(__dirname, "data", "student-uploads");
+const MP_MAX_STORED_FILE_BYTES = Number(process.env.MP_MAX_STORED_FILE_BYTES || 12 * 1024 * 1024);
 const DEFAULT_BOOKING_TIMES = [
   "09:00",
   "10:00",
@@ -621,6 +627,217 @@ function writeBookingRecords(records) {
   }
 }
 
+function readJsonlFile(filePath) {
+  if (!fs.existsSync(filePath)) return [];
+  try {
+    return fs
+      .readFileSync(filePath, "utf8")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        try {
+          return JSON.parse(line);
+        } catch (error) {
+          return null;
+        }
+      })
+      .filter(Boolean);
+  } catch (error) {
+    console.warn(`${path.basename(filePath)} 读取失败:`, error.message);
+    return [];
+  }
+}
+
+function writeJsonlFile(filePath, records) {
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    const content = (records || []).map((record) => JSON.stringify(record)).join("\n");
+    fs.writeFileSync(filePath, content ? `${content}\n` : "", "utf8");
+    return true;
+  } catch (error) {
+    console.warn(`${path.basename(filePath)} 写入失败:`, error.message);
+    return false;
+  }
+}
+
+function appendJsonlRecord(filePath, record) {
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.appendFileSync(filePath, `${JSON.stringify(record)}\n`, "utf8");
+    return true;
+  } catch (error) {
+    console.warn(`${path.basename(filePath)} 追加失败:`, error.message);
+    return false;
+  }
+}
+
+function normalizeLongText(value, maxLength = 800) {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\t/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function getSessionStorageKey(session) {
+  return createUserStorageKey(session.openid);
+}
+
+function createRecordId(prefix) {
+  return `${prefix}_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
+}
+
+function parseDataUrl(content) {
+  const raw = String(content || "");
+  const match = raw.match(/^data:([^;,]+)?;base64,(.+)$/);
+  if (!match) return null;
+  const mimeType = match[1] || "application/octet-stream";
+  const buffer = Buffer.from(match[2], "base64");
+  return { mimeType, buffer };
+}
+
+function safeFileName(name, fallback = "file") {
+  const cleaned = String(name || fallback)
+    .replace(/[\\/:*?"<>|]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
+  return cleaned || fallback;
+}
+
+function fileExtensionFromMime(mimeType, name = "") {
+  const lower = String(name || "").toLowerCase();
+  const extMatch = lower.match(/\.(pdf|png|jpg|jpeg|webp|doc|docx|xls|xlsx|txt|mp4|mov|m4v)$/);
+  if (extMatch) return extMatch[0];
+  if (/pdf/i.test(mimeType)) return ".pdf";
+  if (/png/i.test(mimeType)) return ".png";
+  if (/jpe?g/i.test(mimeType)) return ".jpg";
+  if (/word|docx/i.test(mimeType)) return ".docx";
+  if (/excel|sheet|xlsx/i.test(mimeType)) return ".xlsx";
+  if (/mp4/i.test(mimeType)) return ".mp4";
+  return ".bin";
+}
+
+function recordUsage(session, action, detail = {}) {
+  if (!session?.openid) return;
+  appendJsonlRecord(MP_USAGE_FILE, {
+    id: createRecordId("use"),
+    action: normalizeBookingText(action, 60),
+    detail,
+    user: {
+      openid: maskOpenid(session.openid),
+      storageKey: getSessionStorageKey(session),
+    },
+    createdAt: new Date().toISOString(),
+  });
+}
+
+const DEFAULT_COURSES = [
+  {
+    id: "course_recorded_application_basics",
+    type: "recorded",
+    title: "德国硕士申请基础课",
+    summary: "用一节课讲清院校专业匹配、成绩单校对、材料清单和申请节奏。",
+    tags: ["录播课", "申请入门"],
+    status: "published",
+    videoUrl: "",
+    liveUrl: "",
+    startAt: "",
+    duration: "35分钟",
+    noDownload: true,
+    noRecord: true,
+    createdAt: "2026-07-05T00:00:00.000Z",
+  },
+  {
+    id: "course_live_weekly_qa",
+    type: "live",
+    title: "德国申请答疑直播",
+    summary: "围绕选校、材料、APS、语言、时间规划进行集中答疑。",
+    tags: ["直播课", "答疑"],
+    status: "published",
+    videoUrl: "",
+    liveUrl: "",
+    startAt: "每周更新",
+    duration: "60分钟",
+    noDownload: true,
+    noRecord: true,
+    createdAt: "2026-07-05T00:00:00.000Z",
+  },
+];
+
+function readCourseRecords() {
+  const saved = readJsonlFile(MP_COURSES_FILE);
+  const byId = new Map();
+  [...DEFAULT_COURSES, ...saved].forEach((course) => {
+    if (course?.id) byId.set(course.id, course);
+  });
+  return Array.from(byId.values()).sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+}
+
+function sanitizeCourse(course, session, admin = false) {
+  const hasVideo = Boolean(course.videoUrl);
+  const payload = {
+    id: course.id,
+    type: course.type === "live" ? "live" : "recorded",
+    title: normalizeBookingText(course.title, 80),
+    summary: normalizeLongText(course.summary, 280),
+    tags: Array.isArray(course.tags) ? course.tags.slice(0, 6).map((tag) => normalizeBookingText(tag, 20)) : [],
+    status: course.status || "draft",
+    startAt: normalizeBookingText(course.startAt, 60),
+    duration: normalizeBookingText(course.duration, 40),
+    videoUrl: hasVideo ? course.videoUrl : "",
+    liveUrl: course.liveUrl || "",
+    noDownload: course.noDownload !== false,
+    noRecord: course.noRecord !== false,
+    boundToWechat: true,
+    accessText: "课程权限绑定当前微信账号，不提供下载入口，不支持转借。",
+    createdAt: course.createdAt || "",
+  };
+  if (admin) {
+    payload.createdBy = course.createdBy || {};
+    payload.allowedStorageKeys = Array.isArray(course.allowedStorageKeys) ? course.allowedStorageKeys : [];
+  }
+  return payload;
+}
+
+function getUserProfile(session) {
+  const storageKey = getSessionStorageKey(session);
+  const records = readJsonlFile(MP_PROFILES_FILE).filter((profile) => profile.storageKey === storageKey);
+  return records.sort((a, b) => String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || "")))[0] || null;
+}
+
+function sanitizeProfile(profile = {}) {
+  return {
+    name: normalizeBookingText(profile.name, 40),
+    school: normalizeBookingText(profile.school, 80),
+    major: normalizeBookingText(profile.major, 80),
+    contact: normalizeBookingText(profile.contact, 80),
+    companyAccount: normalizeBookingText(profile.companyAccount, 80),
+    lockedAt: profile.lockedAt || "",
+    companyBoundAt: profile.companyBoundAt || "",
+    updatedAt: profile.updatedAt || "",
+  };
+}
+
+function upsertProfile(session, patch) {
+  const storageKey = getSessionStorageKey(session);
+  const existing = getUserProfile(session);
+  const now = new Date().toISOString();
+  const next = {
+    ...(existing || {}),
+    storageKey,
+    openid: maskOpenid(session.openid),
+    ...patch,
+    updatedAt: now,
+    createdAt: existing?.createdAt || now,
+  };
+  const records = readJsonlFile(MP_PROFILES_FILE).filter((profile) => profile.storageKey !== storageKey);
+  records.push(next);
+  writeJsonlFile(MP_PROFILES_FILE, records);
+  return next;
+}
+
 function isActiveBooking(booking) {
   return !["cancelled", "rejected", "expired"].includes(String(booking.status || "confirmed"));
 }
@@ -1091,6 +1308,323 @@ function handleAdminBookings(req, res, url) {
   });
 }
 
+function handleCourses(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return;
+  recordUsage(session, "courses.view");
+
+  const storageKey = getSessionStorageKey(session);
+  const courses = readCourseRecords()
+    .filter((course) => course.status === "published")
+    .filter((course) => {
+      const allowList = Array.isArray(course.allowedStorageKeys) ? course.allowedStorageKeys.filter(Boolean) : [];
+      return !allowList.length || allowList.includes(storageKey);
+    })
+    .map((course) => sanitizeCourse(course, session, false));
+
+  sendJson(res, 200, {
+    ok: true,
+    accountBound: true,
+    bindingNote: "当前微信号即课程登录账号，一个微信只对应一个学习权限。",
+    protectNote: "课程页不提供下载入口；微信小程序无法绝对阻止屏幕录制，录屏和外传均视为违规使用。",
+    records: courses,
+  });
+}
+
+async function handleAdminCourseSave(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return;
+  if (!isAdminSession(session)) {
+    sendJson(res, 403, { error: "当前微信号没有课程管理权限。" });
+    return;
+  }
+
+  try {
+    const rawBody = await readBody(req);
+    const body = JSON.parse(rawBody || "{}");
+    const now = new Date().toISOString();
+    const id = normalizeBookingText(body.id || createRecordId("course"), 80);
+    const course = {
+      id,
+      type: body.type === "live" ? "live" : "recorded",
+      title: normalizeBookingText(body.title || "未命名课程", 80),
+      summary: normalizeLongText(body.summary || "", 500),
+      tags: compactStringArray(body.tags || []).slice(0, 8),
+      status: body.status === "draft" ? "draft" : "published",
+      videoUrl: normalizeLongText(body.videoUrl || "", 300),
+      liveUrl: normalizeLongText(body.liveUrl || "", 300),
+      startAt: normalizeBookingText(body.startAt || "", 80),
+      duration: normalizeBookingText(body.duration || "", 40),
+      noDownload: true,
+      noRecord: true,
+      allowedStorageKeys: compactStringArray(body.allowedStorageKeys || []),
+      createdBy: {
+        openid: maskOpenid(session.openid),
+        storageKey: getSessionStorageKey(session),
+      },
+      createdAt: body.createdAt || now,
+      updatedAt: now,
+    };
+
+    const records = readJsonlFile(MP_COURSES_FILE).filter((item) => item.id !== id);
+    records.push(course);
+    writeJsonlFile(MP_COURSES_FILE, records);
+    recordUsage(session, "admin.course.save", { id: course.id, type: course.type });
+    sendJson(res, 200, { ok: true, course: sanitizeCourse(course, session, true) });
+  } catch (error) {
+    if (isJsonParseError(error)) {
+      sendBadJson(res);
+      return;
+    }
+    sendJson(res, 500, { error: error.message || "课程保存失败。" });
+  }
+}
+
+function handleAdminCourses(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return;
+  if (!isAdminSession(session)) {
+    sendJson(res, 403, { error: "当前微信号没有课程管理权限。" });
+    return;
+  }
+  sendJson(res, 200, {
+    ok: true,
+    records: readCourseRecords().map((course) => sanitizeCourse(course, session, true)),
+  });
+}
+
+async function handleMaterialUpload(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return;
+
+  try {
+    const rawBody = await readBody(req);
+    const body = JSON.parse(rawBody || "{}");
+    const file = body.file || {};
+    const parsed = parseDataUrl(file.content);
+    if (!parsed) {
+      sendJson(res, 400, { error: "上传文件内容格式不正确，请重新选择文件。" });
+      return;
+    }
+    if (parsed.buffer.length > MP_MAX_STORED_FILE_BYTES) {
+      sendJson(res, 413, { error: "文件过大，请压缩到 12MB 内后再上传。" });
+      return;
+    }
+
+    const id = createRecordId("up");
+    const storageKey = getSessionStorageKey(session);
+    const originalName = safeFileName(file.name || "申请材料");
+    const ext = fileExtensionFromMime(parsed.mimeType, originalName);
+    const storedName = `${id}${ext}`;
+    const userDir = path.join(MP_STUDENT_UPLOAD_DIR, storageKey);
+    fs.mkdirSync(userDir, { recursive: true });
+    fs.writeFileSync(path.join(userDir, storedName), parsed.buffer);
+
+    const record = {
+      id,
+      category: normalizeBookingText(body.category || "申请材料", 40),
+      usage: normalizeBookingText(body.usage || "", 80),
+      name: originalName,
+      mimeType: parsed.mimeType,
+      size: parsed.buffer.length,
+      storedName,
+      relativePath: path.join(storageKey, storedName).replace(/\\/g, "/"),
+      studentName: normalizeBookingText(body.studentName || "", 40),
+      user: {
+        openid: maskOpenid(session.openid),
+        storageKey,
+      },
+      createdAt: new Date().toISOString(),
+    };
+    appendJsonlRecord(MP_UPLOADS_FILE, record);
+    recordUsage(session, "material.upload", { category: record.category, size: record.size });
+    sendJson(res, 200, {
+      ok: true,
+      record: {
+        id: record.id,
+        category: record.category,
+        name: record.name,
+        size: record.size,
+        createdAt: record.createdAt,
+      },
+    });
+  } catch (error) {
+    if (isJsonParseError(error)) {
+      sendBadJson(res);
+      return;
+    }
+    if (/Payload too large/i.test(error.message || "")) {
+      sendJson(res, 413, { error: "上传文件过大，请减少文件数量或压缩后再试。" });
+      return;
+    }
+    sendJson(res, 500, { error: error.message || "材料上传失败。" });
+  }
+}
+
+function sanitizeUploadForAdmin(record) {
+  return {
+    id: record.id,
+    category: record.category,
+    usage: record.usage || "",
+    name: record.name,
+    mimeType: record.mimeType,
+    size: record.size,
+    studentName: record.studentName || "",
+    createdAt: record.createdAt,
+    user: record.user || {},
+    contentStored: Boolean(record.relativePath),
+  };
+}
+
+function handleAdminUploads(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return;
+  if (!isAdminSession(session)) {
+    sendJson(res, 403, { error: "当前微信号没有资料库查看权限。" });
+    return;
+  }
+  const records = readJsonlFile(MP_UPLOADS_FILE)
+    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")))
+    .slice(0, 200);
+  sendJson(res, 200, {
+    ok: true,
+    count: records.length,
+    records: records.map(sanitizeUploadForAdmin),
+    privacyNote: "仅管理员可见学生资料记录；前端不展示 openid 原文，避免信息泄露。",
+  });
+}
+
+function handleGetProfile(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return;
+  const profile = getUserProfile(session);
+  sendJson(res, 200, {
+    ok: true,
+    profile: sanitizeProfile(profile || {}),
+    locked: Boolean(profile?.lockedAt),
+    bindingNote: "个人信息提交后将锁定；如需修改，请联系顾问处理。",
+  });
+}
+
+async function handleSaveProfile(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return;
+
+  try {
+    const rawBody = await readBody(req);
+    const body = JSON.parse(rawBody || "{}");
+    const existing = getUserProfile(session);
+    if (existing?.lockedAt) {
+      sendJson(res, 409, {
+        ok: false,
+        locked: true,
+        error: "个人信息已提交并锁定，如需修改请联系顾问。",
+        profile: sanitizeProfile(existing),
+      });
+      return;
+    }
+    const name = normalizeBookingText(body.name, 40);
+    if (!name) {
+      sendJson(res, 400, { error: "请填写姓名后再提交。" });
+      return;
+    }
+    const profile = upsertProfile(session, {
+      name,
+      school: normalizeBookingText(body.school, 80),
+      major: normalizeBookingText(body.major, 80),
+      contact: normalizeBookingText(body.contact, 80),
+      lockedAt: new Date().toISOString(),
+    });
+    recordUsage(session, "profile.lock", { hasSchool: Boolean(profile.school), hasMajor: Boolean(profile.major) });
+    sendJson(res, 200, {
+      ok: true,
+      locked: true,
+      profile: sanitizeProfile(profile),
+      message: "个人信息已提交并锁定。",
+    });
+  } catch (error) {
+    if (isJsonParseError(error)) {
+      sendBadJson(res);
+      return;
+    }
+    sendJson(res, 500, { error: error.message || "个人信息保存失败。" });
+  }
+}
+
+async function handleBindCompanyAccount(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return;
+  try {
+    const rawBody = await readBody(req);
+    const body = JSON.parse(rawBody || "{}");
+    const account = normalizeBookingText(body.companyAccount || body.account, 80);
+    if (!account) {
+      sendJson(res, 400, { error: "请填写公司账户或内部编号。" });
+      return;
+    }
+    const existing = getUserProfile(session);
+    if (existing?.companyAccount) {
+      sendJson(res, 409, {
+        ok: false,
+        error: "当前微信号已绑定公司账户，如需更换请联系管理员。",
+        profile: sanitizeProfile(existing),
+      });
+      return;
+    }
+    const profile = upsertProfile(session, {
+      companyAccount: account,
+      companyBoundAt: new Date().toISOString(),
+    });
+    recordUsage(session, "company.bind", { companyAccount: account.slice(0, 8) });
+    sendJson(res, 200, {
+      ok: true,
+      profile: sanitizeProfile(profile),
+      message: "公司账户已绑定到当前微信号。",
+    });
+  } catch (error) {
+    if (isJsonParseError(error)) {
+      sendBadJson(res);
+      return;
+    }
+    sendJson(res, 500, { error: error.message || "公司账户绑定失败。" });
+  }
+}
+
+function handleAdminExport(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return;
+  if (!isAdminSession(session)) {
+    sendJson(res, 403, { error: "当前微信号没有数据导出权限。" });
+    return;
+  }
+  const bookings = readBookingRecords().map(sanitizeBookingForAdmin);
+  const uploads = readJsonlFile(MP_UPLOADS_FILE).map(sanitizeUploadForAdmin);
+  const profiles = readJsonlFile(MP_PROFILES_FILE).map((profile) => ({
+    storageKey: profile.storageKey,
+    openid: profile.openid,
+    ...sanitizeProfile(profile),
+  }));
+  const courses = readCourseRecords().map((course) => sanitizeCourse(course, session, true));
+  const usage = readJsonlFile(MP_USAGE_FILE).slice(-1000);
+  sendJson(res, 200, {
+    ok: true,
+    exportedAt: new Date().toISOString(),
+    summary: {
+      bookings: bookings.length,
+      uploads: uploads.length,
+      profiles: profiles.length,
+      courses: courses.length,
+      usage: usage.length,
+    },
+    bookings,
+    uploads,
+    profiles,
+    courses,
+    usage,
+    privacyNote: "导出数据只保留脱敏 openid 和 storageKey，不包含微信 openid 原文。",
+  });
+}
+
 function requiresPaidRecommendationCount(session, body) {
   const requested = Number(body.recommendationCount || 1);
   return (
@@ -1257,6 +1791,9 @@ const server = http.createServer((req, res) => {
       ),
       bookingNotifyAllTeachers: true,
       bookingTeacherOpenidCount: getAllTeacherOpenids().length,
+      courseModuleEnabled: true,
+      studentUploadDatabaseEnabled: true,
+      profileLockEnabled: true,
     });
     return;
   }
@@ -1273,6 +1810,21 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "GET" && url.pathname === "/api/mp/session") {
     handleSession(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/mp/profile") {
+    handleGetProfile(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/mp/profile") {
+    handleSaveProfile(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/mp/company-account") {
+    handleBindCompanyAccount(req, res);
     return;
   }
 
@@ -1307,6 +1859,26 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/mp/material/upload") {
+    handleMaterialUpload(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/mp/courses") {
+    handleCourses(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/mp/admin/courses") {
+    handleAdminCourses(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/mp/admin/courses") {
+    handleAdminCourseSave(req, res);
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/api/mp/booking/slots") {
     handleBookingSlots(req, res, url);
     return;
@@ -1329,6 +1901,16 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "GET" && url.pathname === "/api/mp/admin/bookings") {
     handleAdminBookings(req, res, url);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/mp/admin/uploads") {
+    handleAdminUploads(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/mp/admin/export") {
+    handleAdminExport(req, res);
     return;
   }
 
