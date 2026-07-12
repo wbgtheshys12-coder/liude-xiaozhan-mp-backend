@@ -30,7 +30,9 @@ const MP_UPLOADS_FILE = process.env.MP_UPLOADS_FILE || path.join(__dirname, "dat
 const MP_PROFILES_FILE = process.env.MP_PROFILES_FILE || path.join(__dirname, "data", "profiles.jsonl");
 const MP_USAGE_FILE = process.env.MP_USAGE_FILE || path.join(__dirname, "data", "usage.jsonl");
 const MP_STUDENT_UPLOAD_DIR = process.env.MP_STUDENT_UPLOAD_DIR || path.join(__dirname, "data", "student-uploads");
+const MP_COURSE_VIDEO_DIR = process.env.MP_COURSE_VIDEO_DIR || path.join(__dirname, "data", "course-videos");
 const MP_MAX_STORED_FILE_BYTES = Number(process.env.MP_MAX_STORED_FILE_BYTES || 12 * 1024 * 1024);
+const MP_MAX_COURSE_VIDEO_BYTES = Number(process.env.MP_MAX_COURSE_VIDEO_BYTES || 35 * 1024 * 1024);
 const DEFAULT_BOOKING_TIMES = [
   "09:00",
   "10:00",
@@ -69,7 +71,7 @@ function parseIntegerList(value) {
 }
 
 function parseJsonEnv(name, fallback) {
-  const raw = String(process.env[name] || "").trim();
+  const raw = String(process.env[name] || "").trim().replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
   if (!raw) return fallback;
 
   const tryParse = (value) => {
@@ -80,14 +82,30 @@ function parseJsonEnv(name, fallback) {
     }
   };
 
-  const parsed = tryParse(raw);
-  if (!parsed.error) return parsed.value;
+  const rawCandidates = [raw];
+  if (
+    raw.length > 2 &&
+    ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) &&
+    raw.includes(":")
+  ) {
+    rawCandidates.push(raw.slice(1, -1).trim());
+  }
 
-  if (!Array.isArray(fallback) && fallback && typeof fallback === "object" && !raw.startsWith("{") && raw.includes(":")) {
-    const wrapped = tryParse(`{${raw}}`);
-    if (!wrapped.error) {
-      console.warn(`${name} 缺少外层大括号，已自动兼容解析。建议在 Render 中改成标准 JSON。`);
-      return wrapped.value;
+  let parsed = { error: new Error("empty env JSON") };
+  for (const candidate of rawCandidates) {
+    parsed = tryParse(candidate);
+    if (!parsed.error) return parsed.value;
+  }
+
+  if (!Array.isArray(fallback) && fallback && typeof fallback === "object") {
+    for (const candidate of rawCandidates) {
+      if (!candidate.startsWith("{") && candidate.includes(":")) {
+        const wrapped = tryParse(`{${candidate}}`);
+        if (!wrapped.error) {
+          console.warn(`${name} 缺少外层大括号，已自动兼容解析。建议在 Render 中改成标准 JSON。`);
+          return wrapped.value;
+        }
+      }
     }
   }
 
@@ -766,6 +784,43 @@ function recordUsage(session, action, detail = {}) {
   });
 }
 
+function contentTypeForExt(ext) {
+  const cleanExt = String(ext || "").toLowerCase();
+  if (cleanExt === ".mp4") return "video/mp4";
+  if (cleanExt === ".mov") return "video/quicktime";
+  if (cleanExt === ".m4v") return "video/x-m4v";
+  return "application/octet-stream";
+}
+
+function publicCourseVideoUrl(req, fileName) {
+  const proto = (req.headers["x-forwarded-proto"] || "https").split(",")[0].trim() || "https";
+  const host = req.headers["x-forwarded-host"] || req.headers.host;
+  return `${proto}://${host}/api/mp/course-video/${encodeURIComponent(fileName)}`;
+}
+
+function sendCourseVideo(req, res, fileName) {
+  const safeName = safeFileName(fileName, "");
+  if (!safeName) {
+    sendJson(res, 404, { error: "视频不存在。" });
+    return;
+  }
+  const filePath = path.resolve(MP_COURSE_VIDEO_DIR, safeName);
+  const videoRoot = path.resolve(MP_COURSE_VIDEO_DIR);
+  if (!filePath.startsWith(videoRoot) || !fs.existsSync(filePath)) {
+    sendJson(res, 404, { error: "视频不存在。" });
+    return;
+  }
+  const ext = path.extname(safeName);
+  const stat = fs.statSync(filePath);
+  res.writeHead(200, {
+    "Content-Type": contentTypeForExt(ext),
+    "Content-Length": stat.size,
+    "Cache-Control": "private, max-age=3600",
+    "Access-Control-Allow-Origin": "*",
+  });
+  fs.createReadStream(filePath).pipe(res);
+}
+
 const DEFAULT_COURSES = [
   {
     id: "course_recorded_application_basics",
@@ -1413,6 +1468,60 @@ async function handleAdminCourseSave(req, res) {
   }
 }
 
+async function handleAdminCourseVideoUpload(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return;
+  if (!isAdminSession(session)) {
+    sendJson(res, 403, { error: "当前微信号没有课程视频上传权限。" });
+    return;
+  }
+
+  try {
+    const rawBody = await readBody(req);
+    const body = JSON.parse(rawBody || "{}");
+    const parsed = parseDataUrl(body.content || body.fileContent || "");
+    if (!parsed) {
+      sendJson(res, 400, { error: "请上传有效的视频文件。" });
+      return;
+    }
+    if (!/^video\//i.test(parsed.mimeType)) {
+      sendJson(res, 400, { error: "当前只支持上传视频文件。" });
+      return;
+    }
+    if (parsed.buffer.length > MP_MAX_COURSE_VIDEO_BYTES) {
+      sendJson(res, 413, { error: `视频文件过大，请压缩到 ${Math.round(MP_MAX_COURSE_VIDEO_BYTES / 1024 / 1024)}MB 以内，或改用腾讯云点播/对象存储链接。` });
+      return;
+    }
+    const ext = fileExtensionFromMime(parsed.mimeType, body.name || "course-video.mp4");
+    if (![".mp4", ".mov", ".m4v"].includes(ext.toLowerCase())) {
+      sendJson(res, 400, { error: "课程视频仅支持 mp4、mov、m4v。" });
+      return;
+    }
+    fs.mkdirSync(MP_COURSE_VIDEO_DIR, { recursive: true });
+    const fileName = `${createRecordId("course_video")}${ext.toLowerCase()}`;
+    const filePath = path.join(MP_COURSE_VIDEO_DIR, fileName);
+    fs.writeFileSync(filePath, parsed.buffer);
+    recordUsage(session, "admin.course.video.upload", {
+      name: safeFileName(body.name || fileName),
+      size: parsed.buffer.length,
+      mimeType: parsed.mimeType,
+    });
+    sendJson(res, 200, {
+      ok: true,
+      name: safeFileName(body.name || fileName),
+      size: parsed.buffer.length,
+      videoUrl: publicCourseVideoUrl(req, fileName),
+      storageNote: "测试视频已保存到当前后端实例。本地/Render 免费盘不适合作为长期视频库，正式运营建议迁移到腾讯云点播或对象存储。",
+    });
+  } catch (error) {
+    if (isJsonParseError(error)) {
+      sendBadJson(res);
+      return;
+    }
+    sendJson(res, 500, { error: error.message || "课程视频上传失败。" });
+  }
+}
+
 function handleAdminCourses(req, res) {
   const session = requireSession(req, res);
   if (!session) return;
@@ -1525,6 +1634,95 @@ function handleAdminUploads(req, res) {
     records: records.map(sanitizeUploadForAdmin),
     privacyNote: "仅管理员可见学生资料记录；前端不展示 openid 原文，避免信息泄露。",
   });
+}
+
+function summarizeUsageRecords(records) {
+  const actionMap = new Map();
+  const userMap = new Set();
+  const today = getBookingDateKey();
+  let todayCount = 0;
+  records.forEach((record) => {
+    const action = record.action || "unknown";
+    actionMap.set(action, (actionMap.get(action) || 0) + 1);
+    if (record.user?.storageKey) userMap.add(record.user.storageKey);
+    if (String(record.createdAt || "").slice(0, 10) === today) todayCount += 1;
+  });
+  const actions = Array.from(actionMap.entries())
+    .map(([action, count]) => ({ action, count }))
+    .sort((a, b) => b.count - a.count || a.action.localeCompare(b.action));
+  return {
+    total: records.length,
+    todayCount,
+    activeUsers: userMap.size,
+    actions,
+  };
+}
+
+function buildAdminStats() {
+  const bookings = readBookingRecords();
+  const uploads = readJsonlFile(MP_UPLOADS_FILE);
+  const profiles = readJsonlFile(MP_PROFILES_FILE);
+  const courses = readCourseRecords();
+  const usage = readJsonlFile(MP_USAGE_FILE).sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  const activeBookings = bookings.filter(isActiveBooking);
+  const today = getBookingDateKey();
+  return {
+    ok: true,
+    generatedAt: new Date().toISOString(),
+    summary: {
+      bookings: bookings.length,
+      activeBookings: activeBookings.length,
+      todayBookings: activeBookings.filter((booking) => booking.date === today).length,
+      uploads: uploads.length,
+      profiles: profiles.length,
+      courses: courses.length,
+      publishedCourses: courses.filter((course) => course.status === "published").length,
+      usage: usage.length,
+      activeUsers: summarizeUsageRecords(usage).activeUsers,
+    },
+    usage: summarizeUsageRecords(usage),
+    recentUsage: usage.slice(0, 60).map((record) => ({
+      id: record.id,
+      action: record.action,
+      detail: record.detail || {},
+      user: record.user || {},
+      createdAt: record.createdAt,
+    })),
+    recentBookings: bookings
+      .slice()
+      .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")))
+      .slice(0, 10)
+      .map(sanitizeBookingForAdmin),
+    privacyNote: "统计页面仅展示脱敏 openid 与 storageKey，用于运营分析，不展示微信 openid 原文。",
+  };
+}
+
+function handleAdminStats(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return;
+  if (!isAdminSession(session)) {
+    sendJson(res, 403, { error: "当前微信号没有使用统计查看权限。" });
+    return;
+  }
+  recordUsage(session, "admin.stats.view");
+  sendJson(res, 200, buildAdminStats());
+}
+
+async function handleUsageEvent(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return;
+  try {
+    const rawBody = await readBody(req);
+    const body = JSON.parse(rawBody || "{}");
+    recordUsage(session, body.action || "client.event", body.detail || {});
+    sendJson(res, 200, { ok: true });
+  } catch (error) {
+    if (isJsonParseError(error)) {
+      sendBadJson(res);
+      return;
+    }
+    sendJson(res, 500, { error: error.message || "使用记录写入失败。" });
+  }
 }
 
 function handleGetProfile(req, res) {
@@ -1692,6 +1890,10 @@ async function handleRecommend(req, res) {
     }
 
     const payload = await localEngine.createRecommendation(body);
+    recordUsage(session, "recommendation.generate", {
+      count: Array.isArray(payload.recommendations) ? payload.recommendations.length : 0,
+      hasTranscript: Boolean(body.transcriptFile || body.transcriptRows?.length || body.transcriptText),
+    });
     sendJson(res, 200, payload);
   } catch (error) {
     if (isJsonParseError(error)) {
@@ -1702,7 +1904,12 @@ async function handleRecommend(req, res) {
       sendJson(res, 413, { error: "上传文件过大，请减少文件数量、压缩照片，或改传清晰 PDF 后再试。" });
       return;
     }
-    sendJson(res, 200, buildFallbackRecommendation(body, error));
+    const fallback = buildFallbackRecommendation(body, error);
+    recordUsage(session, "recommendation.fallback", {
+      count: Array.isArray(fallback.recommendations) ? fallback.recommendations.length : 0,
+      reason: String(error.message || "unknown").slice(0, 120),
+    });
+    sendJson(res, 200, fallback);
   }
 }
 
@@ -1714,6 +1921,10 @@ async function handleTranscriptPreview(req, res) {
     const rawBody = await readBody(req);
     const body = JSON.parse(rawBody || "{}");
     const payload = await localEngine.createTranscriptPreview(body);
+    recordUsage(session, "transcript.preview", {
+      rows: Array.isArray(payload.rows) ? payload.rows.length : 0,
+      ok: Boolean(payload.ok),
+    });
     sendJson(res, 200, payload);
   } catch (error) {
     if (isJsonParseError(error)) {
@@ -1837,6 +2048,12 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  const courseVideoMatch = url.pathname.match(/^\/api\/mp\/course-video\/([^/]+)$/);
+  if (req.method === "GET" && courseVideoMatch) {
+    sendCourseVideo(req, res, decodeURIComponent(courseVideoMatch[1]));
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/mp/demo/login") {
     handleDemoLogin(res);
     return;
@@ -1864,6 +2081,11 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "POST" && url.pathname === "/api/mp/company-account") {
     handleBindCompanyAccount(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/mp/usage") {
+    handleUsageEvent(req, res);
     return;
   }
 
@@ -1918,6 +2140,11 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/mp/admin/course-video") {
+    handleAdminCourseVideoUpload(req, res);
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/api/mp/booking/slots") {
     handleBookingSlots(req, res, url);
     return;
@@ -1950,6 +2177,11 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "GET" && url.pathname === "/api/mp/admin/export") {
     handleAdminExport(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/mp/admin/stats") {
+    handleAdminStats(req, res);
     return;
   }
 
