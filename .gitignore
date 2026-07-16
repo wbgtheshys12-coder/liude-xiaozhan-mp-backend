@@ -1,0 +1,8 @@
+.env
+entitlements.json
+data/*.jsonl
+data/student-uploads/
+data/course-videos/
+data/transcript-templates.private.json
+node_modules/
+

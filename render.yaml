@@ -36,11 +36,17 @@ services:
         sync: false
       - key: MP_OWNER_OPENIDS_JSON
         sync: false
+      - key: MP_ADMIN_OPENIDS_JSON
+        sync: false
       - key: MP_BOOKING_WEBHOOK_URL
         sync: false
       - key: MP_BOOKING_TEACHER_WEBHOOKS_JSON
         sync: false
       - key: MP_BOOKING_MINIPROGRAM_STATE
-        value: "formal"
-      - key: MP_BOOKINGS_FILE
-        value: data/bookings.jsonl
+        value: "trial"
+      - key: MP_DATA_DIR
+        value: data
+      - key: MP_MEDIA_SIGNING_SECRET
+        sync: false
+      - key: MP_MEDIA_URL_TTL_SECONDS
+        value: "3600"

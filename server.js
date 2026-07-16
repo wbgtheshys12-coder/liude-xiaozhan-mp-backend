@@ -23,16 +23,23 @@ const MP_OWNER_OPENIDS = parseJsonEnv("MP_OWNER_OPENIDS_JSON", []);
 const MP_ADMIN_OPENIDS = parseJsonEnv("MP_ADMIN_OPENIDS_JSON", []);
 const MP_BOOKING_WEBHOOK_URL = process.env.MP_BOOKING_WEBHOOK_URL || "";
 const MP_BOOKING_TEACHER_WEBHOOKS = parseJsonEnv("MP_BOOKING_TEACHER_WEBHOOKS_JSON", {});
+const MP_DATA_DIR = process.env.MP_DATA_DIR || path.join(__dirname, "data");
 const ENTITLEMENTS_FILE = process.env.MP_ENTITLEMENTS_FILE || path.join(__dirname, "entitlements.json");
-const MP_BOOKINGS_FILE = process.env.MP_BOOKINGS_FILE || path.join(__dirname, "data", "bookings.jsonl");
-const MP_COURSES_FILE = process.env.MP_COURSES_FILE || path.join(__dirname, "data", "courses.jsonl");
-const MP_UPLOADS_FILE = process.env.MP_UPLOADS_FILE || path.join(__dirname, "data", "uploads.jsonl");
-const MP_PROFILES_FILE = process.env.MP_PROFILES_FILE || path.join(__dirname, "data", "profiles.jsonl");
-const MP_USAGE_FILE = process.env.MP_USAGE_FILE || path.join(__dirname, "data", "usage.jsonl");
-const MP_STUDENT_UPLOAD_DIR = process.env.MP_STUDENT_UPLOAD_DIR || path.join(__dirname, "data", "student-uploads");
-const MP_COURSE_VIDEO_DIR = process.env.MP_COURSE_VIDEO_DIR || path.join(__dirname, "data", "course-videos");
+const MP_BOOKINGS_FILE = process.env.MP_BOOKINGS_FILE || path.join(MP_DATA_DIR, "bookings.jsonl");
+const MP_COURSES_FILE = process.env.MP_COURSES_FILE || path.join(MP_DATA_DIR, "courses.jsonl");
+const MP_UPLOADS_FILE = process.env.MP_UPLOADS_FILE || path.join(MP_DATA_DIR, "uploads.jsonl");
+const MP_PROFILES_FILE = process.env.MP_PROFILES_FILE || path.join(MP_DATA_DIR, "profiles.jsonl");
+const MP_USAGE_FILE = process.env.MP_USAGE_FILE || path.join(MP_DATA_DIR, "usage.jsonl");
+const MP_STUDENT_UPLOAD_DIR = process.env.MP_STUDENT_UPLOAD_DIR || path.join(MP_DATA_DIR, "student-uploads");
+const MP_COURSE_VIDEO_DIR = process.env.MP_COURSE_VIDEO_DIR || path.join(MP_DATA_DIR, "course-videos");
 const MP_MAX_STORED_FILE_BYTES = Number(process.env.MP_MAX_STORED_FILE_BYTES || 12 * 1024 * 1024);
 const MP_MAX_COURSE_VIDEO_BYTES = Number(process.env.MP_MAX_COURSE_VIDEO_BYTES || 35 * 1024 * 1024);
+const MP_MEDIA_URL_TTL_SECONDS = Math.max(300, Math.min(Number(process.env.MP_MEDIA_URL_TTL_SECONDS || 3600), 86400));
+const MP_MEDIA_SIGNING_SECRET =
+  process.env.MP_MEDIA_SIGNING_SECRET ||
+  (WECHAT_SECRET
+    ? crypto.createHash("sha256").update(`${WECHAT_APPID}:${WECHAT_SECRET}:liude-course-media`).digest("hex")
+    : crypto.randomBytes(32).toString("hex"));
 const DEFAULT_BOOKING_TIMES = [
   "09:00",
   "10:00",
@@ -303,8 +310,8 @@ function normalizeMiniText(value) {
 }
 
 function normalizeRecommendationCount(value) {
-  const count = Number(value || 1);
-  return [1, 3, 6, 10].includes(count) ? count : 1;
+  const count = Number(value || 6);
+  return [1, 3, 6, 10].includes(count) ? count : 6;
 }
 
 function detectFallbackDomains(profile) {
@@ -482,22 +489,29 @@ async function codeToOpenid(code) {
 }
 
 function handleDemoLogin(res) {
-  const token = createSession({
+  const session = {
     mode: "demo",
     openid: "demo-local",
     entitlements: {
       recommendationCount: true,
       materialAssistant: true,
     },
-  });
+  };
+  const token = createSession(session);
+  const roles = getSessionRoles(session);
   sendJson(res, 200, {
     token,
     mode: "demo",
-    user: { label: "演示用户" },
+    user: {
+      label: "演示用户",
+      storageKey: createUserStorageKey(session.openid),
+      ...roles,
+    },
     entitlements: {
       recommendationCount: true,
       materialAssistant: true,
     },
+    ...roles,
   });
 }
 
@@ -535,6 +549,7 @@ async function handleUserLogin(req, res) {
       entitlements,
     });
 
+    const roles = getSessionRoles({ openid: login.openid });
     sendJson(res, 200, {
       token,
       mode: "user",
@@ -542,10 +557,10 @@ async function handleUserLogin(req, res) {
         openid: maskOpenid(login.openid),
         storageKey: createUserStorageKey(login.openid),
         source: login.source,
-        isAdmin: isAdminSession({ openid: login.openid }),
+        ...roles,
       },
       entitlements,
-      isAdmin: isAdminSession({ openid: login.openid }),
+      ...roles,
     });
   } catch (error) {
     if (isJsonParseError(error)) {
@@ -562,16 +577,17 @@ function handleSession(req, res) {
     sendJson(res, 200, { authenticated: false });
     return;
   }
+  const roles = getSessionRoles(session);
   sendJson(res, 200, {
     authenticated: true,
     mode: session.mode,
     user: {
       openid: maskOpenid(session.openid),
       storageKey: createUserStorageKey(session.openid),
-      isAdmin: isAdminSession(session),
+      ...roles,
     },
     entitlements: session.entitlements || {},
-    isAdmin: isAdminSession(session),
+    ...roles,
   });
 }
 
@@ -602,7 +618,22 @@ function normalizeBooking(body, session) {
   const advisorName = normalizeBookingText(body.advisorName || (advisorKey === "a2" ? "陆老师" : "张老师"), 20);
   const studentName = normalizeBookingText(body.studentName || "微信用户", 20);
   const note = normalizeBookingText(body.note || "预约德国留学申请沟通", 50);
-  const dateTime = normalizeBookingText(`${dateDisplay} ${time}`, 30);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    const error = new Error("预约日期格式不正确，请重新选择日期。");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!MP_BOOKING_TIMES.includes(time)) {
+    const error = new Error("预约时间不在可选时段内，请重新选择。");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!Object.prototype.hasOwnProperty.call(MP_TEACHER_OPENIDS, advisorKey) && !["a1", "a2"].includes(advisorKey)) {
+    const error = new Error("预约老师不存在，请重新选择顾问。");
+    error.statusCode = 400;
+    throw error;
+  }
+  const dateTime = formatWechatBookingDateTime(date, time);
   const id = `bk_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
   const bookingText =
     body.bookingText ||
@@ -639,8 +670,10 @@ function appendBookingRecord(booking) {
   try {
     fs.mkdirSync(path.dirname(MP_BOOKINGS_FILE), { recursive: true });
     fs.appendFileSync(MP_BOOKINGS_FILE, `${JSON.stringify(booking)}\n`, "utf8");
+    return true;
   } catch (error) {
     console.warn("预约记录写入失败:", error.message);
+    return false;
   }
 }
 
@@ -792,30 +825,104 @@ function contentTypeForExt(ext) {
   return "application/octet-stream";
 }
 
-function publicCourseVideoUrl(req, fileName) {
-  const proto = (req.headers["x-forwarded-proto"] || "https").split(",")[0].trim() || "https";
-  const host = req.headers["x-forwarded-host"] || req.headers.host;
-  return `${proto}://${host}/api/mp/course-video/${encodeURIComponent(fileName)}`;
+function getCourseVideoPath(fileName) {
+  return `/api/mp/course-video/${encodeURIComponent(fileName)}`;
 }
 
-function sendCourseVideo(req, res, fileName) {
+function getLocalCourseVideoFile(videoUrl) {
+  const match = String(videoUrl || "").match(/\/api\/mp\/course-video\/([^?/#]+)/);
+  if (!match) return "";
+  try {
+    return safeFileName(decodeURIComponent(match[1]), "");
+  } catch (error) {
+    return "";
+  }
+}
+
+function isAllowedCourseUrl(value, allowLocalVideo = false) {
+  const clean = String(value || "").trim();
+  if (!clean) return true;
+  if (allowLocalVideo && getLocalCourseVideoFile(clean)) return true;
+  try {
+    return new URL(clean).protocol === "https:";
+  } catch (error) {
+    return false;
+  }
+}
+
+function courseVideoSignature(fileName, storageKey, expires) {
+  return crypto
+    .createHmac("sha256", MP_MEDIA_SIGNING_SECRET)
+    .update(`${fileName}|${storageKey}|${expires}`)
+    .digest("hex");
+}
+
+function publicCourseVideoUrl(req, fileName, session) {
+  const proto = (req.headers["x-forwarded-proto"] || (req.socket?.encrypted ? "https" : "http")).split(",")[0].trim() || "https";
+  const host = req.headers["x-forwarded-host"] || req.headers.host;
+  const storageKey = getSessionStorageKey(session);
+  const expires = Math.floor(Date.now() / 1000) + MP_MEDIA_URL_TTL_SECONDS;
+  const signature = courseVideoSignature(fileName, storageKey, expires);
+  return `${proto}://${host}${getCourseVideoPath(fileName)}?u=${encodeURIComponent(storageKey)}&e=${expires}&s=${signature}`;
+}
+
+function validCourseVideoSignature(fileName, url) {
+  const storageKey = String(url.searchParams.get("u") || "");
+  const expires = Number(url.searchParams.get("e") || 0);
+  const signature = String(url.searchParams.get("s") || "");
+  if (!storageKey || !Number.isInteger(expires) || expires < Math.floor(Date.now() / 1000) || !/^[a-f0-9]{64}$/i.test(signature)) {
+    return false;
+  }
+  const expected = courseVideoSignature(fileName, storageKey, expires);
+  const receivedBuffer = Buffer.from(signature, "hex");
+  const expectedBuffer = Buffer.from(expected, "hex");
+  return receivedBuffer.length === expectedBuffer.length && crypto.timingSafeEqual(receivedBuffer, expectedBuffer);
+}
+
+function sendCourseVideo(req, res, fileName, url) {
   const safeName = safeFileName(fileName, "");
   if (!safeName) {
     sendJson(res, 404, { error: "视频不存在。" });
     return;
   }
+  if (!validCourseVideoSignature(safeName, url)) {
+    sendJson(res, 403, { error: "课程播放链接已过期或不属于当前微信账号，请返回课程页重新打开。" });
+    return;
+  }
   const filePath = path.resolve(MP_COURSE_VIDEO_DIR, safeName);
   const videoRoot = path.resolve(MP_COURSE_VIDEO_DIR);
-  if (!filePath.startsWith(videoRoot) || !fs.existsSync(filePath)) {
+  if (!(filePath === videoRoot || filePath.startsWith(`${videoRoot}${path.sep}`)) || !fs.existsSync(filePath)) {
     sendJson(res, 404, { error: "视频不存在。" });
     return;
   }
   const ext = path.extname(safeName);
   const stat = fs.statSync(filePath);
+  const range = String(req.headers.range || "");
+  const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+  if (match) {
+    const start = match[1] ? Number(match[1]) : 0;
+    const end = match[2] ? Math.min(Number(match[2]), stat.size - 1) : stat.size - 1;
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start || start >= stat.size) {
+      res.writeHead(416, { "Content-Range": `bytes */${stat.size}` });
+      res.end();
+      return;
+    }
+    res.writeHead(206, {
+      "Content-Type": contentTypeForExt(ext),
+      "Content-Length": end - start + 1,
+      "Content-Range": `bytes ${start}-${end}/${stat.size}`,
+      "Accept-Ranges": "bytes",
+      "Cache-Control": "private, no-store",
+      "Access-Control-Allow-Origin": "*",
+    });
+    fs.createReadStream(filePath, { start, end }).pipe(res);
+    return;
+  }
   res.writeHead(200, {
     "Content-Type": contentTypeForExt(ext),
     "Content-Length": stat.size,
-    "Cache-Control": "private, max-age=3600",
+    "Accept-Ranges": "bytes",
+    "Cache-Control": "private, no-store",
     "Access-Control-Allow-Origin": "*",
   });
   fs.createReadStream(filePath).pipe(res);
@@ -863,8 +970,10 @@ function readCourseRecords() {
   return Array.from(byId.values()).sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
 }
 
-function sanitizeCourse(course, session, admin = false) {
-  const hasVideo = Boolean(course.videoUrl);
+function sanitizeCourse(course, session, admin = false, req = null) {
+  const localVideoFile = getLocalCourseVideoFile(course.videoUrl);
+  const videoUrl = localVideoFile && req ? publicCourseVideoUrl(req, localVideoFile, session) : course.videoUrl || "";
+  const hasVideo = Boolean(videoUrl);
   const payload = {
     id: course.id,
     type: course.type === "live" ? "live" : "recorded",
@@ -874,7 +983,7 @@ function sanitizeCourse(course, session, admin = false) {
     status: course.status || "draft",
     startAt: normalizeBookingText(course.startAt, 60),
     duration: normalizeBookingText(course.duration, 40),
-    videoUrl: hasVideo ? course.videoUrl : "",
+    videoUrl: hasVideo ? videoUrl : "",
     liveUrl: course.liveUrl || "",
     noDownload: course.noDownload !== false,
     noRecord: course.noRecord !== false,
@@ -995,8 +1104,26 @@ function getAdminOpenids() {
   return compactStringArray([MP_OWNER_OPENIDS, MP_ADMIN_OPENIDS, getAllTeacherOpenids()]);
 }
 
+function getSessionRoles(session) {
+  const openid = String(session?.openid || "").trim();
+  const teacherAdvisorKeys = Object.entries(MP_TEACHER_OPENIDS)
+    .filter(([, values]) => compactStringArray(values).includes(openid))
+    .map(([key]) => key);
+  const isTeacher = Boolean(openid && teacherAdvisorKeys.length);
+  const isOwner = Boolean(openid && compactStringArray(MP_OWNER_OPENIDS).includes(openid));
+  const isPlatformAdmin = Boolean(openid && compactStringArray(MP_ADMIN_OPENIDS).includes(openid));
+  return {
+    isTeacher,
+    isOwner,
+    isPlatformAdmin,
+    isAdmin: isTeacher || isOwner || isPlatformAdmin,
+    canSubscribeBookingNotice: isTeacher,
+    teacherAdvisorKeys,
+  };
+}
+
 function isAdminSession(session) {
-  return Boolean(session?.openid && getAdminOpenids().includes(session.openid));
+  return getSessionRoles(session).isAdmin;
 }
 
 function getBookingWebhookUrls() {
@@ -1010,6 +1137,7 @@ function buildBookingSubscribeData(booking) {
     dateTime: booking.dateTime,
     date: booking.dateDisplay || booking.date,
     time: booking.time,
+    courseName: "留学咨询预约",
     note: booking.note || "预约沟通",
   };
   const fields =
@@ -1023,9 +1151,40 @@ function buildBookingSubscribeData(booking) {
         };
 
   return Object.entries(fields).reduce((data, [templateKey, sourceKey]) => {
-    data[templateKey] = { value: normalizeBookingText(valueByName[sourceKey] || sourceKey, 20) };
+    const rawValue = valueByName[sourceKey] || sourceKey;
+    const value = /^time\d+$/i.test(templateKey)
+      ? formatWechatBookingDateTime(booking.date, booking.time)
+      : normalizeBookingText(rawValue, 20);
+    data[templateKey] = { value };
     return data;
   }, {});
+}
+
+function formatWechatBookingDateTime(date, time) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(date || ""));
+  const cleanTime = /^\d{2}:\d{2}$/.test(String(time || "")) ? String(time) : "";
+  if (!match || !cleanTime) return normalizeBookingText(`${date || ""} ${cleanTime}`, 20);
+  return `${match[1]}年${Number(match[2])}月${Number(match[3])}日 ${cleanTime}`;
+}
+
+function getBookingTemplateDiagnostics() {
+  const entries = Object.entries(MP_BOOKING_TEMPLATE_FIELDS || {});
+  const allowedSources = new Set(["studentName", "advisorName", "dateTime", "date", "time", "courseName", "note"]);
+  const invalidKeys = entries
+    .map(([key]) => key)
+    .filter((key) => !/^(thing|time|date|name|phrase|number|character_string)\d+$/i.test(key));
+  const emptyValues = entries.filter(([, value]) => !String(value || "").trim()).map(([key]) => key);
+  const literalValues = entries
+    .filter(([, value]) => !allowedSources.has(String(value || "").trim()))
+    .map(([key]) => key);
+  return {
+    configured: entries.length > 0,
+    valid: entries.length > 0 && invalidKeys.length === 0 && emptyValues.length === 0,
+    keys: entries.map(([key]) => key),
+    invalidKeys,
+    emptyValues,
+    literalValueKeys: literalValues,
+  };
 }
 
 async function getWechatAccessToken() {
@@ -1056,6 +1215,14 @@ async function sendWechatSubscribeMessage(openid, booking) {
   }
   if (!WECHAT_APPID || !WECHAT_SECRET || !MP_BOOKING_TEMPLATE_ID) {
     return { sent: false, channel: "wechat-subscribe", reason: "微信订阅消息配置不完整" };
+  }
+  const templateDiagnostics = getBookingTemplateDiagnostics();
+  if (!templateDiagnostics.valid) {
+    return {
+      sent: false,
+      channel: "wechat-subscribe",
+      reason: "MP_BOOKING_TEMPLATE_FIELDS_JSON 未配置或字段编号格式无效",
+    };
   }
 
   const accessToken = await getWechatAccessToken();
@@ -1172,7 +1339,13 @@ async function handleBooking(req, res) {
       });
       return;
     }
-    appendBookingRecord(booking);
+    if (!appendBookingRecord(booking)) {
+      sendJson(res, 500, {
+        ok: false,
+        error: "预约记录保存失败，请稍后重试。当前时间段尚未被占用。",
+      });
+      return;
+    }
     const notifyResult = await sendBookingNotifications(booking);
     sendJson(res, 200, {
       ok: true,
@@ -1184,10 +1357,10 @@ async function handleBooking(req, res) {
       sendBadJson(res);
       return;
     }
-    sendJson(res, 200, {
-      ok: true,
+    sendJson(res, error.statusCode || 500, {
+      ok: false,
       notified: false,
-      message: error.message || "预约已提交成功，并已保存到老师预约管理。老师可在小程序后台查看。",
+      error: error.message || "预约提交失败，请稍后重试。",
       channels: [],
     });
   }
@@ -1220,17 +1393,24 @@ function handleBookingSlots(req, res, url) {
 function handleBookingConfig(req, res) {
   const session = requireSession(req, res);
   if (!session) return;
+  const roles = getSessionRoles(session);
+  const diagnostics = getBookingTemplateDiagnostics();
 
   sendJson(res, 200, {
     ok: true,
-    subscribeEnabled: Boolean(MP_BOOKING_TEMPLATE_ID),
-    templateId: MP_BOOKING_TEMPLATE_ID,
+    subscribeEnabled: Boolean(roles.canSubscribeBookingNotice && MP_BOOKING_NOTIFY_ENABLED && MP_BOOKING_TEMPLATE_ID && diagnostics.valid),
+    canSubscribe: roles.canSubscribeBookingNotice,
+    templateId: roles.canSubscribeBookingNotice ? MP_BOOKING_TEMPLATE_ID : "",
     teacherNotificationConfigured: Boolean(
-      MP_BOOKING_NOTIFY_ENABLED && MP_BOOKING_TEMPLATE_ID && getAllTeacherOpenids().length
+      MP_BOOKING_NOTIFY_ENABLED && MP_BOOKING_TEMPLATE_ID && diagnostics.valid && getAllTeacherOpenids().length
     ),
     notifyAllConfiguredTeachers: true,
     teacherOpenidCount: getAllTeacherOpenids().length,
     webhookCount: getBookingWebhookUrls().length,
+    templateFieldKeys: diagnostics.keys,
+    templateFieldsValid: diagnostics.valid,
+    oneTimeAuthorization: true,
+    authorizationHint: "一次性订阅授权通常在成功发送一条通知后消耗；老师收到通知后需要再次点击授权。",
   });
 }
 
@@ -1408,7 +1588,7 @@ function handleCourses(req, res) {
       const allowList = Array.isArray(course.allowedStorageKeys) ? course.allowedStorageKeys.filter(Boolean) : [];
       return !allowList.length || allowList.includes(storageKey);
     })
-    .map((course) => sanitizeCourse(course, session, false));
+    .map((course) => sanitizeCourse(course, session, false, req));
 
   sendJson(res, 200, {
     ok: true,
@@ -1432,6 +1612,16 @@ async function handleAdminCourseSave(req, res) {
     const body = JSON.parse(rawBody || "{}");
     const now = new Date().toISOString();
     const id = normalizeBookingText(body.id || createRecordId("course"), 80);
+    const videoUrl = normalizeLongText(body.videoUrl || "", 300);
+    const liveUrl = normalizeLongText(body.liveUrl || "", 300);
+    if (!isAllowedCourseUrl(videoUrl, true)) {
+      sendJson(res, 400, { error: "录播地址必须是 HTTPS 链接，或由本小程序后端上传生成。" });
+      return;
+    }
+    if (!isAllowedCourseUrl(liveUrl, false)) {
+      sendJson(res, 400, { error: "直播入口必须使用 HTTPS 链接。" });
+      return;
+    }
     const course = {
       id,
       type: body.type === "live" ? "live" : "recorded",
@@ -1439,8 +1629,8 @@ async function handleAdminCourseSave(req, res) {
       summary: normalizeLongText(body.summary || "", 500),
       tags: compactStringArray(body.tags || []).slice(0, 8),
       status: body.status === "draft" ? "draft" : "published",
-      videoUrl: normalizeLongText(body.videoUrl || "", 300),
-      liveUrl: normalizeLongText(body.liveUrl || "", 300),
+      videoUrl,
+      liveUrl,
       startAt: normalizeBookingText(body.startAt || "", 80),
       duration: normalizeBookingText(body.duration || "", 40),
       noDownload: true,
@@ -1458,7 +1648,7 @@ async function handleAdminCourseSave(req, res) {
     records.push(course);
     writeJsonlFile(MP_COURSES_FILE, records);
     recordUsage(session, "admin.course.save", { id: course.id, type: course.type });
-    sendJson(res, 200, { ok: true, course: sanitizeCourse(course, session, true) });
+    sendJson(res, 200, { ok: true, course: sanitizeCourse(course, session, true, req) });
   } catch (error) {
     if (isJsonParseError(error)) {
       sendBadJson(res);
@@ -1510,7 +1700,7 @@ async function handleAdminCourseVideoUpload(req, res) {
       ok: true,
       name: safeFileName(body.name || fileName),
       size: parsed.buffer.length,
-      videoUrl: publicCourseVideoUrl(req, fileName),
+      videoUrl: getCourseVideoPath(fileName),
       storageNote: "测试视频已保存到当前后端实例。本地/Render 免费盘不适合作为长期视频库，正式运营建议迁移到腾讯云点播或对象存储。",
     });
   } catch (error) {
@@ -1531,7 +1721,7 @@ function handleAdminCourses(req, res) {
   }
   sendJson(res, 200, {
     ok: true,
-    records: readCourseRecords().map((course) => sanitizeCourse(course, session, true)),
+    records: readCourseRecords().map((course) => sanitizeCourse(course, session, true, req)),
   });
 }
 
@@ -1566,6 +1756,7 @@ async function handleMaterialUpload(req, res) {
       id,
       category: normalizeBookingText(body.category || "申请材料", 40),
       usage: normalizeBookingText(body.usage || "", 80),
+      trainingConsent: body.trainingConsent === true,
       name: originalName,
       mimeType: parsed.mimeType,
       size: parsed.buffer.length,
@@ -1608,6 +1799,7 @@ function sanitizeUploadForAdmin(record) {
     id: record.id,
     category: record.category,
     usage: record.usage || "",
+    trainingConsent: record.trainingConsent === true,
     name: record.name,
     mimeType: record.mimeType,
     size: record.size,
@@ -1616,6 +1808,112 @@ function sanitizeUploadForAdmin(record) {
     user: record.user || {},
     contentStored: Boolean(record.relativePath),
   };
+}
+
+function sanitizeUploadForUser(record) {
+  return {
+    id: record.id,
+    category: record.category,
+    usage: record.usage || "",
+    trainingConsent: record.trainingConsent === true,
+    name: record.name,
+    mimeType: record.mimeType,
+    size: record.size,
+    createdAt: record.createdAt,
+    contentStored: Boolean(record.relativePath),
+  };
+}
+
+function getUploadRecord(id) {
+  return readJsonlFile(MP_UPLOADS_FILE).find((record) => record.id === id) || null;
+}
+
+function resolveStoredUploadPath(record) {
+  const uploadRoot = path.resolve(MP_STUDENT_UPLOAD_DIR);
+  const relativePath = String(record?.relativePath || "").replace(/\\/g, "/");
+  if (!relativePath || relativePath.split("/").includes("..")) return "";
+  const filePath = path.resolve(uploadRoot, ...relativePath.split("/").filter(Boolean));
+  if (!(filePath === uploadRoot || filePath.startsWith(`${uploadRoot}${path.sep}`))) return "";
+  return filePath;
+}
+
+function sendStoredUpload(req, res, id, adminRequired = false) {
+  const session = requireSession(req, res);
+  if (!session) return;
+  const record = getUploadRecord(id);
+  const ownsRecord = Boolean(record?.user?.storageKey && record.user.storageKey === getSessionStorageKey(session));
+  if (!record || (adminRequired ? !isAdminSession(session) : !ownsRecord && !isAdminSession(session))) {
+    sendJson(res, 404, { error: "未找到可访问的资料文件。" });
+    return;
+  }
+  const filePath = resolveStoredUploadPath(record);
+  if (!filePath || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+    sendJson(res, 404, { error: "资料文件不存在或已迁移，请联系管理员。" });
+    return;
+  }
+  const stat = fs.statSync(filePath);
+  const safeName = safeFileName(record.name || "申请材料");
+  res.writeHead(200, {
+    "Content-Type": record.mimeType || "application/octet-stream",
+    "Content-Length": stat.size,
+    "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(safeName)}`,
+    "Cache-Control": "private, no-store",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Authorization",
+  });
+  fs.createReadStream(filePath).pipe(res);
+}
+
+function handleUserUploads(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return;
+  const storageKey = getSessionStorageKey(session);
+  const records = readJsonlFile(MP_UPLOADS_FILE)
+    .filter((record) => record?.user?.storageKey === storageKey)
+    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")))
+    .slice(0, 100);
+  sendJson(res, 200, {
+    ok: true,
+    count: records.length,
+    records: records.map(sanitizeUploadForUser),
+  });
+}
+
+async function handleDeleteMaterial(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return;
+  try {
+    const rawBody = await readBody(req);
+    const body = JSON.parse(rawBody || "{}");
+    const id = normalizeBookingText(body.id || body.uploadId, 100);
+    const records = readJsonlFile(MP_UPLOADS_FILE);
+    const record = records.find((item) => item.id === id);
+    if (!record || record?.user?.storageKey !== getSessionStorageKey(session)) {
+      sendJson(res, 404, { error: "未找到当前账号的资料记录。" });
+      return;
+    }
+    const nextRecords = records.filter((item) => item.id !== id);
+    if (!writeJsonlFile(MP_UPLOADS_FILE, nextRecords)) {
+      sendJson(res, 500, { error: "资料记录删除失败，请稍后重试。" });
+      return;
+    }
+    const filePath = resolveStoredUploadPath(record);
+    if (filePath && fs.existsSync(filePath)) {
+      try {
+        fs.unlinkSync(filePath);
+      } catch (error) {
+        console.warn("资料文件删除失败:", error.message);
+      }
+    }
+    recordUsage(session, "material.delete", { category: record.category || "" });
+    sendJson(res, 200, { ok: true, message: "资料已删除。" });
+  } catch (error) {
+    if (isJsonParseError(error)) {
+      sendBadJson(res);
+      return;
+    }
+    sendJson(res, 500, { error: error.message || "资料删除失败。" });
+  }
 }
 
 function handleAdminUploads(req, res) {
@@ -1729,15 +2027,16 @@ function handleGetProfile(req, res) {
   const session = requireSession(req, res);
   if (!session) return;
   const profile = getUserProfile(session);
+  const roles = getSessionRoles(session);
   sendJson(res, 200, {
     ok: true,
     profile: sanitizeProfile(profile || {}),
     locked: Boolean(profile?.lockedAt),
-    isAdmin: isAdminSession(session),
+    ...roles,
     user: {
       openid: maskOpenid(session.openid),
       storageKey: createUserStorageKey(session.openid),
-      isAdmin: isAdminSession(session),
+      ...roles,
     },
     bindingNote: "个人信息提交后将锁定；如需修改，请联系顾问处理。",
   });
@@ -1812,7 +2111,7 @@ async function handleBindCompanyAccount(req, res) {
       companyAccount: account,
       companyBoundAt: new Date().toISOString(),
     });
-    recordUsage(session, "company.bind", { companyAccount: account.slice(0, 8) });
+    recordUsage(session, "company.bind", { bound: true });
     sendJson(res, 200, {
       ok: true,
       profile: sanitizeProfile(profile),
@@ -1841,7 +2140,7 @@ function handleAdminExport(req, res) {
     openid: profile.openid,
     ...sanitizeProfile(profile),
   }));
-  const courses = readCourseRecords().map((course) => sanitizeCourse(course, session, true));
+  const courses = readCourseRecords().map((course) => sanitizeCourse(course, session, true, req));
   const usage = readJsonlFile(MP_USAGE_FILE).slice(-1000);
   sendJson(res, 200, {
     ok: true,
@@ -1863,7 +2162,7 @@ function handleAdminExport(req, res) {
 }
 
 function requiresPaidRecommendationCount(session, body) {
-  const requested = Number(body.recommendationCount || 1);
+  const requested = Number(body.recommendationCount || 6);
   return (
     session.mode === "user" &&
     !MP_FREE_RECOMMENDATION_COUNTS.includes(requested) &&
@@ -2004,6 +2303,173 @@ async function handleMaterialDraft(req, res) {
   }
 }
 
+function pdfTextHex(value) {
+  return Array.from(String(value || ""))
+    .map((char) => {
+      const code = char.codePointAt(0);
+      if (code <= 0xffff) return code.toString(16).padStart(4, "0");
+      const adjusted = code - 0x10000;
+      const high = 0xd800 + (adjusted >> 10);
+      const low = 0xdc00 + (adjusted & 0x3ff);
+      return `${high.toString(16).padStart(4, "0")}${low.toString(16).padStart(4, "0")}`;
+    })
+    .join("");
+}
+
+function pdfCharacterUnits(char) {
+  return /[\u0000-\u00ff]/.test(char) ? 0.55 : 1;
+}
+
+function wrapPdfText(value, maxUnits = 40) {
+  const result = [];
+  String(value || "")
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .forEach((paragraph) => {
+      if (!paragraph) {
+        result.push("");
+        return;
+      }
+      let line = "";
+      let units = 0;
+      for (const char of paragraph) {
+        const nextUnits = pdfCharacterUnits(char);
+        if (line && units + nextUnits > maxUnits) {
+          result.push(line);
+          line = char;
+          units = nextUnits;
+        } else {
+          line += char;
+          units += nextUnits;
+        }
+      }
+      result.push(line);
+    });
+  return result;
+}
+
+function createWatermarkedPdf(title, content, watermark) {
+  const objects = [null];
+  const addObject = (value) => {
+    objects.push(value);
+    return objects.length - 1;
+  };
+  const catalogId = addObject("");
+  const pagesId = addObject("");
+  const cidFontId = addObject(
+    "<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 4 >> >>"
+  );
+  const fontId = addObject(
+    `<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light /Encoding /UniGB-UCS2-H /DescendantFonts [${cidFontId} 0 R] >>`
+  );
+  const opacityId = addObject("<< /Type /ExtGState /ca 0.10 /CA 0.10 >>");
+  const bodyLines = wrapPdfText(content, 42);
+  const titleLines = wrapPdfText(title, 30);
+  const linesPerPage = 47;
+  const pages = [];
+  const chunks = [];
+  for (let index = 0; index < bodyLines.length || index === 0; index += linesPerPage) {
+    chunks.push(bodyLines.slice(index, index + linesPerPage));
+  }
+  chunks.forEach((chunk, pageIndex) => {
+    const commands = [
+      "q",
+      "/GS1 gs",
+      "0.82 0.57 -0.57 0.82 115 420 cm",
+      `BT /F1 48 Tf 0 0 Td <${pdfTextHex(watermark)}> Tj ET`,
+      "Q",
+      "BT",
+      "/F1 17 Tf",
+    ];
+    let y = 795;
+    titleLines.slice(0, 2).forEach((line) => {
+      commands.push(`1 0 0 1 48 ${y} Tm <${pdfTextHex(line)}> Tj`);
+      y -= 25;
+    });
+    commands.push("/F1 10 Tf", `1 0 0 1 48 ${y} Tm <${pdfTextHex(`留德小栈 · 第 ${pageIndex + 1} 页`)}> Tj`);
+    y -= 24;
+    commands.push("/F1 11 Tf");
+    chunk.forEach((line) => {
+      commands.push(`1 0 0 1 48 ${y} Tm <${pdfTextHex(line || " ")}> Tj`);
+      y -= 15;
+    });
+    commands.push("ET");
+    const contentBuffer = Buffer.from(commands.join("\n"), "ascii");
+    const streamId = addObject(Buffer.concat([
+      Buffer.from(`<< /Length ${contentBuffer.length} >>\nstream\n`, "ascii"),
+      contentBuffer,
+      Buffer.from("\nendstream", "ascii"),
+    ]));
+    const pageId = addObject(
+      `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${fontId} 0 R >> /ExtGState << /GS1 ${opacityId} 0 R >> >> /Contents ${streamId} 0 R >>`
+    );
+    pages.push(pageId);
+  });
+  objects[catalogId] = `<< /Type /Catalog /Pages ${pagesId} 0 R >>`;
+  objects[pagesId] = `<< /Type /Pages /Count ${pages.length} /Kids [${pages.map((id) => `${id} 0 R`).join(" ")}] >>`;
+
+  const output = [Buffer.from("%PDF-1.4\n%\xE2\xE3\xCF\xD3\n", "binary")];
+  const offsets = [0];
+  let length = output[0].length;
+  for (let id = 1; id < objects.length; id += 1) {
+    offsets[id] = length;
+    const prefix = Buffer.from(`${id} 0 obj\n`, "ascii");
+    const body = Buffer.isBuffer(objects[id]) ? objects[id] : Buffer.from(String(objects[id]), "ascii");
+    const suffix = Buffer.from("\nendobj\n", "ascii");
+    output.push(prefix, body, suffix);
+    length += prefix.length + body.length + suffix.length;
+  }
+  const xrefOffset = length;
+  const xref = ["xref", `0 ${objects.length}`, "0000000000 65535 f "];
+  for (let id = 1; id < objects.length; id += 1) {
+    xref.push(`${String(offsets[id]).padStart(10, "0")} 00000 n `);
+  }
+  xref.push("trailer", `<< /Size ${objects.length} /Root ${catalogId} 0 R >>`, "startxref", String(xrefOffset), "%%EOF");
+  output.push(Buffer.from(`${xref.join("\n")}\n`, "ascii"));
+  return Buffer.concat(output);
+}
+
+async function handleDocumentPdf(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return;
+  try {
+    const rawBody = await readBody(req);
+    const body = JSON.parse(rawBody || "{}");
+    const kind = body.kind === "questionnaire" ? "questionnaire" : "draft";
+    const title = normalizeBookingText(body.title || (kind === "questionnaire" ? "申请材料调查表" : "申请文书"), 80);
+    const content = normalizeLongText(body.content || "", 30000);
+    if (!content) {
+      sendJson(res, 400, { error: "没有可导出的文书内容。" });
+      return;
+    }
+    const fullAccess = session.mode === "demo" || Boolean(session.entitlements?.materialAssistant);
+    const preview = kind === "draft" && !fullAccess;
+    const previewLength = Math.max(Math.ceil(content.length / 5), Math.min(content.length, 180));
+    const visibleContent = preview
+      ? `${content.slice(0, previewLength)}\n\n—— 付费前预览到此结束，仅展示完整内容前 20% ——`
+      : content;
+    const watermark = preview ? "留德小栈 付费前预览" : "留德小栈 水印版";
+    const pdf = createWatermarkedPdf(title, visibleContent, watermark);
+    recordUsage(session, kind === "questionnaire" ? "document.export.questionnaire.pdf" : "document.export.draft.pdf", {
+      preview,
+    });
+    sendJson(res, 200, {
+      ok: true,
+      fileName: `${safeFileName(body.fileName || title, "liude-document").replace(/\.pdf$/i, "")}.pdf`,
+      contentBase64: pdf.toString("base64"),
+      preview,
+      previewRatio: preview ? 0.2 : 1,
+      watermarked: true,
+    });
+  } catch (error) {
+    if (isJsonParseError(error)) {
+      sendBadJson(res);
+      return;
+    }
+    sendJson(res, 500, { error: error.message || "PDF 生成失败。" });
+  }
+}
+
 function handlePaymentPlaceholder(req, res) {
   const session = requireSession(req, res);
   if (!session) return;
@@ -2022,6 +2488,7 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === "GET" && url.pathname === "/health") {
+    const templateDiagnostics = getBookingTemplateDiagnostics();
     sendJson(res, 200, {
       ok: true,
       service: "liude-xiaozhan-miniprogram-backend",
@@ -2037,20 +2504,45 @@ const server = http.createServer((req, res) => {
       bookingNotificationConfigured: Boolean(
         MP_BOOKING_WEBHOOK_URL ||
           Object.keys(MP_BOOKING_TEACHER_WEBHOOKS).length ||
-          (MP_BOOKING_NOTIFY_ENABLED && MP_BOOKING_TEMPLATE_ID && getAllTeacherOpenids().length)
+          (MP_BOOKING_NOTIFY_ENABLED && MP_BOOKING_TEMPLATE_ID && templateDiagnostics.valid && getAllTeacherOpenids().length)
       ),
       bookingNotifyAllTeachers: true,
       bookingTeacherOpenidCount: getAllTeacherOpenids().length,
+      bookingTeacherRoleCounts: Object.fromEntries(
+        Object.entries(MP_TEACHER_OPENIDS).map(([key, values]) => [key, compactStringArray(values).length])
+      ),
+      bookingOwnerOpenidCount: compactStringArray(MP_OWNER_OPENIDS).length,
+      bookingAdminOpenidCount: compactStringArray(MP_ADMIN_OPENIDS).length,
+      bookingTemplateFieldsConfigured: templateDiagnostics.configured,
+      bookingTemplateFieldsValid: templateDiagnostics.valid,
+      bookingTemplateFieldKeys: templateDiagnostics.keys,
       courseModuleEnabled: true,
+      courseMediaSigned: true,
+      courseMediaSigningStable: Boolean(process.env.MP_MEDIA_SIGNING_SECRET || WECHAT_SECRET),
       studentUploadDatabaseEnabled: true,
+      studentUploadDownloadEnabled: true,
+      documentPdfExportEnabled: true,
       profileLockEnabled: true,
+      externalPersistentDataDirConfigured: path.resolve(MP_DATA_DIR) !== path.resolve(path.join(__dirname, "data")),
     });
     return;
   }
 
   const courseVideoMatch = url.pathname.match(/^\/api\/mp\/course-video\/([^/]+)$/);
   if (req.method === "GET" && courseVideoMatch) {
-    sendCourseVideo(req, res, decodeURIComponent(courseVideoMatch[1]));
+    sendCourseVideo(req, res, decodeURIComponent(courseVideoMatch[1]), url);
+    return;
+  }
+
+  const adminMaterialFileMatch = url.pathname.match(/^\/api\/mp\/admin\/material-file\/([^/]+)$/);
+  if (req.method === "GET" && adminMaterialFileMatch) {
+    sendStoredUpload(req, res, decodeURIComponent(adminMaterialFileMatch[1]), true);
+    return;
+  }
+
+  const materialFileMatch = url.pathname.match(/^\/api\/mp\/material-file\/([^/]+)$/);
+  if (req.method === "GET" && materialFileMatch) {
+    sendStoredUpload(req, res, decodeURIComponent(materialFileMatch[1]), false);
     return;
   }
 
@@ -2122,6 +2614,21 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "POST" && url.pathname === "/api/mp/material/upload") {
     handleMaterialUpload(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/mp/materials") {
+    handleUserUploads(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/mp/material/delete") {
+    handleDeleteMaterial(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/mp/document/pdf") {
+    handleDocumentPdf(req, res);
     return;
   }
 
@@ -2205,3 +2712,7 @@ server.listen(PORT, () => {
 });
 
 module.exports = server;
+module.exports.testHelpers = {
+  buildFallbackRecommendation,
+  shouldUseRecommendationFallback,
+};

@@ -87,91 +87,28 @@ const FALLBACK_PROGRAMS = [
   { domains: ["civil", "engineering"], university: "Technical University of Munich", programDisplayName: "Civil Engineering", city: "Munich", degree: "Master", keywords: ["civil", "structural", "engineering"] },
 ];
 
-const KNOWN_TRANSCRIPT_TEMPLATES = [
-  {
-    id: "hebut-energy-power-20250930162513",
-    school: "河北工业大学",
-    englishSchool: "Hebei University of Technology",
-    major: "能源与动力工程",
-    totalCredits: "175.5",
-    averageGpa: "2.24/4.0",
-    sha256: "cdb5cbfa3b5117645f11f7115e6575d17c9ec364be11d93167179b5b859ca2f8",
-    width: 1280,
-    height: 1707,
-    rows: [
-      ["普通化学", "3.0", "81", "必修", "2017-01"],
-      ["体育Ⅰ", "1.0", "93", "必修", "2017-01"],
-      ["工程图学Ⅱ", "4.0", "71", "必修", "2017-01"],
-      ["中国近现代史纲要", "2.5", "87", "必修", "2017-01"],
-      ["大学计算思维", "2.0", "82", "必修", "2017-01"],
-      ["高等数学IA", "5.5", "73", "必修", "2017-01"],
-      ["大学英语基础模块（听说课程A）", "1.0", "70", "必修", "2017-01"],
-      ["计算机程序设计(VC)", "4.0", "69", "必修", "2017-06"],
-      ["大学英语基础模块（听说课程B）", "1.0", "70", "必修", "2017-06"],
-      ["能源科学与技术导论", "1.5", "83", "必修", "2017-06"],
-      ["大学物理实验IA", "1.5", "及格", "必修", "2017-06"],
-      ["体育Ⅱ", "1.0", "86", "必修", "2017-06"],
-      ["大学英语基础模块（读写课程B）", "2.0", "60", "必修", "2017-06"],
-      ["大学物理IA", "3.5", "75", "必修", "2017-06"],
-      ["思想道德修养与法律基础", "2.5", "84", "必修", "2017-06"],
-      ["工程训练IA", "4.0", "63", "必修", "2017-06"],
-      ["大学俄语", "4.0", "69", "任选", "2017-06"],
-      ["高等数学IB", "5.5", "78", "必修", "2017-06"],
-      ["大学物理IB", "3.5", "67", "必修", "2018-01"],
-      ["线性代数", "2.0", "71", "必修", "2018-01"],
-      ["体育Ⅲ", "1.0", "93", "必修", "2018-01"],
-      ["人体解剖生理学概论", "2.0", "86", "任选", "2018-01"],
-      ["大学英语拓展模块A", "3.0", "60", "必修", "2018-01"],
-      ["工程流体力学", "4.0", "82", "必修", "2018-01"],
-      ["金属工艺学Ⅰ", "3.5", "76", "必修", "2018-01"],
-      ["工程力学", "5.0", "94", "必修", "2018-01"],
-      ["认识实习", "2.5", "80", "必修", "2018-07"],
-      ["马克思主义原理概论", "2.5", "85", "必修", "2018-07"],
-      ["概率论与数理统计", "3.0", "67", "必修", "2018-07"],
-      ["电工与电子技术实验Ⅱ", "1.0", "87", "必修", "2018-07"],
-      ["电工与电子技术Ⅱ", "4.0", "61", "必修", "2018-07"],
-      ["大学英语拓展模块B", "3.0", "63", "必修", "2018-07"],
-      ["工程热力学", "4.0", "73", "必修", "2018-07"],
-      ["毛泽东思想和中国特色社会主义理论体系概论", "3.5", "75", "必修", "2018-07"],
-      ["体育Ⅳ", "1.0", "84", "必修", "2018-07"],
-      ["泵和风机", "2.0", "81", "必修", "2018-07"],
-      ["计算机硬件技术基础Ⅱ", "2.0", "62", "必修", "2019-01"],
-      ["内燃机构造", "2.5", "64", "必修", "2019-01"],
-      ["专业外语阅读（内燃机方向）", "2.0", "61", "必修", "2019-01"],
-      ["形势与政策A", "0.5", "80", "必修", "2019-01"],
-      ["机械设计基础Ⅱ", "5.0", "67", "必修", "2019-01"],
-      ["动力机械噪声与振动控制", "3.0", "63", "必修", "2019-01"],
-      ["内燃机构造实验", "1.0", "78", "必修", "2019-01"],
-      ["形势与政策B", "0.5", "83", "必修", "2019-01"],
-      ["思想政治实践", "3.0", "86", "必修", "2019-01"],
-      ["机械设计基础课程设计", "2.0", "及格", "必修", "2019-01"],
-      ["汽车概论", "2.0", "78", "必修", "2019-07"],
-      ["动力机械测试技术", "2.0", "65", "必修", "2019-07"],
-      ["内燃机设计", "2.5", "67", "必修", "2019-07"],
-      ["生产实习", "3.0", "80", "必修", "2019-07"],
-      ["内燃机原理", "4.0", "66", "必修", "2019-07"],
-      ["内燃机构造课程设计", "3.0", "65", "必修", "2019-07"],
-      ["热交换器", "2.0", "65", "必修", "2019-07"],
-      ["形势与政策C", "0.5", "83", "必修", "2019-07"],
-      ["军事课程", "2.0", "100", "必修", "2019-11"],
-      ["动力机械排放与净化", "2.0", "82", "必修", "2019-12"],
-      ["节能减排技术", "2.0", "82", "限选", "2019-12"],
-      ["传热学", "4.0", "62", "必修", "2019-12"],
-      ["内燃机原理和设计课程设计", "2.0", "中等", "必修", "2019-12"],
-      ["新能源汽车技术", "2.0", "77", "必修", "2019-12"],
-      ["发动机电子控制技术", "2.0", "68", "必修", "2019-12"],
-      ["制冷与空调技术", "3.0", "46", "必修", "2019-12"],
-      ["大学物理实验IB", "1.5", "及格", "必修", "2019-12"],
-      ["大学英语基础模块（读写课程A）", "2.0", "68", "必修", "2019-12"],
-      ["创新设计", "2.0", "69", "任选", "2019-12"],
-      ["内燃机工作过程数值模拟", "2.0", "80", "必修", "2019-12"],
-      ["领导创新型人才廉洁教育", "2.0", "86", "任选", "2020-06"],
-      ["毕业设计（论文）", "7.0", "60", "必修", "2020-06"],
-      ["形势与政策D", "0.5", "92", "必修", "2020-06"],
-      ["毕业实习", "2.0", "80", "必修", "2020-06"],
-    ],
-  },
-];
+const TRANSCRIPT_TEMPLATES_FILE =
+  process.env.MP_TRANSCRIPT_TEMPLATES_FILE ||
+  path.join(process.env.MP_DATA_DIR || path.join(__dirname, "data"), "transcript-templates.private.json");
+
+function loadPrivateTranscriptTemplates() {
+  try {
+    if (!fs.existsSync(TRANSCRIPT_TEMPLATES_FILE)) return [];
+    const payload = JSON.parse(fs.readFileSync(TRANSCRIPT_TEMPLATES_FILE, "utf8"));
+    if (!Array.isArray(payload)) return [];
+    return payload.filter(
+      (template) =>
+        template &&
+        /^[a-f0-9]{64}$/i.test(String(template.sha256 || "")) &&
+        Array.isArray(template.rows)
+    );
+  } catch (error) {
+    console.warn("私有成绩单模板读取失败:", error.message);
+    return [];
+  }
+}
+
+const KNOWN_TRANSCRIPT_TEMPLATES = loadPrivateTranscriptTemplates();
 
 function requireModule(specifier) {
   try {
@@ -331,21 +268,8 @@ function buildKnownTemplateText(template) {
 
 function findKnownTranscriptTemplate(buffer, text, file = {}) {
   const hash = buffer.length ? sha256Buffer(buffer) : "";
-  const dimensions = readJpegDimensions(buffer);
-  const corpus = normalizeText([text, file.name, file.type].join(" "));
-  return KNOWN_TRANSCRIPT_TEMPLATES.find((template) => {
-    if (template.sha256 && template.sha256 === hash) return true;
-    if (/20250930162513|hebei university of technology|hebut|河北工业大学|能源与动力工程/.test(corpus)) return true;
-    if (
-      dimensions &&
-      Math.abs(dimensions.width - template.width) <= 8 &&
-      Math.abs(dimensions.height - template.height) <= 8 &&
-      Math.abs(buffer.length - 1038620) <= 90000
-    ) {
-      return true;
-    }
-    return false;
-  });
+  if (!hash) return null;
+  return KNOWN_TRANSCRIPT_TEMPLATES.find((template) => template.sha256 === hash) || null;
 }
 
 function scoreOcrText(text) {
@@ -1264,8 +1188,8 @@ function splitPreference(value) {
 }
 
 function normalizeRecommendationCount(value) {
-  const count = Number(value || 1);
-  return [1, 3, 6, 10].includes(count) ? count : 1;
+  const count = Number(value || 6);
+  return [1, 3, 6, 10].includes(count) ? count : 6;
 }
 
 function programCorpus(program) {
