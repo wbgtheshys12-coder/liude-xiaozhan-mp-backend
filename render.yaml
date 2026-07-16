@@ -44,6 +44,8 @@ services:
         sync: false
       - key: MP_BOOKING_MINIPROGRAM_STATE
         value: "trial"
+      - key: MP_BOOKING_SUBSCRIPTION_MODE
+        value: "one-time"
       - key: MP_DATA_DIR
         value: data
       - key: MP_MEDIA_SIGNING_SECRET

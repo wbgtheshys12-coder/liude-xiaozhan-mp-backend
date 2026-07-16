@@ -18,6 +18,10 @@ const MP_BOOKING_NOTIFY_ENABLED = process.env.MP_BOOKING_NOTIFY_ENABLED === "tru
 const MP_BOOKING_TEMPLATE_ID = process.env.MP_BOOKING_TEMPLATE_ID || "";
 const MP_BOOKING_TEMPLATE_FIELDS = parseJsonEnv("MP_BOOKING_TEMPLATE_FIELDS_JSON", {});
 const MP_BOOKING_MINIPROGRAM_STATE = process.env.MP_BOOKING_MINIPROGRAM_STATE || "formal";
+const MP_BOOKING_SUBSCRIPTION_MODE =
+  String(process.env.MP_BOOKING_SUBSCRIPTION_MODE || "one-time").trim().toLowerCase() === "long-term"
+    ? "long-term"
+    : "one-time";
 const MP_TEACHER_OPENIDS = parseJsonEnv("MP_TEACHER_OPENIDS_JSON", {});
 const MP_OWNER_OPENIDS = parseJsonEnv("MP_OWNER_OPENIDS_JSON", []);
 const MP_ADMIN_OPENIDS = parseJsonEnv("MP_ADMIN_OPENIDS_JSON", []);
@@ -603,8 +607,89 @@ async function handleDemoCase(req, res, caseId) {
   sendJson(res, 404, { error: `独立小程序后端未内置演示案例 ${caseId}。` });
 }
 
+const WINDOWS_1252_BYTES = {
+  "€": 0x80,
+  "‚": 0x82,
+  "ƒ": 0x83,
+  "„": 0x84,
+  "…": 0x85,
+  "†": 0x86,
+  "‡": 0x87,
+  "ˆ": 0x88,
+  "‰": 0x89,
+  "Š": 0x8a,
+  "‹": 0x8b,
+  "Œ": 0x8c,
+  "Ž": 0x8e,
+  "‘": 0x91,
+  "’": 0x92,
+  "“": 0x93,
+  "”": 0x94,
+  "•": 0x95,
+  "–": 0x96,
+  "—": 0x97,
+  "˜": 0x98,
+  "™": 0x99,
+  "š": 0x9a,
+  "›": 0x9b,
+  "œ": 0x9c,
+  "ž": 0x9e,
+  "Ÿ": 0x9f,
+};
+const MOJIBAKE_MARKERS = /[ÃÂâäåæçèéïð]/;
+
+function toLegacyByte(character) {
+  const code = character.charCodeAt(0);
+  if (code <= 0xff) return code;
+  return WINDOWS_1252_BYTES[character];
+}
+
+function decodeLegacyRun(run) {
+  if (!MOJIBAKE_MARKERS.test(run)) return run;
+  const bytes = [];
+  for (const character of run) {
+    const byte = toLegacyByte(character);
+    if (byte === undefined) return run;
+    bytes.push(byte);
+  }
+  const decoded = Buffer.from(bytes).toString("utf8");
+  const originalCjk = (run.match(/[\u3400-\u9fff]/g) || []).length;
+  const decodedCjk = (decoded.match(/[\u3400-\u9fff]/g) || []).length;
+  return decodedCjk > originalCjk && !decoded.includes("\ufffd") ? decoded : run;
+}
+
+function repairMojibake(value) {
+  const text = String(value || "");
+  if (!MOJIBAKE_MARKERS.test(text)) return text;
+  let output = "";
+  let legacyRun = "";
+  const flush = () => {
+    output += decodeLegacyRun(legacyRun);
+    legacyRun = "";
+  };
+  for (const character of text) {
+    if (toLegacyByte(character) !== undefined) {
+      legacyRun += character;
+    } else {
+      flush();
+      output += character;
+    }
+  }
+  flush();
+  return output;
+}
+
+function repairBookingRecordText(booking) {
+  if (!booking || typeof booking !== "object") return booking;
+  const repaired = { ...booking };
+  ["advisorName", "studentName", "dateDisplay", "dateTime", "note", "bookingText"].forEach((key) => {
+    repaired[key] = repairMojibake(repaired[key]);
+  });
+  return repaired;
+}
+
 function normalizeBookingText(value, maxLength = 20) {
-  return String(value || "")
+  return repairMojibake(value)
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, maxLength);
@@ -656,7 +741,7 @@ function normalizeBooking(body, session) {
     time,
     dateTime,
     note,
-    bookingText: String(bookingText || "").slice(0, 800),
+    bookingText: repairMojibake(bookingText).slice(0, 800),
     user: {
       openid: maskOpenid(session.openid),
       storageKey: createUserStorageKey(session.openid),
@@ -687,7 +772,7 @@ function readBookingRecords() {
       .filter(Boolean)
       .map((line) => {
         try {
-          return JSON.parse(line);
+          return repairBookingRecordText(JSON.parse(line));
         } catch (error) {
           return null;
         }
@@ -1167,7 +1252,7 @@ function buildBookingSubscribeData(booking) {
         };
 
   return Object.entries(fields).reduce((data, [templateKey, sourceKey]) => {
-    const rawValue = valueByName[sourceKey] || sourceKey;
+    const rawValue = repairMojibake(valueByName[sourceKey] || sourceKey);
     const value = /^time\d+$/i.test(templateKey)
       ? formatWechatBookingDateTime(booking.date, booking.time)
       : normalizeBookingText(rawValue, 20);
@@ -1411,6 +1496,7 @@ function handleBookingConfig(req, res) {
   if (!session) return;
   const roles = getSessionRoles(session);
   const diagnostics = getBookingTemplateDiagnostics();
+  const longTermAuthorization = MP_BOOKING_SUBSCRIPTION_MODE === "long-term";
 
   sendJson(res, 200, {
     ok: true,
@@ -1425,8 +1511,13 @@ function handleBookingConfig(req, res) {
     webhookCount: getBookingWebhookUrls().length,
     templateFieldKeys: diagnostics.keys,
     templateFieldsValid: diagnostics.valid,
-    oneTimeAuthorization: true,
-    authorizationHint: "一次性订阅授权通常在成功发送一条通知后消耗；老师收到通知后需要再次点击授权。",
+    subscriptionMode: MP_BOOKING_SUBSCRIPTION_MODE,
+    oneTimeAuthorization: !longTermAuthorization,
+    longTermAuthorization,
+    persistentDeliveryConfigured: Boolean(longTermAuthorization || getBookingWebhookUrls().length),
+    authorizationHint: longTermAuthorization
+      ? "当前按长期订阅模板配置；老师允许一次后可持续接收预约通知。"
+      : "当前是微信一次性订阅模板，一次授权只能发送一条通知；如需永久提醒，请改用长期订阅模板或企业群 Webhook。",
   });
 }
 
@@ -2523,6 +2614,7 @@ const server = http.createServer((req, res) => {
           (MP_BOOKING_NOTIFY_ENABLED && MP_BOOKING_TEMPLATE_ID && templateDiagnostics.valid && getAllTeacherOpenids().length)
       ),
       bookingNotifyAllTeachers: true,
+      bookingSubscriptionMode: MP_BOOKING_SUBSCRIPTION_MODE,
       bookingTeacherOpenidCount: getAllTeacherOpenids().length,
       bookingTeacherRoleCounts: Object.fromEntries(
         Object.entries(MP_TEACHER_OPENIDS).map(([key, values]) => [key, compactStringArray(values).length])
