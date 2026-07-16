@@ -1093,7 +1093,23 @@ function getAdvisorOpenids(advisorKey) {
 }
 
 function compactStringArray(values) {
-  return Array.from(new Set((values || []).flatMap((value) => (Array.isArray(value) ? value : [value])).map((value) => String(value || "").trim()).filter(Boolean)));
+  const normalized = [];
+
+  const append = (value) => {
+    if (Array.isArray(value)) {
+      value.forEach(append);
+      return;
+    }
+    if (value && typeof value === "object") {
+      Object.values(value).forEach(append);
+      return;
+    }
+    const text = String(value || "").trim();
+    if (text) normalized.push(text);
+  };
+
+  append(values);
+  return Array.from(new Set(normalized));
 }
 
 function getAllTeacherOpenids() {
