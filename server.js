@@ -1349,20 +1349,27 @@ async function sendWechatSubscribeMessage(openid, booking) {
   return { sent: true, channel: "wechat-subscribe", openid: maskOpenid(openid) };
 }
 
-async function sendBookingWebhook(url, booking) {
-  if (!url) return { sent: false, channel: "webhook", reason: "未配置预约 Webhook" };
-
-  const content = [
-    "留德小栈新预约",
+function buildBookingWebhookContent(booking, eventType = "created") {
+  const cancelled = eventType === "cancelled";
+  return [
+    cancelled ? "留德小栈预约已取消" : "留德小栈新预约",
     `学生：${booking.studentName}`,
     `顾问：${booking.advisorName}`,
-    `时间：${booking.dateDisplay} ${booking.time}`,
+    `${cancelled ? "原预约时间" : "时间"}：${booking.dateDisplay || booking.date} ${booking.time}`,
     `备注：${booking.note || "无"}`,
-  ].join("\n");
+    booking.id ? `预约编号：${booking.id}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+async function sendBookingWebhook(url, booking, eventType = "created") {
+  if (!url) return { sent: false, channel: "webhook", reason: "未配置预约 Webhook" };
+  const content = buildBookingWebhookContent(booking, eventType);
 
   const { payload } = await requestJson(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json; charset=utf-8" },
     body: JSON.stringify({
       msgtype: "text",
       text: { content },
@@ -1372,7 +1379,35 @@ async function sendBookingWebhook(url, booking) {
   if (payload.errcode && payload.errcode !== 0) {
     throw new Error(payload.errmsg || `预约 Webhook 发送失败：${payload.errcode}`);
   }
-  return { sent: true, channel: "webhook" };
+  return { sent: true, channel: "webhook", eventType };
+}
+
+async function sendBookingWebhookNotifications(booking, eventType) {
+  const webhookUrls = getBookingWebhookUrls();
+  if (!webhookUrls.length) {
+    return { configured: false, notified: false, message: "未配置预约 Webhook", channels: [] };
+  }
+
+  const settled = await Promise.allSettled(
+    webhookUrls.map((webhookUrl) => sendBookingWebhook(webhookUrl, booking, eventType))
+  );
+  const channels = settled
+    .filter((item) => item.status === "fulfilled" && item.value?.sent)
+    .map((item) => item.value);
+  if (channels.length) {
+    return {
+      configured: true,
+      notified: true,
+      message: eventType === "cancelled" ? "取消提醒已发送到企业群。" : "预约提醒已发送到企业群。",
+      channels,
+    };
+  }
+
+  const reason = settled
+    .map((item) => (item.status === "rejected" ? item.reason?.message : item.value?.reason))
+    .filter(Boolean)
+    .join("；");
+  return { configured: true, notified: false, message: reason || "企业群提醒发送失败。", channels: [] };
 }
 
 async function sendBookingNotifications(booking) {
@@ -1638,10 +1673,14 @@ async function handleCancelBooking(req, res) {
       return;
     }
 
+    const cancelNotifyResult = await sendBookingWebhookNotifications(records[index], "cancelled");
     sendJson(res, 200, {
       ok: true,
       message: "预约已取消，该时间段已释放。",
       booking: sanitizeBookingForUser(records[index]),
+      cancelNotificationConfigured: cancelNotifyResult.configured,
+      cancelNotified: cancelNotifyResult.notified,
+      cancelNotificationMessage: cancelNotifyResult.message,
     });
   } catch (error) {
     if (isJsonParseError(error)) {
@@ -2615,6 +2654,8 @@ const server = http.createServer((req, res) => {
       ),
       bookingNotifyAllTeachers: true,
       bookingSubscriptionMode: MP_BOOKING_SUBSCRIPTION_MODE,
+      bookingWebhookCount: getBookingWebhookUrls().length,
+      bookingCancellationNotificationConfigured: getBookingWebhookUrls().length > 0,
       bookingTeacherOpenidCount: getAllTeacherOpenids().length,
       bookingTeacherRoleCounts: Object.fromEntries(
         Object.entries(MP_TEACHER_OPENIDS).map(([key, values]) => [key, compactStringArray(values).length])
@@ -2821,6 +2862,7 @@ server.listen(PORT, () => {
 
 module.exports = server;
 module.exports.testHelpers = {
+  buildBookingWebhookContent,
   buildFallbackRecommendation,
   shouldUseRecommendationFallback,
 };
