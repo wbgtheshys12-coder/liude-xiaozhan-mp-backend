@@ -757,24 +757,24 @@ async function parseUploadedFiles(files) {
     const lowerName = String(file.name || "").toLowerCase();
     const mime = String(file.type || "").toLowerCase();
     let text = "";
-    let method = "未识别";
+    let method = "待补充";
     let template = null;
     if (mime.includes("pdf") || lowerName.endsWith(".pdf") || looksLikePdfBuffer(buffer)) {
       try {
         text = await extractTextFromPdf(buffer);
-        method = text.length > 30 ? "PDF 文本/OCR提取" : "PDF 文本提取有限";
+        method = text.length > 30 ? "PDF 课程整理" : "PDF 手动校对模式";
       } catch (error) {
         text = "";
-        method = "PDF 未识别";
+        method = "PDF 手动校对模式";
       }
     } else if (mime.startsWith("image/") || /\.(png|jpg|jpeg|webp)$/i.test(lowerName) || looksLikeImageBuffer(buffer)) {
       template = findKnownTranscriptTemplate(buffer, "", file);
       try {
         text = await extractTextFromImage(buffer);
-        method = text.length > 20 ? "图片 OCR" : "图片 OCR 有限";
+        method = text.length > 20 ? "图片课程整理" : "图片手动校对模式";
       } catch (error) {
         text = "";
-        method = template ? "成绩单模板识别" : "图片 OCR 暂不可用";
+        method = template ? "成绩单版式整理" : "图片手动校对模式";
       }
       if (!template) {
         template = findKnownTranscriptTemplate(buffer, text, file);
@@ -782,7 +782,7 @@ async function parseUploadedFiles(files) {
       if (template) {
         const templateText = buildKnownTemplateText(template);
         text = cleanText([text, templateText].filter(Boolean).join(" "));
-        method = method === "图片 OCR" ? "图片 OCR + 成绩单模板校正" : "成绩单模板识别";
+        method = method === "图片课程整理" ? "图片整理 + 成绩单版式校正" : "成绩单版式整理";
       }
     }
     const templateRows = template ? normalizeTemplateRows(template) : [];
@@ -826,7 +826,7 @@ function extractMajorFromText(text) {
   const compact = compactChineseSpacing(text);
   const match = compact.match(/专业[:：\s]*([\u4e00-\u9fa5A-Za-z0-9（）()·\- ]{2,34})/);
   if (match) {
-    return cleanText(match[1]).replace(/(学分|成绩|属性|考试时间).*$/, "").slice(0, 30);
+    return cleanText(match[1]).replace(/(课程名称?|科目|学分|成绩|属性|考试时间).*$/, "").slice(0, 30);
   }
   const englishPatterns = [
     /\bMajor\s*[:：]?\s*([A-Z][A-Za-z0-9 &()/.\-]{2,80}?)(?=\s+(?:Credit|Gredit|Course|Academic|Student|College|Date|Admission|Program|F\/M)\b|$)/i,
@@ -875,10 +875,30 @@ function collectDomainSignals(text) {
 function cleanCourseName(value) {
   return cleanText(value)
     .replace(/^(课程名|课程名称|课程|course|学分|成绩|属性|考试时间)\s*/i, "")
+    .replace(/^[A-Z]{1,4}\s+(?=[\u4e00-\u9fa5])/i, "")
     .replace(/[|:：]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 40);
+}
+
+function stripTranscriptPreamble(value) {
+  let source = cleanText(value);
+  const headerPatterns = [
+    /(?:course(?:\s+(?:title|name))?\s+)?(?:credits?|gredits?)\s+(?:grade|score)(?:\s+(?:semester|term))?/i,
+    /课程名称?.{0,16}学分.{0,16}成绩(?:.{0,16}学期)?/,
+    /科目.{0,16}学分.{0,16}成绩(?:.{0,16}学期)?/,
+  ];
+  for (const pattern of headerPatterns) {
+    const match = pattern.exec(source);
+    if (!match || match.index > Math.max(180, source.length * 0.45)) continue;
+    source = source.slice(match.index + match[0].length);
+    break;
+  }
+  return source.replace(
+    /(?:course(?:\s+(?:title|name))?\s+)?(?:credits?|gredits?)\s+(?:grade|score)(?:\s+(?:semester|term))?/gi,
+    " "
+  );
 }
 
 function normalizeTerm(value) {
@@ -895,6 +915,8 @@ function looksLikeValidTranscriptRow(row) {
   const numericGrade = Number(row.grade);
   if (!course || course.length < 2 || course.length > 40) return false;
   if (course.includes(SENSITIVE_TEXT_REPLACEMENT)) return false;
+  if (/20\d{2}/.test(course) || /\b\d{2,3}\b/.test(course)) return false;
+  if (/成绩单|课程名称?|科目|学分|成绩|transcript|credits?|gredits?|grade|semester|\bmajor\b/i.test(course)) return false;
   if (!Number.isFinite(credits) || credits <= 0 || credits > 12) return false;
   if (/^\d+$/.test(String(row.grade || "")) && (!Number.isFinite(numericGrade) || numericGrade < 0 || numericGrade > 100)) return false;
   if (/身份证|学号|姓名|毕业日期|入学日期|学制|院长签字/.test(course)) return false;
@@ -904,7 +926,7 @@ function looksLikeValidTranscriptRow(row) {
 function extractTranscriptRowsFromText(text) {
   const rows = [];
   const seen = new Set();
-  const source = compactChineseSpacing(text)
+  const source = stripTranscriptPreamble(compactChineseSpacing(text))
     .replace(/[，,]/g, " ")
     .replace(/([0-9])([一-龥A-Za-z])/g, "$1 $2")
     .replace(/([一-龥A-Za-z])([0-9](?:\.[0-9])?\s+(?:[0-9]{2,3}|及格|中等|优秀|良好|合格))/g, "$1 $2")
@@ -917,7 +939,7 @@ function extractTranscriptRowsFromText(text) {
       credits: cleanText(match[2]),
       grade: cleanText(match[3]),
       term: normalizeTerm(match[5] || ""),
-      note: match[4] ? `OCR识别：${cleanText(match[4])}` : "OCR识别，请核对",
+      note: match[4] ? `自动整理：${cleanText(match[4])}` : "自动整理，请核对",
     };
     if (!looksLikeValidTranscriptRow(row)) continue;
     const key = `${row.course}|${row.credits}|${row.grade}|${row.term}`;
@@ -943,6 +965,23 @@ function extractTranscriptRowsFromText(text) {
     rows.push(row);
     if (rows.length >= 60) break;
   }
+  const squashedCreditPattern =
+    /([\u4e00-\u9fa5A-Za-z][\u4e00-\u9fa5A-Za-z0-9（）()ⅠⅡⅢⅣIV\-·/ ]{1,44}?)\s+([1-9])0\s+([6-9][0-9]|100)\s*(必修|选修|任选|限选)?\s*(20\d{2}[-/.年]?\d{1,2})?/g;
+  for (const match of source.matchAll(squashedCreditPattern)) {
+    const row = {
+      course: cleanCourseName(match[1]),
+      credits: `${match[2]}.0`,
+      grade: cleanText(match[3]),
+      term: normalizeTerm(match[5] || ""),
+      note: match[4] ? `智能整理：${cleanText(match[4])}` : "智能整理，请核对",
+    };
+    if (!looksLikeValidTranscriptRow(row)) continue;
+    const key = `${row.course}|${row.credits}|${row.grade}|${row.term}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push(row);
+    if (rows.length >= 60) break;
+  }
   const englishRowPattern =
     /\b[A-Z0-9]{6,10}\s+([A-Z][A-Za-z0-9.,'’&()+/\- ]{2,88}?)\s+([0-9](?:\.[05])?)\s+(?:Y\s+)?([A-F][+-]?|P|EX|W|PASS|N\/A|[0-9]{2,3})\s+(?:N\/A|[0-4](?:\.\d)?)\s+(20\d{2}-(?:Autumn|Spring|Summer|Fall)|20\d{2}[A-Za-z-]*)/g;
   for (const match of source.matchAll(englishRowPattern)) {
@@ -951,7 +990,7 @@ function extractTranscriptRowsFromText(text) {
       credits: cleanText(match[2]),
       grade: cleanText(match[3]),
       term: cleanText(match[4]),
-      note: "英文成绩单OCR/文本识别，请核对",
+      note: "英文成绩单自动整理，请核对",
     };
     if (!looksLikeValidTranscriptRow(row)) continue;
     const key = `${row.course}|${row.credits}|${row.grade}|${row.term}`;
@@ -963,7 +1002,7 @@ function extractTranscriptRowsFromText(text) {
   return rows;
 }
 
-function appendOcrCourseRow(rows, seen, course, note = "OCR识别到课程名，请核对成绩和学分") {
+function appendOcrCourseRow(rows, seen, course, note = "已自动整理课程名，请核对成绩和学分") {
   const cleaned = cleanCourseName(course);
   const key = normalizeText(cleaned);
   if (!cleaned || cleaned.length < 3 || seen.has(key)) return;
@@ -1072,7 +1111,7 @@ function extractCourseNameRowsFromText(text) {
       const course = cleanCourseName(match[0]).replace(/\s+/g, "");
       if (!course || course.includes(SENSITIVE_TEXT_REPLACEMENT) || seen.has(course)) continue;
       seen.add(course);
-      rows.push({ course, grade: "", credits: "", term: "", note: "已从成绩单识别到课程名，请补充/核对成绩和学分" });
+      rows.push({ course, grade: "", credits: "", term: "", note: "已从成绩单整理出课程名，请补充/核对成绩和学分" });
       if (rows.length >= 50) return rows;
     }
   }
@@ -1100,7 +1139,16 @@ function buildTranscriptSummary(parsedFiles, profile = {}) {
   const transcriptText = cleanText([parsedFiles.map((file) => file.text).join(" "), templateRowsText, profileRowsText].join(" "));
   const textRows = extractTranscriptRowsFromText(transcriptText);
   const courseNameRows = textRows.length >= 3 ? [] : extractCourseNameRowsFromText(transcriptText);
-  const ocrRows = textRows.length ? textRows : courseNameRows;
+  const seenCourses = new Set(textRows.map((row) => normalizeText(row.course)));
+  const ocrRows = [
+    ...textRows,
+    ...courseNameRows.filter((row) => {
+      const key = normalizeText(row.course);
+      if (!key || seenCourses.has(key)) return false;
+      seenCourses.add(key);
+      return true;
+    }),
+  ].slice(0, 60);
   const scoreInfo = extractScoreFromTranscript([transcriptText, profile.gpa].join(" "));
   const templateMajor = cleanText(parsedFiles.find((file) => file.templateMajor)?.templateMajor || "");
   const major = templateMajor || extractMajorFromText(transcriptText) || cleanText(profile.major);
@@ -1113,11 +1161,11 @@ function buildTranscriptSummary(parsedFiles, profile = {}) {
 
   const summaryBits = [];
   if (parsedFiles.length) summaryBits.push(`已读取 ${parsedFiles.length} 份成绩单`);
-  if (templateRows.length) summaryBits.push(`已按成绩单模板识别 ${templateRows.length} 行课程`);
+  if (templateRows.length) summaryBits.push(`已按成绩单版式整理 ${templateRows.length} 行课程`);
   if (profileRows.length) summaryBits.push(`已纳入 ${profileRows.length} 行校对课程`);
-  if (!templateRows.length && !profileRows.length && ocrRows.length) summaryBits.push(`已从OCR文本提取 ${ocrRows.length} 个课程信号`);
-  if (scoreInfo?.raw) summaryBits.push(`识别到成绩 ${scoreInfo.raw}`);
-  if (major) summaryBits.push(`识别到专业 ${major}`);
+  if (!templateRows.length && !profileRows.length && ocrRows.length) summaryBits.push(`已自动整理 ${ocrRows.length} 个课程信号`);
+  if (scoreInfo?.raw) summaryBits.push(`已整理成绩 ${scoreInfo.raw}`);
+  if (major) summaryBits.push(`已整理专业 ${major}`);
   if (signals.keywords.length) summaryBits.push(`课程关键词 ${signals.keywords.slice(0, 4).join("、")}`);
   if (sensitiveHidden) summaryBits.push("政治敏感课程/人物信息已按合规规则隐藏");
   if (!summaryBits.length) summaryBits.push("请补充手动课程表或匹配度调查表，系统将结合现有资料继续匹配");
@@ -1158,7 +1206,7 @@ function summarizeParsedFiles(files, parsedFiles = []) {
     type: String(file.type || ""),
     extractedTextLength: parsedFiles[index]?.textLength || 0,
     extractedTextPreview: parsedFiles[index]?.text ? parsedFiles[index].text.slice(0, 240) : "",
-    extractionMethod: parsedFiles[index]?.method || "未解析",
+    extractionMethod: parsedFiles[index]?.method || "待补充",
   }));
 }
 
@@ -2074,7 +2122,7 @@ function buildStandaloneRecommendation(profile, transcriptSummary) {
 
   const target = cleanText(profile.targetField || profile.major || "当前申请方向");
   const warnings = [];
-  if (transcriptSummary.confidence === "低") warnings.push("成绩单识别/校对信息有限，推荐结果已保守处理。");
+  if (transcriptSummary.confidence === "低") warnings.push("当前课程依据较少，推荐结果已保守处理。");
   if (!cleanText(profile.targetField)) warnings.push("缺少明确目标方向，系统更多依赖当前专业和课程关键词。");
   const strengths = [];
   if (context.domains.length && !context.domains.includes("general")) strengths.push(`识别到方向信号：${context.domains.slice(0, 4).join("、")}`);
@@ -2082,7 +2130,7 @@ function buildStandaloneRecommendation(profile, transcriptSummary) {
 
   return {
     studentSummary: `已使用小程序独立推荐引擎，为“${target}”生成 ${ranked.length} 个德国院校专业候选。`,
-    positioning: "推荐基于本地专业库、已填写资料、成绩单识别/校对表和规则评分生成，不依赖网页版服务。",
+    positioning: "推荐基于本地专业库、已填写资料、成绩单与课程信息表、规则评分生成，不依赖网页版服务。",
     transcriptSummary,
     inputQuality: {
       level: transcriptSummary.confidence === "高" && target ? "中高" : transcriptSummary.confidence,
@@ -2092,7 +2140,7 @@ function buildStandaloneRecommendation(profile, transcriptSummary) {
     },
     accuracyNotes: [
       "小程序后端已独立完成成绩单解析和院校推荐，不再转发到网页版。",
-      "若照片/PDF存在反光、折弯、裁切或扫描图层不可读，系统会保留可校对表格并继续生成保守推荐。",
+      "当照片/PDF版式或图片质量影响自动整理时，系统会保留可编辑课程表，并继续根据已填信息生成保守推荐。",
       "政治敏感课程/人物信息会自动隐藏，不进入对外展示和推荐报告。",
     ],
     recommendationQuality: {

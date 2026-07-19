@@ -65,10 +65,20 @@ test("user, booking, transcript, recommendation, course, upload and PDF flows", 
   const forcedFallback = server.testHelpers.buildFallbackRecommendation({ targetField: "机械工程" }, rateLimitError);
   assert.equal(forcedFallback.recommendations.length, 6);
   assert.equal(forcedFallback.source, "mini-program-local-fallback");
+  assert.doesNotMatch(JSON.stringify(forcedFallback), /无法识别|识别失败|识别不了|不可读|上游服务提示/);
   const gradeFirstRows = localEngine.testHelpers.extractTranscriptRowsFromText("材料力学 88 4.0 必修 2025-01");
   assert.equal(gradeFirstRows[0].course, "材料力学");
   assert.equal(gradeFirstRows[0].grade, "88");
   assert.equal(gradeFirstRows[0].credits, "4.0");
+  const englishHeaderRows = localEngine.testHelpers.extractTranscriptRowsFromText(
+    "OFFICIAL TRANSCRIPT Major Mechanical Engineering Course Credits Grade Semester Engineering Mathematics 5.0 88 2024-09 Thermodynamics 4.0 91 2025-01"
+  );
+  assert.equal(englishHeaderRows[0].course, "Engineering Mathematics");
+  assert.equal(englishHeaderRows[0].grade, "88");
+  const squashedCreditRows = localEngine.testHelpers.extractTranscriptRowsFromText(
+    "本科成绩单 专业 机械工程 课程名称 学分 成绩 学期 高等数学 50 88 2024-09 材料力学 40 91 2025-01"
+  );
+  assert.ok(squashedCreditRows.some((row) => row.course === "高等数学" && row.credits === "5.0" && row.grade === "88"));
 
   const health = await requestJson("/health");
   assert.equal(health.response.status, 200);
@@ -160,7 +170,18 @@ test("user, booking, transcript, recommendation, course, upload and PDF flows", 
   });
   assert.equal(transcript.response.status, 200);
   assert.equal(JSON.stringify(transcript.payload).includes("习近平"), false);
+  assert.doesNotMatch(JSON.stringify(transcript.payload), /无法识别|识别失败|识别不了|未识别|不可读/);
   assert.match(transcript.payload.transcriptSummary.privacyNote, /敏感|隐藏/);
+
+  const manualTranscript = await requestJson("/api/mp/transcript-preview", {
+    token: userToken,
+    body: {
+      profile: { major: "机械工程" },
+      files: [{ name: "模糊测试.pdf", type: "application/pdf", content: `data:application/pdf;base64,${Buffer.from("%PDF-1.4\n% blank test\n").toString("base64")}` }],
+    },
+  });
+  assert.equal(manualTranscript.response.status, 200);
+  assert.doesNotMatch(JSON.stringify(manualTranscript.payload), /无法识别|识别失败|识别不了|未识别|不可读/);
 
   const recommendation = await requestJson("/api/mp/recommend", {
     token: userToken,
@@ -174,6 +195,16 @@ test("user, booking, transcript, recommendation, course, upload and PDF flows", 
     assert.ok(item.reason);
     assert.ok(item.detail);
   });
+  const majorOnlyRecommendation = await requestJson("/api/mp/recommend", {
+    token: userToken,
+    body: { major: "计算机科学", recommendationCount: 6 },
+  });
+  assert.equal(majorOnlyRecommendation.response.status, 200);
+  assert.equal(majorOnlyRecommendation.payload.recommendations.length, 6);
+  assert.match(
+    majorOnlyRecommendation.payload.recommendations.slice(0, 3).map((item) => item.program).join(" "),
+    /Computer|Informatik|Data|Software/i
+  );
 
   const savedProfile = await requestJson("/api/mp/profile", {
     token: userToken,

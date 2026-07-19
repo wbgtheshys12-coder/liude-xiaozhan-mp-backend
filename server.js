@@ -398,8 +398,8 @@ function buildFallbackRecommendation(body, error) {
       extractedScoreText: body?.gpa || "待补充",
       extractedMajor: body?.major || "待补充",
       keywords: domains,
-      summary: "本次使用本地数据库兜底生成；如上传文件未被稳定识别，仍会继续给出初步推荐。",
-      preview: "资料不完整或上游繁忙时，系统已自动切换到本地数据库兜底推荐。",
+      summary: "已根据当前上传文件和已填写信息整理课程依据；资料较少时仍会继续给出初步推荐。",
+      preview: "当前已根据专业、目标方向和本地院校专业数据库完成初步推荐。",
     },
     inputQuality: {
       level: "低",
@@ -408,13 +408,12 @@ function buildFallbackRecommendation(body, error) {
       strengths: domains.includes("general") ? [] : ["已根据已填写文本识别到初步申请方向。"],
     },
     accuracyNotes: [
-      "当前为本地数据库兜底推荐，已经避免 429 或资料不完整导致流程中断。",
+      "已根据当前信息和本地院校专业数据库完成初步推荐。",
       "由于学生资料尚不完整，匹配度做了保守处理，结果适合作为初筛清单。",
-      error?.message ? `上游服务提示：${error.message}` : "",
     ].filter(Boolean),
     recommendationQuality: {
-      level: "基础",
-      notes: ["兜底结果来自本地规则和院校专业候选库，正式递交前仍需顾问核对官网要求。"],
+      level: "基础专业库",
+      notes: ["结果来自本地规则和院校专业候选库，正式递交前仍需顾问核对官网要求。"],
     },
     recommendationCount: selected.length,
     recommendations: selected.map((program, index) => ({
@@ -428,7 +427,7 @@ function buildFallbackRecommendation(body, error) {
       evaluation: "可作为初筛候选",
       reason: `根据已填写的${target}方向和本地数据库信号，暂列为初步候选；资料补全后建议重新生成精确排序。`,
       detail: {
-        matchReasonDetails: ["本地数据库兜底推荐", "资料完整度较低，匹配度已保守处理"],
+        matchReasonDetails: ["本地院校专业数据库", "资料完整度较低，匹配度已保守处理"],
         fitHighlights: ["方向存在初步相关性，可进入顾问复核。"],
         riskHighlights: ["需要补充课程、成绩和语言信息后再判断申请把握。"],
         requirementHighlights: ["正式申请前请核对官网 Zulassungsvoraussetzungen、语言要求和截止日期。"],
@@ -438,12 +437,12 @@ function buildFallbackRecommendation(body, error) {
           ects: "",
           languages: [],
           applicationPeriod: "",
-          catalogCoverage: "兜底候选",
+          catalogCoverage: "基础候选",
           catalogCoverageScore: 45,
         },
       },
       qualityAudit: {
-        status: "兜底推荐，需人工复核",
+        status: "初步推荐，需人工复核",
         evidenceScore: 45,
         level: "基础",
       },
@@ -454,7 +453,7 @@ function buildFallbackRecommendation(body, error) {
       enabled: false,
       status: "fallback",
       model: "",
-      summary: "上游繁忙或资料不足时，已自动切换为本地数据库兜底推荐。",
+      summary: "本次已使用小程序独立专业库完成初步推荐。",
       reliabilityNotes: [],
     },
   };
@@ -587,7 +586,7 @@ async function handleUserLogin(req, res) {
       sendBadJson(res);
       return;
     }
-    sendJson(res, 500, { error: error.message || "微信登录失败。" });
+    sendJson(res, 500, { error: "微信登录暂时未完成，请稍后重试。" });
   }
 }
 
@@ -1536,7 +1535,7 @@ async function handleBooking(req, res) {
     sendJson(res, error.statusCode || 500, {
       ok: false,
       notified: false,
-      error: error.message || "预约提交失败，请稍后重试。",
+      error: "预约提交暂时未完成，已填信息仍会保留，请稍后重试。",
       channels: [],
     });
   }
@@ -1733,7 +1732,7 @@ async function handleCancelBooking(req, res) {
       sendBadJson(res);
       return;
     }
-    sendJson(res, 500, { ok: false, error: error.message || "预约取消失败，请稍后再试。" });
+    sendJson(res, 500, { ok: false, error: "预约取消暂时未完成，请稍后再试。" });
   }
 }
 
@@ -1846,7 +1845,7 @@ async function handleAdminCourseSave(req, res) {
       sendBadJson(res);
       return;
     }
-    sendJson(res, 500, { error: error.message || "课程保存失败。" });
+    sendJson(res, 500, { error: "课程保存暂时未完成，请稍后重试。" });
   }
 }
 
@@ -1900,7 +1899,7 @@ async function handleAdminCourseVideoUpload(req, res) {
       sendBadJson(res);
       return;
     }
-    sendJson(res, 500, { error: error.message || "课程视频上传失败。" });
+    sendJson(res, 500, { error: "课程视频上传暂时未完成，请稍后重试。" });
   }
 }
 
@@ -1982,7 +1981,7 @@ async function handleMaterialUpload(req, res) {
       sendJson(res, 413, { error: "上传文件过大，请减少文件数量或压缩后再试。" });
       return;
     }
-    sendJson(res, 500, { error: error.message || "材料上传失败。" });
+    sendJson(res, 500, { error: "材料上传暂时未完成，请稍后重试。" });
   }
 }
 
@@ -2104,7 +2103,7 @@ async function handleDeleteMaterial(req, res) {
       sendBadJson(res);
       return;
     }
-    sendJson(res, 500, { error: error.message || "资料删除失败。" });
+    sendJson(res, 500, { error: "资料删除暂时未完成，请稍后重试。" });
   }
 }
 
@@ -2230,7 +2229,7 @@ async function handleUserMessageSend(req, res) {
       sendBadJson(res);
       return;
     }
-    sendJson(res, 500, { error: error.message || "消息发送失败。" });
+    sendJson(res, 500, { error: "消息发送暂时未完成，请稍后重试。" });
   }
 }
 
@@ -2293,7 +2292,7 @@ async function handleAdminMessageReply(req, res) {
       sendBadJson(res);
       return;
     }
-    sendJson(res, 500, { error: error.message || "回复发送失败。" });
+    sendJson(res, 500, { error: "回复发送暂时未完成，请稍后重试。" });
   }
 }
 
@@ -2385,7 +2384,7 @@ async function handleUsageEvent(req, res) {
       sendBadJson(res);
       return;
     }
-    sendJson(res, 500, { error: error.message || "使用记录写入失败。" });
+    sendJson(res, 500, { error: "使用记录暂时未保存，请稍后重试。" });
   }
 }
 
@@ -2449,7 +2448,7 @@ async function handleSaveProfile(req, res) {
       sendBadJson(res);
       return;
     }
-    sendJson(res, 500, { error: error.message || "个人信息保存失败。" });
+    sendJson(res, 500, { error: "个人信息暂时未保存，请稍后重试。" });
   }
 }
 
@@ -2488,7 +2487,7 @@ async function handleBindCompanyAccount(req, res) {
       sendBadJson(res);
       return;
     }
-    sendJson(res, 500, { error: error.message || "公司账户绑定失败。" });
+    sendJson(res, 500, { error: "公司账户暂时未绑定，请稍后重试。" });
   }
 }
 
@@ -2578,7 +2577,7 @@ async function handleRecommend(req, res) {
     const fallback = buildFallbackRecommendation(body, error);
     recordUsage(session, "recommendation.fallback", {
       count: Array.isArray(fallback.recommendations) ? fallback.recommendations.length : 0,
-      reason: String(error.message || "unknown").slice(0, 120),
+      reason: Number(error.statusCode || 0) ? `status-${Number(error.statusCode)}` : "engine-fallback",
     });
     sendJson(res, 200, fallback);
   }
@@ -2678,7 +2677,7 @@ async function handleMaterialDraft(req, res) {
       sendBadJson(res);
       return;
     }
-    sendJson(res, error.statusCode || 502, { error: `材料初稿生成失败：${error.message}` });
+    sendJson(res, error.statusCode || 502, { error: "材料初稿暂未生成，请检查必填内容后重试。" });
   }
 }
 
@@ -2852,7 +2851,7 @@ async function handleDocumentPdf(req, res) {
       sendBadJson(res);
       return;
     }
-    sendJson(res, 500, { error: error.message || "PDF 生成失败。" });
+    sendJson(res, 500, { error: "PDF 暂时未生成，请稍后重试。" });
   }
 }
 
