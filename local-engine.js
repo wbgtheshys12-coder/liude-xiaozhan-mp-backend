@@ -926,6 +926,23 @@ function extractTranscriptRowsFromText(text) {
     rows.push(row);
     if (rows.length >= 60) break;
   }
+  const gradeFirstRowPattern =
+    /([\u4e00-\u9fa5A-Za-z][\u4e00-\u9fa5A-Za-z0-9（）()ⅠⅡⅢⅣIV\-·/ ]{1,44}?)\s+([6-9][0-9]|100|及格|中等|优秀|良好|合格)\s+([0-9](?:\.[0-9])?)\s*(必修|选修|任选|限选)?\s*(20\d{2}[-/.年]?\d{1,2})?/g;
+  for (const match of source.matchAll(gradeFirstRowPattern)) {
+    const row = {
+      course: cleanCourseName(match[1]),
+      grade: cleanText(match[2]),
+      credits: cleanText(match[3]),
+      term: normalizeTerm(match[5] || ""),
+      note: match[4] ? `智能整理：${cleanText(match[4])}` : "智能整理，请核对",
+    };
+    if (!looksLikeValidTranscriptRow(row)) continue;
+    const key = `${row.course}|${row.credits}|${row.grade}|${row.term}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push(row);
+    if (rows.length >= 60) break;
+  }
   const englishRowPattern =
     /\b[A-Z0-9]{6,10}\s+([A-Z][A-Za-z0-9.,'’&()+/\- ]{2,88}?)\s+([0-9](?:\.[05])?)\s+(?:Y\s+)?([A-F][+-]?|P|EX|W|PASS|N\/A|[0-9]{2,3})\s+(?:N\/A|[0-4](?:\.\d)?)\s+(20\d{2}-(?:Autumn|Spring|Summer|Fall)|20\d{2}[A-Za-z-]*)/g;
   for (const match of source.matchAll(englishRowPattern)) {
@@ -1103,7 +1120,7 @@ function buildTranscriptSummary(parsedFiles, profile = {}) {
   if (major) summaryBits.push(`识别到专业 ${major}`);
   if (signals.keywords.length) summaryBits.push(`课程关键词 ${signals.keywords.slice(0, 4).join("、")}`);
   if (sensitiveHidden) summaryBits.push("政治敏感课程/人物信息已按合规规则隐藏");
-  if (!summaryBits.length) summaryBits.push("未从成绩单中识别到足够文字，将主要依据表单信息匹配");
+  if (!summaryBits.length) summaryBits.push("请补充手动课程表或匹配度调查表，系统将结合现有资料继续匹配");
 
   return {
     transcriptText,
@@ -1117,7 +1134,7 @@ function buildTranscriptSummary(parsedFiles, profile = {}) {
     sensitiveHidden,
     privacyNote: "政治敏感课程/人物信息会自动隐藏，不进入对外展示和推荐报告；院校匹配仍会根据非敏感课程、专业、成绩和目标方向继续进行。",
     summary: `${summaryBits.join("；")}。`,
-    preview: transcriptText ? `${transcriptText.slice(0, 180)}${transcriptText.length > 180 ? "..." : ""}` : "当前成绩单未识别出稳定文本，建议上传更清晰的 PDF 或图片。",
+    preview: transcriptText ? `${transcriptText.slice(0, 180)}${transcriptText.length > 180 ? "..." : ""}` : "可以上传更清晰的 PDF/图片，或直接通过手动课程表补充信息。",
     rowsFromTemplate: templateRows,
     rowsFromProfile: profileRows,
     rowsFromOcr: ocrRows,
@@ -1131,7 +1148,7 @@ function buildTranscriptPreviewRows(transcriptSummary) {
   if (transcriptSummary.extractedScoreText) {
     return [{ course: "综合成绩 / GPA", grade: transcriptSummary.extractedScoreText, credits: "", term: "", note: "从成绩单文字中识别到综合成绩，请核对" }];
   }
-  return [{ course: "待校对课程", grade: "", credits: "", term: "", note: "图片/PDF文字未稳定识别，请手动录入关键课程、成绩和学分" }];
+  return [{ course: "待校对课程", grade: "", credits: "", term: "", note: "请通过手动课程表补充关键课程、成绩和学分" }];
 }
 
 function summarizeParsedFiles(files, parsedFiles = []) {
@@ -1152,7 +1169,7 @@ async function createTranscriptPreview(body = {}) {
   const rows = buildTranscriptPreviewRows(transcriptSummary);
   const warnings = [];
   if (transcriptSummary.sensitiveHidden) warnings.push("政治敏感课程/人物信息已自动隐藏，推荐仍会继续。");
-  if (transcriptSummary.confidence === "低") warnings.push("成绩单识别置信度较低，请先核对课程、成绩和学分。");
+  if (transcriptSummary.confidence === "低") warnings.push("当前课程信息较少，请核对课程、成绩和学分，或填写匹配度调查表。");
   const summary = {
     confidence: transcriptSummary.confidence,
     extractedScoreText: transcriptSummary.extractedScoreText,
@@ -2208,4 +2225,7 @@ module.exports = {
   createMaterialDraft,
   parseUploadedFiles,
   buildTranscriptSummary,
+  testHelpers: {
+    extractTranscriptRowsFromText,
+  },
 };
