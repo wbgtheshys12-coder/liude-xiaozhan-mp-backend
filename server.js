@@ -25,6 +25,8 @@ const MP_BOOKING_SUBSCRIPTION_MODE =
 const MP_TEACHER_OPENIDS = parseJsonEnv("MP_TEACHER_OPENIDS_JSON", {});
 const MP_OWNER_OPENIDS = parseJsonEnv("MP_OWNER_OPENIDS_JSON", []);
 const MP_ADMIN_OPENIDS = parseJsonEnv("MP_ADMIN_OPENIDS_JSON", []);
+const MP_ADMIN_WEB_TOKEN = String(process.env.MP_ADMIN_WEB_TOKEN || "").trim();
+const MP_DOCUMENT_DOWNLOAD_FREE = process.env.MP_DOCUMENT_DOWNLOAD_FREE !== "false";
 const MP_BOOKING_WEBHOOK_URL = process.env.MP_BOOKING_WEBHOOK_URL || "";
 const MP_BOOKING_TEACHER_WEBHOOKS = parseJsonEnv("MP_BOOKING_TEACHER_WEBHOOKS_JSON", {});
 const MP_DATA_DIR = process.env.MP_DATA_DIR || path.join(__dirname, "data");
@@ -34,6 +36,7 @@ const MP_COURSES_FILE = process.env.MP_COURSES_FILE || path.join(MP_DATA_DIR, "c
 const MP_UPLOADS_FILE = process.env.MP_UPLOADS_FILE || path.join(MP_DATA_DIR, "uploads.jsonl");
 const MP_PROFILES_FILE = process.env.MP_PROFILES_FILE || path.join(MP_DATA_DIR, "profiles.jsonl");
 const MP_USAGE_FILE = process.env.MP_USAGE_FILE || path.join(MP_DATA_DIR, "usage.jsonl");
+const MP_MESSAGES_FILE = process.env.MP_MESSAGES_FILE || path.join(MP_DATA_DIR, "messages.jsonl");
 const MP_STUDENT_UPLOAD_DIR = process.env.MP_STUDENT_UPLOAD_DIR || path.join(MP_DATA_DIR, "student-uploads");
 const MP_COURSE_VIDEO_DIR = process.env.MP_COURSE_VIDEO_DIR || path.join(MP_DATA_DIR, "course-videos");
 const MP_MAX_STORED_FILE_BYTES = Number(process.env.MP_MAX_STORED_FILE_BYTES || 12 * 1024 * 1024);
@@ -64,6 +67,7 @@ const MP_BOOKING_TIMES = normalizeTimeList(
 );
 const MP_BOOKING_TIMEZONE_OFFSET_MINUTES = Number(process.env.MP_BOOKING_TIMEZONE_OFFSET_MINUTES || 8 * 60);
 const MAX_REQUEST_BYTES = Number(process.env.MAX_REQUEST_BYTES || 40 * 1024 * 1024);
+const ADMIN_WEB_DIR = path.join(__dirname, "admin-web");
 
 const sessions = new Map();
 let wechatAccessToken = { value: "", expiresAt: 0 };
@@ -238,6 +242,18 @@ function createSession(session) {
 function getSession(req) {
   const token = getBearerToken(req);
   if (!token) return null;
+  if (MP_ADMIN_WEB_TOKEN && token.length === MP_ADMIN_WEB_TOKEN.length) {
+    const provided = Buffer.from(token, "utf8");
+    const expected = Buffer.from(MP_ADMIN_WEB_TOKEN, "utf8");
+    if (crypto.timingSafeEqual(provided, expected)) {
+      return {
+        mode: "admin-web",
+        openid: `admin-web-${crypto.createHash("sha256").update(MP_ADMIN_WEB_TOKEN).digest("hex").slice(0, 12)}`,
+        adminWeb: true,
+        entitlements: { recommendationCount: true, materialAssistant: true },
+      };
+    }
+  }
   return sessions.get(token) || null;
 }
 
@@ -379,8 +395,8 @@ function buildFallbackRecommendation(body, error) {
       filesRead: Array.isArray(body?.files) ? body.files.length : 0,
       methods: [],
       confidence: "低",
-      extractedScoreText: body?.gpa || "未稳定识别",
-      extractedMajor: body?.major || "未稳定识别",
+      extractedScoreText: body?.gpa || "待补充",
+      extractedMajor: body?.major || "待补充",
       keywords: domains,
       summary: "本次使用本地数据库兜底生成；如上传文件未被稳定识别，仍会继续给出初步推荐。",
       preview: "资料不完整或上游繁忙时，系统已自动切换到本地数据库兜底推荐。",
@@ -682,7 +698,7 @@ function repairMojibake(value) {
 function repairBookingRecordText(booking) {
   if (!booking || typeof booking !== "object") return booking;
   const repaired = { ...booking };
-  ["advisorName", "studentName", "dateDisplay", "dateTime", "note", "bookingText"].forEach((key) => {
+  ["advisorName", "studentName", "contact", "major", "applicationLevel", "dateDisplay", "dateTime", "note", "bookingText"].forEach((key) => {
     repaired[key] = repairMojibake(repaired[key]);
   });
   return repaired;
@@ -701,8 +717,16 @@ function normalizeBooking(body, session) {
   const time = normalizeBookingText(body.time, 12);
   const advisorKey = normalizeBookingText(body.advisorKey || "a1", 20);
   const advisorName = normalizeBookingText(body.advisorName || (advisorKey === "a2" ? "陆老师" : "张老师"), 20);
-  const studentName = normalizeBookingText(body.studentName || "微信用户", 20);
+  const studentName = normalizeBookingText(body.studentName, 20);
+  const contact = normalizeBookingText(body.contact, 80);
+  const major = normalizeBookingText(body.major, 80);
+  const applicationLevel = normalizeBookingText(body.applicationLevel || body.targetDegree, 20);
   const note = normalizeBookingText(body.note || "预约德国留学申请沟通", 50);
+  if (!studentName || !contact || !major || !["本科", "硕士"].includes(applicationLevel)) {
+    const error = new Error("请完整填写预约人姓名、联系方式、当前专业和申请层次（本科/硕士）。");
+    error.statusCode = 400;
+    throw error;
+  }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     const error = new Error("预约日期格式不正确，请重新选择日期。");
     error.statusCode = 400;
@@ -725,6 +749,9 @@ function normalizeBooking(body, session) {
     [
       "留德小栈预约信息",
       `学生：${studentName}`,
+      `联系方式：${contact}`,
+      `当前专业：${major}`,
+      `申请层次：${applicationLevel}`,
       `日期：${dateDisplay}`,
       `时间：${time}`,
       `顾问：${advisorName}`,
@@ -736,6 +763,9 @@ function normalizeBooking(body, session) {
     advisorKey,
     advisorName,
     studentName,
+    contact,
+    major,
+    applicationLevel,
     date,
     dateDisplay,
     time,
@@ -1213,11 +1243,15 @@ function getSessionRoles(session) {
   const isTeacher = Boolean(openid && teacherAdvisorKeys.length);
   const isOwner = Boolean(openid && compactStringArray(MP_OWNER_OPENIDS).includes(openid));
   const isPlatformAdmin = Boolean(openid && compactStringArray(MP_ADMIN_OPENIDS).includes(openid));
+  const isAdminWeb = Boolean(session?.adminWeb);
+  const isAdmin = isTeacher || isOwner || isPlatformAdmin || isAdminWeb;
   return {
     isTeacher,
     isOwner,
     isPlatformAdmin,
-    isAdmin: isTeacher || isOwner || isPlatformAdmin,
+    isAdminWeb,
+    isAdmin,
+    canManageCourses: isAdmin,
     canSubscribeBookingNotice: isTeacher,
     teacherAdvisorKeys,
   };
@@ -1234,6 +1268,9 @@ function getBookingWebhookUrls() {
 function buildBookingSubscribeData(booking) {
   const valueByName = {
     studentName: booking.studentName,
+    contact: booking.contact,
+    major: booking.major,
+    applicationLevel: booking.applicationLevel,
     advisorName: booking.advisorName,
     dateTime: booking.dateTime,
     date: booking.dateDisplay || booking.date,
@@ -1270,7 +1307,7 @@ function formatWechatBookingDateTime(date, time) {
 
 function getBookingTemplateDiagnostics() {
   const entries = Object.entries(MP_BOOKING_TEMPLATE_FIELDS || {});
-  const allowedSources = new Set(["studentName", "advisorName", "dateTime", "date", "time", "courseName", "note"]);
+  const allowedSources = new Set(["studentName", "contact", "major", "applicationLevel", "advisorName", "dateTime", "date", "time", "courseName", "note"]);
   const invalidKeys = entries
     .map(([key]) => key)
     .filter((key) => !/^(thing|time|date|name|phrase|number|character_string)\d+$/i.test(key));
@@ -1354,6 +1391,9 @@ function buildBookingWebhookContent(booking, eventType = "created") {
   return [
     cancelled ? "留德小栈预约已取消" : "留德小栈新预约",
     `学生：${booking.studentName}`,
+    `联系方式：${booking.contact || "未填写"}`,
+    `当前专业：${booking.major || "未填写"}`,
+    `申请层次：${booking.applicationLevel || "未填写"}`,
     `顾问：${booking.advisorName}`,
     `${cancelled ? "原预约时间" : "时间"}：${booking.dateDisplay || booking.date} ${booking.time}`,
     `备注：${booking.note || "无"}`,
@@ -1562,6 +1602,9 @@ function sanitizeBookingForAdmin(booking) {
     advisorKey: booking.advisorKey,
     advisorName: booking.advisorName,
     studentName: booking.studentName,
+    contact: booking.contact || "",
+    major: booking.major || "",
+    applicationLevel: booking.applicationLevel || "",
     date: booking.date,
     dateDisplay: booking.dateDisplay,
     time: booking.time,
@@ -1589,6 +1632,9 @@ function sanitizeBookingForUser(booking) {
     advisorKey: booking.advisorKey,
     advisorName: booking.advisorName,
     studentName: booking.studentName,
+    contact: booking.contact || "",
+    major: booking.major || "",
+    applicationLevel: booking.applicationLevel || "",
     date: booking.date,
     dateDisplay: booking.dateDisplay,
     time: booking.time,
@@ -2080,6 +2126,177 @@ function handleAdminUploads(req, res) {
   });
 }
 
+function sanitizeCustomerMessage(record = {}) {
+  return {
+    id: normalizeBookingText(record.id, 100),
+    direction: record.direction === "staff" ? "staff" : "user",
+    content: normalizeLongText(repairMojibake(record.content), 1000),
+    senderLabel: normalizeBookingText(record.senderLabel || (record.direction === "staff" ? "留德小栈客服" : "我"), 40),
+    createdAt: record.createdAt || "",
+  };
+}
+
+function getMessageSenderLabel(session) {
+  const roles = getSessionRoles(session);
+  if (roles.isTeacher) return "留德小栈老师";
+  if (roles.isOwner) return "留德小栈负责人";
+  if (roles.isPlatformAdmin) return "留德小栈客服";
+  if (roles.isAdminWeb) return "留德小栈后台";
+  return "留德小栈客服";
+}
+
+function buildAdminMessageConversations() {
+  const records = readJsonlFile(MP_MESSAGES_FILE)
+    .filter((record) => record?.user?.storageKey)
+    .sort((a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || "")))
+    .slice(-2000);
+  const profileMap = new Map(
+    readJsonlFile(MP_PROFILES_FILE)
+      .filter((profile) => profile?.storageKey)
+      .map((profile) => [profile.storageKey, sanitizeProfile(profile)])
+  );
+  const groups = new Map();
+  records.forEach((record) => {
+    const storageKey = String(record.user.storageKey || "");
+    if (!groups.has(storageKey)) {
+      const profile = profileMap.get(storageKey) || {};
+      groups.set(storageKey, {
+        storageKey,
+        studentName: normalizeBookingText(record.studentName || profile.name || "微信用户", 40),
+        contact: normalizeBookingText(profile.contact, 80),
+        messages: [],
+        lastMessageAt: "",
+      });
+    }
+    const conversation = groups.get(storageKey);
+    conversation.messages.push(sanitizeCustomerMessage(record));
+    conversation.lastMessageAt = record.createdAt || conversation.lastMessageAt;
+  });
+  return Array.from(groups.values())
+    .map((conversation) => ({ ...conversation, messages: conversation.messages.slice(-100) }))
+    .sort((a, b) => String(b.lastMessageAt || "").localeCompare(String(a.lastMessageAt || "")))
+    .slice(0, 200);
+}
+
+function handleUserMessages(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return;
+  const storageKey = getSessionStorageKey(session);
+  const records = readJsonlFile(MP_MESSAGES_FILE)
+    .filter((record) => record?.user?.storageKey === storageKey)
+    .sort((a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || "")))
+    .slice(-200)
+    .map(sanitizeCustomerMessage);
+  sendJson(res, 200, {
+    ok: true,
+    records,
+    count: records.length,
+    privacyNote: "消息仅当前微信账号和具有内部管理权限的人员可见。请勿发送银行卡密码、验证码等敏感信息。",
+  });
+}
+
+async function handleUserMessageSend(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return;
+  try {
+    const rawBody = await readBody(req);
+    const body = JSON.parse(rawBody || "{}");
+    const content = normalizeLongText(repairMojibake(body.content), 1000);
+    if (!content) {
+      sendJson(res, 400, { error: "请填写需要咨询的内容。" });
+      return;
+    }
+    const profile = getUserProfile(session) || {};
+    const record = {
+      id: createRecordId("msg"),
+      direction: "user",
+      content,
+      senderLabel: "我",
+      studentName: normalizeBookingText(profile.name || "微信用户", 40),
+      user: {
+        storageKey: getSessionStorageKey(session),
+        openid: maskOpenid(session.openid),
+      },
+      createdAt: new Date().toISOString(),
+    };
+    if (!appendJsonlRecord(MP_MESSAGES_FILE, record)) {
+      sendJson(res, 500, { error: "消息暂时未能保存，请稍后重试。" });
+      return;
+    }
+    recordUsage(session, "message.user.send", { length: content.length });
+    sendJson(res, 200, { ok: true, record: sanitizeCustomerMessage(record), message: "消息已发送，老师会在后台查看并回复。" });
+  } catch (error) {
+    if (isJsonParseError(error)) {
+      sendBadJson(res);
+      return;
+    }
+    sendJson(res, 500, { error: error.message || "消息发送失败。" });
+  }
+}
+
+function handleAdminMessages(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return;
+  if (!isAdminSession(session)) {
+    sendJson(res, 403, { error: "当前微信号没有客服消息查看权限。" });
+    return;
+  }
+  const conversations = buildAdminMessageConversations();
+  recordUsage(session, "admin.messages.view", { count: conversations.length });
+  sendJson(res, 200, {
+    ok: true,
+    count: conversations.length,
+    conversations,
+    privacyNote: "客服消息仅用于留学咨询服务，不展示微信 openid 原文，请勿向无关人员转发。",
+  });
+}
+
+async function handleAdminMessageReply(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return;
+  if (!isAdminSession(session)) {
+    sendJson(res, 403, { error: "当前微信号没有客服消息回复权限。" });
+    return;
+  }
+  try {
+    const rawBody = await readBody(req);
+    const body = JSON.parse(rawBody || "{}");
+    const storageKey = normalizeBookingText(body.storageKey, 32);
+    const content = normalizeLongText(repairMojibake(body.content), 1000);
+    const previousRecords = readJsonlFile(MP_MESSAGES_FILE);
+    const previous = previousRecords.find((record) => record?.user?.storageKey === storageKey);
+    if (!/^[a-f0-9]{16}$/i.test(storageKey) || !previous) {
+      sendJson(res, 404, { error: "未找到该用户的客服会话。" });
+      return;
+    }
+    if (!content) {
+      sendJson(res, 400, { error: "请填写回复内容。" });
+      return;
+    }
+    const record = {
+      id: createRecordId("msg"),
+      direction: "staff",
+      content,
+      senderLabel: getMessageSenderLabel(session),
+      studentName: normalizeBookingText(previous.studentName || "微信用户", 40),
+      user: { storageKey },
+      createdAt: new Date().toISOString(),
+    };
+    if (!appendJsonlRecord(MP_MESSAGES_FILE, record)) {
+      sendJson(res, 500, { error: "回复暂时未能保存，请稍后重试。" });
+      return;
+    }
+    recordUsage(session, "admin.message.reply", { storageKey, length: content.length });
+    sendJson(res, 200, { ok: true, record: sanitizeCustomerMessage(record), message: "回复已发送。" });
+  } catch (error) {
+    if (isJsonParseError(error)) {
+      sendBadJson(res);
+      return;
+    }
+    sendJson(res, 500, { error: error.message || "回复发送失败。" });
+  }
+}
+
 function summarizeUsageRecords(records) {
   const actionMap = new Map();
   const userMap = new Set();
@@ -2107,6 +2324,7 @@ function buildAdminStats() {
   const uploads = readJsonlFile(MP_UPLOADS_FILE);
   const profiles = readJsonlFile(MP_PROFILES_FILE);
   const courses = readCourseRecords();
+  const messages = readJsonlFile(MP_MESSAGES_FILE);
   const usage = readJsonlFile(MP_USAGE_FILE).sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
   const activeBookings = bookings.filter(isActiveBooking);
   const today = getBookingDateKey();
@@ -2121,6 +2339,8 @@ function buildAdminStats() {
       profiles: profiles.length,
       courses: courses.length,
       publishedCourses: courses.filter((course) => course.status === "published").length,
+      messages: messages.length,
+      messageConversations: new Set(messages.map((message) => message?.user?.storageKey).filter(Boolean)).size,
       usage: usage.length,
       activeUsers: summarizeUsageRecords(usage).activeUsers,
     },
@@ -2288,6 +2508,10 @@ function handleAdminExport(req, res) {
   }));
   const courses = readCourseRecords().map((course) => sanitizeCourse(course, session, true, req));
   const usage = readJsonlFile(MP_USAGE_FILE).slice(-1000);
+  const messages = readJsonlFile(MP_MESSAGES_FILE).slice(-2000).map((record) => ({
+    storageKey: record?.user?.storageKey || "",
+    ...sanitizeCustomerMessage(record),
+  }));
   sendJson(res, 200, {
     ok: true,
     exportedAt: new Date().toISOString(),
@@ -2297,12 +2521,14 @@ function handleAdminExport(req, res) {
       profiles: profiles.length,
       courses: courses.length,
       usage: usage.length,
+      messages: messages.length,
     },
     bookings,
     uploads,
     profiles,
     courses,
     usage,
+    messages,
     privacyNote: "导出数据只保留脱敏 openid 和 storageKey，不包含微信 openid 原文。",
   });
 }
@@ -2388,12 +2614,12 @@ async function handleTranscriptPreview(req, res) {
           grade: "",
           credits: "",
           term: "",
-          note: "成绩单图片暂未稳定识别，请手动录入关键课程后继续推荐",
+          note: "请通过手动课程表补充关键课程后继续推荐",
         },
       ],
       transcriptSummary: {
         confidence: "低",
-        summary: "成绩单预识别暂时不可用，请手动校对后继续推荐。",
+        summary: "请通过手动课程表或匹配度调查表补充关键学习信息。",
         sensitiveHidden: false,
         privacyNote: "政治敏感课程/人物信息会自动隐藏，不进入对外展示和推荐报告；院校匹配仍可继续进行。",
         preview: "",
@@ -2409,8 +2635,15 @@ function handleMaterialAccess(req, res) {
   const session = requireSession(req, res);
   if (!session) return;
 
-  if (session.mode === "demo" || session.entitlements?.materialAssistant) {
-    sendJson(res, 200, { allowed: true });
+  if (MP_DOCUMENT_DOWNLOAD_FREE || session.mode === "demo" || session.entitlements?.materialAssistant) {
+    sendJson(res, 200, {
+      allowed: true,
+      freeDuringLaunch: MP_DOCUMENT_DOWNLOAD_FREE,
+      paymentStatus: MP_DOCUMENT_DOWNLOAD_FREE ? "free-launch" : "entitled",
+      message: MP_DOCUMENT_DOWNLOAD_FREE
+        ? "当前上线初期，动机信和简历生成、下载暂时免费。收费能力待开发。"
+        : "当前账号已开通文书工具。",
+    });
     return;
   }
 
@@ -2418,7 +2651,7 @@ function handleMaterialAccess(req, res) {
     allowed: false,
     paymentRequired: true,
     feature: "materialAssistant",
-    error: "材料准备助手暂未对当前微信号开放。",
+    error: "文书收费功能待开发，当前账号暂未开通。",
   });
 }
 
@@ -2426,11 +2659,11 @@ async function handleMaterialDraft(req, res) {
   const session = requireSession(req, res);
   if (!session) return;
 
-  if (session.mode !== "demo" && !session.entitlements?.materialAssistant) {
+  if (!MP_DOCUMENT_DOWNLOAD_FREE && session.mode !== "demo" && !session.entitlements?.materialAssistant) {
     sendJson(res, 402, {
       paymentRequired: true,
       feature: "materialAssistant",
-      error: "材料准备助手暂未对当前微信号开放。",
+      error: "文书收费功能待开发，当前账号暂未开通。",
     });
     return;
   }
@@ -2581,14 +2814,15 @@ async function handleDocumentPdf(req, res) {
   try {
     const rawBody = await readBody(req);
     const body = JSON.parse(rawBody || "{}");
-    const kind = body.kind === "questionnaire" ? "questionnaire" : "draft";
-    const title = normalizeBookingText(body.title || (kind === "questionnaire" ? "申请材料调查表" : "申请文书"), 80);
+    const kind = ["questionnaire", "matching"].includes(body.kind) ? body.kind : "draft";
+    const defaultTitle = kind === "questionnaire" ? "申请材料调查表" : kind === "matching" ? "院校专业匹配报告" : "申请文书";
+    const title = normalizeBookingText(body.title || defaultTitle, 80);
     const content = normalizeLongText(body.content || "", 30000);
     if (!content) {
       sendJson(res, 400, { error: "没有可导出的文书内容。" });
       return;
     }
-    const fullAccess = session.mode === "demo" || Boolean(session.entitlements?.materialAssistant);
+    const fullAccess = MP_DOCUMENT_DOWNLOAD_FREE || session.mode === "demo" || Boolean(session.entitlements?.materialAssistant);
     const preview = kind === "draft" && !fullAccess;
     const previewLength = Math.max(Math.ceil(content.length / 5), Math.min(content.length, 180));
     const visibleContent = preview
@@ -2596,7 +2830,13 @@ async function handleDocumentPdf(req, res) {
       : content;
     const watermark = preview ? "留德小栈 付费前预览" : "留德小栈 水印版";
     const pdf = createWatermarkedPdf(title, visibleContent, watermark);
-    recordUsage(session, kind === "questionnaire" ? "document.export.questionnaire.pdf" : "document.export.draft.pdf", {
+    const usageAction =
+      kind === "questionnaire"
+        ? "document.export.questionnaire.pdf"
+        : kind === "matching"
+          ? "document.export.matching.pdf"
+          : "document.export.draft.pdf";
+    recordUsage(session, usageAction, {
       preview,
     });
     sendJson(res, 200, {
@@ -2620,9 +2860,44 @@ function handlePaymentPlaceholder(req, res) {
   const session = requireSession(req, res);
   if (!session) return;
   sendJson(res, 501, {
-    error: "高级功能暂未对当前微信号开放。",
+    error: "收费功能待开发。当前上线初期，动机信和简历下载暂时免费。",
     paymentReady: false,
+    status: "待开发",
   });
+}
+
+function sendAdminWebAsset(res, pathname) {
+  const requested = pathname === "/admin" || pathname === "/admin/" ? "index.html" : pathname.slice("/admin/".length);
+  const cleanName = String(requested || "index.html").replace(/\\/g, "/");
+  if (!cleanName || cleanName.split("/").includes("..")) {
+    sendJson(res, 404, { error: "Not found" });
+    return;
+  }
+  const filePath = path.resolve(ADMIN_WEB_DIR, ...cleanName.split("/").filter(Boolean));
+  const adminRoot = path.resolve(ADMIN_WEB_DIR);
+  if (!(filePath === adminRoot || filePath.startsWith(`${adminRoot}${path.sep}`)) || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+    sendJson(res, 404, { error: "Not found" });
+    return;
+  }
+  const extension = path.extname(filePath).toLowerCase();
+  const contentTypes = {
+    ".html": "text/html; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+  };
+  const stat = fs.statSync(filePath);
+  res.writeHead(200, {
+    "Content-Type": contentTypes[extension] || "application/octet-stream",
+    "Content-Length": stat.size,
+    "Cache-Control": extension === ".html" ? "no-store" : "public, max-age=300",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' https:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+  });
+  fs.createReadStream(filePath).pipe(res);
 }
 
 const server = http.createServer((req, res) => {
@@ -2630,6 +2905,11 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "OPTIONS") {
     sendJson(res, 204, {});
+    return;
+  }
+
+  if (req.method === "GET" && (url.pathname === "/admin" || url.pathname.startsWith("/admin/"))) {
+    sendAdminWebAsset(res, url.pathname);
     return;
   }
 
@@ -2666,11 +2946,16 @@ const server = http.createServer((req, res) => {
       bookingTemplateFieldsValid: templateDiagnostics.valid,
       bookingTemplateFieldKeys: templateDiagnostics.keys,
       courseModuleEnabled: true,
+      adminWebEnabled: Boolean(MP_ADMIN_WEB_TOKEN && fs.existsSync(path.join(ADMIN_WEB_DIR, "index.html"))),
       courseMediaSigned: true,
       courseMediaSigningStable: Boolean(process.env.MP_MEDIA_SIGNING_SECRET || WECHAT_SECRET),
       studentUploadDatabaseEnabled: true,
       studentUploadDownloadEnabled: true,
+      customerMessagingEnabled: true,
+      customerMessageCount: readJsonlFile(MP_MESSAGES_FILE).length,
       documentPdfExportEnabled: true,
+      documentDownloadFree: MP_DOCUMENT_DOWNLOAD_FREE,
+      paymentStatus: "待开发",
       profileLockEnabled: true,
       externalPersistentDataDirConfigured: path.resolve(MP_DATA_DIR) !== path.resolve(path.join(__dirname, "data")),
     });
@@ -2828,6 +3113,26 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "GET" && url.pathname === "/api/mp/admin/uploads") {
     handleAdminUploads(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/mp/messages") {
+    handleUserMessages(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/mp/messages") {
+    handleUserMessageSend(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/mp/admin/messages") {
+    handleAdminMessages(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/mp/admin/messages/reply") {
+    handleAdminMessageReply(req, res);
     return;
   }
 

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>留德小栈 · 电脑后台</title>
+    <link rel="stylesheet" href="/admin/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div><p class="eyebrow">LIUDE XIAOZHAN</p><h1>电脑后台管理</h1></div>
+      <button id="logoutButton" class="ghost hidden" type="button">退出</button>
+    </header>
+    <main>
+      <section id="loginPanel" class="panel login-panel">
+        <h2>安全登录</h2>
+        <p>输入 Render Secret 中的 MP_ADMIN_WEB_TOKEN。令牌只保存在本页会话中，关闭浏览器后自动清除。</p>
+        <label>后台访问令牌<input id="tokenInput" type="password" autocomplete="off" placeholder="请输入后台令牌" /></label>
+        <button id="loginButton" class="primary" type="button">进入后台</button><p id="loginMessage" class="message"></p>
+      </section>
+      <section id="appPanel" class="hidden">
+        <nav class="tabs" aria-label="后台模块"><button class="tab active" data-tab="courses" type="button">课程</button><button class="tab" data-tab="bookings" type="button">预约</button><button class="tab" data-tab="uploads" type="button">学生资料</button><button class="tab" data-tab="messages" type="button">客服消息</button><button class="tab" data-tab="stats" type="button">统计</button></nav>
+        <p class="security-note">后台仅展示脱敏用户标识。请勿转发学生资料或将访问令牌写入聊天、代码和 GitHub。</p><p id="globalMessage" class="message"></p>
+        <section id="coursesView" class="view"><div class="split">
+          <form id="courseForm" class="panel form-panel">
+            <div class="section-head"><h2>创建 / 编辑课程</h2><button id="resetCourseButton" class="ghost" type="button">新建</button></div><input id="courseId" type="hidden" />
+            <label>课程类型<select id="courseType"><option value="recorded">录播课</option><option value="live">直播课</option></select></label><label>课程名称 *<input id="courseTitle" required maxlength="80" /></label><label>课程简介<textarea id="courseSummary" maxlength="500"></textarea></label><label>标签（逗号分隔）<input id="courseTags" placeholder="留德基础, 申请规划" /></label><label>状态<select id="courseStatus"><option value="published">已发布</option><option value="draft">草稿</option></select></label><label>录播 HTTPS 地址<input id="courseVideoUrl" type="url" placeholder="https://..." /></label><label>或上传本地视频（测试上限 35MB）<input id="courseVideoFile" type="file" accept="video/mp4,video/quicktime,video/x-m4v" /></label><button id="uploadVideoButton" class="secondary" type="button">上传并填入地址</button><label>直播 HTTPS 入口<input id="courseLiveUrl" type="url" placeholder="https://..." /></label><label>直播时间<input id="courseStartAt" placeholder="例如：2026-08-01 19:30" /></label><label>时长<input id="courseDuration" placeholder="例如：90 分钟" /></label><label>限定学生 storageKey（逗号分隔；留空为全部登录用户）<textarea id="courseAllowedKeys"></textarea></label><button class="primary" type="submit">保存课程</button><p class="fine-print">课程默认禁止下载和录制；微信无法绝对阻止系统录屏，正式视频库建议接腾讯云点播或对象存储。</p>
+          </form>
+          <div class="panel"><div class="section-head"><h2>课程列表</h2><button class="ghost refresh" data-resource="courses" type="button">刷新</button></div><div id="coursesList" class="cards"></div></div>
+        </div></section>
+        <section id="bookingsView" class="view hidden"><div class="panel"><div class="section-head"><h2>预约记录</h2><button class="ghost refresh" data-resource="bookings" type="button">刷新</button></div><div id="bookingsList" class="cards"></div></div></section>
+        <section id="uploadsView" class="view hidden"><div class="panel"><div class="section-head"><h2>学生资料库</h2><button class="ghost refresh" data-resource="uploads" type="button">刷新</button></div><div id="uploadsList" class="cards"></div></div></section>
+        <section id="messagesView" class="view hidden"><div class="panel"><div class="section-head"><h2>客服消息</h2><button class="ghost refresh" data-resource="messages" type="button">刷新</button></div><div id="messagesList" class="cards"></div></div></section>
+        <section id="statsView" class="view hidden"><div class="panel"><div class="section-head"><h2>使用统计</h2><button class="ghost refresh" data-resource="stats" type="button">刷新</button></div><div id="statsList" class="cards"></div></div></section>
+      </section>
+    </main>
+    <script src="/admin/app.js" defer></script>
+  </body>
+</html>

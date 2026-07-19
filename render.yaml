@@ -38,6 +38,10 @@ services:
         sync: false
       - key: MP_ADMIN_OPENIDS_JSON
         sync: false
+      - key: MP_ADMIN_WEB_TOKEN
+        sync: false
+      - key: MP_DOCUMENT_DOWNLOAD_FREE
+        value: "true"
       - key: MP_BOOKING_WEBHOOK_URL
         sync: false
       - key: MP_BOOKING_TEACHER_WEBHOOKS_JSON
