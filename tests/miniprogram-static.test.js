@@ -44,12 +44,16 @@ test("mini program pages, bindings, JSON, layout guards and package size", () =>
   assert.match(read("pages/tools/tools.wxml"), /\* 必填/);
   assert.match(read("pages/results/results.wxml"), /导出匹配报告 PDF/);
   assert.match(read("pages/advisor/advisor.wxml"), /填写匹配度调查表/);
-  assert.equal(read("pages/advisor/advisor.wxml").includes("无法识别"), false);
+  const advisorCopy = `${read("pages/advisor/advisor.wxml")}\n${read("pages/advisor/advisor.js")}`;
+  assert.match(advisorCopy, /成绩单为可选项/);
+  assert.match(advisorCopy, /按现有信息推荐/);
+  assert.doesNotMatch(advisorCopy, /无法识别|识别失败|识别不了|上游服务|兜底/);
   assert.equal(app.pages.includes("pages/messages/messages"), true);
   assert.equal(app.pages.includes("pages/admin/messages"), true);
   assert.match(read("pages/messages/messages.wxml"), /发送给客服/);
   assert.match(read("pages/admin/messages.wxml"), /发送回复/);
   assert.match(read("utils/api.js"), /\/api\/mp\/admin\/messages\/reply/);
+  assert.doesNotMatch(read("pages/course/course.js"), /先上传成绩单/);
 
   app.pages.forEach((pagePath) => {
     ["js", "json", "wxml", "wxss"].forEach((extension) => {
