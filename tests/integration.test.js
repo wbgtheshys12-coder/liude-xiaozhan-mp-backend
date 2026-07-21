@@ -89,9 +89,15 @@ test("user, booking, transcript, recommendation, course, upload and PDF flows", 
   assert.equal(health.payload.bookingOwnerOpenidCount, 1);
   assert.equal(health.payload.bookingAdminOpenidCount, 1);
   assert.equal(health.payload.customerMessagingEnabled, true);
+  assert.equal(health.payload.customerMessageWebhookConfigured, false);
+  assert.equal(health.payload.customerMessageWebhookCount, 0);
+  assert.equal(health.payload.customerMessageWebhookPrivacyProtected, true);
   assert.deepEqual(health.payload.bookingTemplateFieldKeys, ["time1", "thing2", "thing3", "thing4", "thing5"]);
   assert.equal(health.payload.bookingTemplateFieldsValid, true);
   assert.equal(health.payload.courseMediaSigned, true);
+  assert.equal(health.payload.courseAdminSynchronized, true);
+  assert.equal(health.payload.courseDeleteEnabled, true);
+  assert.equal(health.payload.courseVideoDeleteEnabled, true);
   assert.equal(health.payload.studentUploadDownloadEnabled, true);
   assert.equal(health.payload.documentPdfExportEnabled, true);
   assert.equal(health.payload.documentDownloadFree, true);
@@ -142,6 +148,14 @@ test("user, booking, transcript, recommendation, course, upload and PDF flows", 
   });
   assert.equal(sentMessage.response.status, 200);
   assert.equal(sentMessage.payload.record.direction, "user");
+  assert.equal(sentMessage.payload.notification.configured, false);
+  const customerWebhookText = server.testHelpers.buildCustomerMessageWebhookContent({
+    studentName: "测试学生",
+    content: "此内容不应进入企业群通知",
+  });
+  assert.match(customerWebhookText, /测试学生/);
+  assert.doesNotMatch(customerWebhookText, /此内容不应进入企业群通知/);
+  assert.doesNotMatch(customerWebhookText, /openid/i);
   const adminMessages = await requestJson("/api/mp/admin/messages", { token: adminToken });
   assert.equal(adminMessages.response.status, 200);
   assert.equal(adminMessages.payload.conversations.length, 1);
@@ -261,6 +275,8 @@ test("user, booking, transcript, recommendation, course, upload and PDF flows", 
   });
   assert.equal(courseVideoUpload.response.status, 200);
   assert.match(courseVideoUpload.payload.videoUrl, /^\/api\/mp\/course-video\//);
+  assert.equal(courseVideoUpload.payload.videoExists, true);
+  assert.equal(courseVideoUpload.payload.uploaded, true);
 
   const saveCourse = await requestJson("/api/mp/admin/courses", {
     token: adminToken,
@@ -273,6 +289,18 @@ test("user, booking, transcript, recommendation, course, upload and PDF flows", 
     },
   });
   assert.equal(saveCourse.response.status, 200);
+  assert.match(saveCourse.payload.course.videoUrl, /^\/api\/mp\/course-video\//);
+  assert.doesNotMatch(saveCourse.payload.course.videoUrl, /[?&][ues]=/);
+  assert.equal(saveCourse.payload.course.videoExists, true);
+
+  const adminCourses = await requestJson("/api/mp/admin/courses", { token: adminToken });
+  assert.equal(adminCourses.payload.synchronized, true);
+  const adminBoundCourse = adminCourses.payload.records.find((item) => item.title === "账号绑定测试课");
+  assert.ok(adminBoundCourse);
+  assert.match(adminBoundCourse.videoUrl, /^\/api\/mp\/course-video\//);
+  assert.doesNotMatch(adminBoundCourse.videoUrl, /[?&][ues]=/);
+  assert.match(adminBoundCourse.videoPreviewUrl, /[?&]s=/);
+  assert.equal(adminBoundCourse.videoSize, Buffer.byteLength("test-video-bytes"));
 
   const courses = await requestJson("/api/mp/courses", { token: userToken });
   const boundCourse = courses.payload.records.find((item) => item.title === "账号绑定测试课");
@@ -287,6 +315,44 @@ test("user, booking, transcript, recommendation, course, upload and PDF flows", 
   tamperedVideoUrl.searchParams.set("s", "0".repeat(64));
   const tamperedVideo = await fetch(tamperedVideoUrl);
   assert.equal(tamperedVideo.status, 403);
+
+  const removeCourseVideo = await requestJson("/api/mp/admin/course-video/delete", {
+    token: adminToken,
+    body: { courseId: saveCourse.payload.course.id, videoUrl: adminBoundCourse.videoUrl },
+  });
+  assert.equal(removeCourseVideo.response.status, 200);
+  assert.equal(removeCourseVideo.payload.courseDetached, true);
+  assert.equal(removeCourseVideo.payload.fileDeleted, true);
+  const coursesWithoutVideo = await requestJson("/api/mp/courses", { token: userToken });
+  const courseWithoutVideo = coursesWithoutVideo.payload.records.find((item) => item.id === saveCourse.payload.course.id);
+  assert.ok(courseWithoutVideo);
+  assert.equal(courseWithoutVideo.videoUrl, "");
+  assert.equal(courseWithoutVideo.hasVideo, false);
+
+  const secondCourseVideoUpload = await requestJson("/api/mp/admin/course-video", {
+    token: adminToken,
+    body: {
+      name: "test-delete.mp4",
+      content: `data:video/mp4;base64,${Buffer.from("delete-me").toString("base64")}`,
+    },
+  });
+  const resaveCourse = await requestJson("/api/mp/admin/courses", {
+    token: adminToken,
+    body: {
+      ...saveCourse.payload.course,
+      videoUrl: secondCourseVideoUpload.payload.videoUrl,
+      allowedStorageKeys: [userLogin.payload.user.storageKey],
+    },
+  });
+  assert.equal(resaveCourse.response.status, 200);
+  const deleteCourse = await requestJson("/api/mp/admin/course/delete", {
+    token: adminToken,
+    body: { id: saveCourse.payload.course.id, deleteVideo: true },
+  });
+  assert.equal(deleteCourse.response.status, 200);
+  assert.equal(deleteCourse.payload.fileDeleted, true);
+  const coursesAfterDelete = await requestJson("/api/mp/courses", { token: userToken });
+  assert.equal(coursesAfterDelete.payload.records.some((item) => item.id === saveCourse.payload.course.id), false);
 
   const bookingBody = {
     advisorKey: "a1",

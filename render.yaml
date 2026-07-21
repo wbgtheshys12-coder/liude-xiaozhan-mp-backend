@@ -44,6 +44,8 @@ services:
         value: "true"
       - key: MP_BOOKING_WEBHOOK_URL
         sync: false
+      - key: MP_CUSTOMER_MESSAGE_WEBHOOK_URL
+        sync: false
       - key: MP_BOOKING_TEACHER_WEBHOOKS_JSON
         sync: false
       - key: MP_BOOKING_MINIPROGRAM_STATE

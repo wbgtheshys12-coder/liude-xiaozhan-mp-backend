@@ -50,9 +50,16 @@ test("mini program pages, bindings, JSON, layout guards and package size", () =>
   assert.doesNotMatch(advisorCopy, /无法识别|识别失败|识别不了|上游服务|兜底/);
   assert.equal(app.pages.includes("pages/messages/messages"), true);
   assert.equal(app.pages.includes("pages/admin/messages"), true);
-  assert.match(read("pages/messages/messages.wxml"), /发送给客服/);
+  assert.match(read("pages/messages/messages.wxml"), /客服对话/);
+  assert.match(read("pages/messages/messages.wxml"), /scroll-into-view/);
+  assert.match(read("pages/messages/messages.wxml"), />发送</);
   assert.match(read("pages/admin/messages.wxml"), /发送回复/);
   assert.match(read("utils/api.js"), /\/api\/mp\/admin\/messages\/reply/);
+  assert.match(read("pages/admin/courses.wxml"), /视频已配置/);
+  assert.match(read("pages/admin/courses.wxml"), /bindtap="removeVideo"/);
+  assert.match(read("pages/admin/courses.wxml"), /bindtap="deleteCourse"/);
+  assert.match(read("utils/api.js"), /\/api\/mp\/admin\/course-video\/delete/);
+  assert.match(read("utils/api.js"), /\/api\/mp\/admin\/course\/delete/);
   assert.doesNotMatch(read("pages/course/course.js"), /先上传成绩单/);
 
   app.pages.forEach((pagePath) => {
