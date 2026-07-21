@@ -29,6 +29,7 @@ const MP_ADMIN_WEB_TOKEN = String(process.env.MP_ADMIN_WEB_TOKEN || "").trim();
 const MP_DOCUMENT_DOWNLOAD_FREE = process.env.MP_DOCUMENT_DOWNLOAD_FREE !== "false";
 const MP_BOOKING_WEBHOOK_URL = process.env.MP_BOOKING_WEBHOOK_URL || "";
 const MP_BOOKING_TEACHER_WEBHOOKS = parseJsonEnv("MP_BOOKING_TEACHER_WEBHOOKS_JSON", {});
+const MP_CUSTOMER_MESSAGE_WEBHOOK_URL = process.env.MP_CUSTOMER_MESSAGE_WEBHOOK_URL || "";
 const MP_DATA_DIR = process.env.MP_DATA_DIR || path.join(__dirname, "data");
 const ENTITLEMENTS_FILE = process.env.MP_ENTITLEMENTS_FILE || path.join(__dirname, "entitlements.json");
 const MP_BOOKINGS_FILE = process.env.MP_BOOKINGS_FILE || path.join(MP_DATA_DIR, "bookings.jsonl");
@@ -953,6 +954,21 @@ function getLocalCourseVideoFile(videoUrl) {
   }
 }
 
+function getCourseVideoFileInfo(videoUrl) {
+  const fileName = getLocalCourseVideoFile(videoUrl);
+  if (!fileName) return { fileName: "", filePath: "", exists: false, size: 0 };
+  const videoRoot = path.resolve(MP_COURSE_VIDEO_DIR);
+  const filePath = path.resolve(MP_COURSE_VIDEO_DIR, fileName);
+  const insideVideoRoot = filePath.startsWith(`${videoRoot}${path.sep}`);
+  const exists = insideVideoRoot && fs.existsSync(filePath) && fs.statSync(filePath).isFile();
+  return {
+    fileName,
+    filePath: insideVideoRoot ? filePath : "",
+    exists,
+    size: exists ? fs.statSync(filePath).size : 0,
+  };
+}
+
 function isAllowedCourseUrl(value, allowLocalVideo = false) {
   const clean = String(value || "").trim();
   if (!clean) return true;
@@ -1079,14 +1095,43 @@ function readCourseRecords() {
   const saved = readJsonlFile(MP_COURSES_FILE);
   const byId = new Map();
   [...DEFAULT_COURSES, ...saved].forEach((course) => {
-    if (course?.id) byId.set(course.id, course);
+    if (!course?.id) return;
+    if (course.deleted) {
+      byId.delete(course.id);
+      return;
+    }
+    byId.set(course.id, course);
   });
   return Array.from(byId.values()).sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
 }
 
+function writeCourseRecord(course) {
+  const records = readJsonlFile(MP_COURSES_FILE).filter((item) => item.id !== course.id);
+  records.push(course);
+  writeJsonlFile(MP_COURSES_FILE, records);
+}
+
+function deleteCourseVideoFileIfUnused(fileName) {
+  if (!fileName) return false;
+  const stillUsed = readCourseRecords().some((course) => getLocalCourseVideoFile(course.videoUrl) === fileName);
+  if (stillUsed) return false;
+  const info = getCourseVideoFileInfo(getCourseVideoPath(fileName));
+  if (!info.exists || !info.filePath) return false;
+  fs.unlinkSync(info.filePath);
+  return true;
+}
+
 function sanitizeCourse(course, session, admin = false, req = null) {
-  const localVideoFile = getLocalCourseVideoFile(course.videoUrl);
-  const videoUrl = localVideoFile && req ? publicCourseVideoUrl(req, localVideoFile, session) : course.videoUrl || "";
+  const rawVideoUrl = String(course.videoUrl || "").trim();
+  const localVideo = getCourseVideoFileInfo(rawVideoUrl);
+  const adminVideoUrl = localVideo.fileName ? getCourseVideoPath(localVideo.fileName) : rawVideoUrl;
+  const videoUrl = admin
+    ? adminVideoUrl
+    : localVideo.fileName
+      ? localVideo.exists && req
+        ? publicCourseVideoUrl(req, localVideo.fileName, session)
+        : ""
+      : rawVideoUrl;
   const hasVideo = Boolean(videoUrl);
   const payload = {
     id: course.id,
@@ -1098,6 +1143,10 @@ function sanitizeCourse(course, session, admin = false, req = null) {
     startAt: normalizeBookingText(course.startAt, 60),
     duration: normalizeBookingText(course.duration, 40),
     videoUrl: hasVideo ? videoUrl : "",
+    hasVideo,
+    videoConfigured: Boolean(rawVideoUrl),
+    videoStorage: localVideo.fileName ? "local" : rawVideoUrl ? "external" : "none",
+    videoExists: localVideo.fileName ? localVideo.exists : Boolean(rawVideoUrl),
     liveUrl: course.liveUrl || "",
     noDownload: course.noDownload !== false,
     noRecord: course.noRecord !== false,
@@ -1108,6 +1157,14 @@ function sanitizeCourse(course, session, admin = false, req = null) {
   if (admin) {
     payload.createdBy = course.createdBy || {};
     payload.allowedStorageKeys = Array.isArray(course.allowedStorageKeys) ? course.allowedStorageKeys : [];
+    payload.videoFileName = localVideo.fileName;
+    payload.videoSize = localVideo.size;
+    payload.videoPreviewUrl = localVideo.fileName
+      ? localVideo.exists && req
+        ? publicCourseVideoUrl(req, localVideo.fileName, session)
+        : ""
+      : rawVideoUrl;
+    payload.updatedAt = course.updatedAt || "";
   }
   return payload;
 }
@@ -1262,6 +1319,10 @@ function isAdminSession(session) {
 
 function getBookingWebhookUrls() {
   return compactStringArray([MP_BOOKING_WEBHOOK_URL, ...Object.values(MP_BOOKING_TEACHER_WEBHOOKS)]);
+}
+
+function getCustomerMessageWebhookUrls() {
+  return compactStringArray([MP_CUSTOMER_MESSAGE_WEBHOOK_URL, ...getBookingWebhookUrls()]);
 }
 
 function buildBookingSubscribeData(booking) {
@@ -1447,6 +1508,44 @@ async function sendBookingWebhookNotifications(booking, eventType) {
     .filter(Boolean)
     .join("；");
   return { configured: true, notified: false, message: reason || "企业群提醒发送失败。", channels: [] };
+}
+
+function buildCustomerMessageWebhookContent(record) {
+  return [
+    "留德小栈收到新的客服咨询",
+    `学生：${record.studentName || "微信用户"}`,
+    "请进入后台管理网站或小程序“客服消息”查看并回复。",
+    "为保护隐私，企业群提醒不展示咨询原文或用户身份标识。",
+  ].join("\n");
+}
+
+async function sendCustomerMessageWebhook(url, record) {
+  const { payload } = await requestJson(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json; charset=utf-8" },
+    body: JSON.stringify({
+      msgtype: "text",
+      text: { content: buildCustomerMessageWebhookContent(record) },
+    }),
+  });
+  if (payload.errcode && payload.errcode !== 0) {
+    throw new Error(payload.errmsg || `客服消息 Webhook 发送失败：${payload.errcode}`);
+  }
+  return { sent: true, channel: "webhook" };
+}
+
+async function sendCustomerMessageWebhookNotifications(record) {
+  const webhookUrls = getCustomerMessageWebhookUrls();
+  if (!webhookUrls.length) {
+    return { configured: false, notified: false, message: "未配置企业微信机器人 Webhook" };
+  }
+  const settled = await Promise.allSettled(webhookUrls.map((url) => sendCustomerMessageWebhook(url, record)));
+  const notified = settled.some((item) => item.status === "fulfilled" && item.value?.sent);
+  return {
+    configured: true,
+    notified,
+    message: notified ? "老师已收到企业微信客服提醒。" : "消息已保存，但企业微信提醒发送失败，老师仍可在后台查看。",
+  };
 }
 
 async function sendBookingNotifications(booking) {
@@ -1803,7 +1902,9 @@ async function handleAdminCourseSave(req, res) {
     const body = JSON.parse(rawBody || "{}");
     const now = new Date().toISOString();
     const id = normalizeBookingText(body.id || createRecordId("course"), 80);
-    const videoUrl = normalizeLongText(body.videoUrl || "", 300);
+    const submittedVideoUrl = normalizeLongText(body.videoUrl || "", 300);
+    const localVideoFile = getLocalCourseVideoFile(submittedVideoUrl);
+    const videoUrl = localVideoFile ? getCourseVideoPath(localVideoFile) : submittedVideoUrl;
     const liveUrl = normalizeLongText(body.liveUrl || "", 300);
     if (!isAllowedCourseUrl(videoUrl, true)) {
       sendJson(res, 400, { error: "录播地址必须是 HTTPS 链接，或由本小程序后端上传生成。" });
@@ -1835,9 +1936,7 @@ async function handleAdminCourseSave(req, res) {
       updatedAt: now,
     };
 
-    const records = readJsonlFile(MP_COURSES_FILE).filter((item) => item.id !== id);
-    records.push(course);
-    writeJsonlFile(MP_COURSES_FILE, records);
+    writeCourseRecord(course);
     recordUsage(session, "admin.course.save", { id: course.id, type: course.type });
     sendJson(res, 200, { ok: true, course: sanitizeCourse(course, session, true, req) });
   } catch (error) {
@@ -1889,9 +1988,13 @@ async function handleAdminCourseVideoUpload(req, res) {
     });
     sendJson(res, 200, {
       ok: true,
+      uploaded: true,
       name: safeFileName(body.name || fileName),
       size: parsed.buffer.length,
       videoUrl: getCourseVideoPath(fileName),
+      videoStorage: "local",
+      videoExists: true,
+      uploadedAt: new Date().toISOString(),
       storageNote: "测试视频已保存到当前后端实例。本地/Render 免费盘不适合作为长期视频库，正式运营建议迁移到腾讯云点播或对象存储。",
     });
   } catch (error) {
@@ -1900,6 +2003,89 @@ async function handleAdminCourseVideoUpload(req, res) {
       return;
     }
     sendJson(res, 500, { error: "课程视频上传暂时未完成，请稍后重试。" });
+  }
+}
+
+async function handleAdminCourseVideoDelete(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return;
+  if (!isAdminSession(session)) {
+    sendJson(res, 403, { error: "当前微信号没有课程视频删除权限。" });
+    return;
+  }
+
+  try {
+    const rawBody = await readBody(req);
+    const body = JSON.parse(rawBody || "{}");
+    const courseId = normalizeBookingText(body.courseId || "", 80);
+    const submittedVideoUrl = normalizeLongText(body.videoUrl || "", 300);
+    const fileName = getLocalCourseVideoFile(submittedVideoUrl);
+    let courseDetached = false;
+
+    if (courseId) {
+      const course = readCourseRecords().find((item) => item.id === courseId);
+      if (!course) {
+        sendJson(res, 404, { error: "课程不存在或已删除。" });
+        return;
+      }
+      const savedVideoUrl = String(course.videoUrl || "");
+      const sameLocalFile = fileName && getLocalCourseVideoFile(savedVideoUrl) === fileName;
+      const sameExternalUrl = !fileName && submittedVideoUrl && savedVideoUrl === submittedVideoUrl;
+      if (sameLocalFile || sameExternalUrl) {
+        writeCourseRecord({ ...course, videoUrl: "", updatedAt: new Date().toISOString() });
+        courseDetached = true;
+      }
+    }
+
+    const fileDeleted = fileName ? deleteCourseVideoFileIfUnused(fileName) : false;
+    recordUsage(session, "admin.course.video.delete", { courseId, courseDetached, fileDeleted });
+    sendJson(res, 200, {
+      ok: true,
+      courseDetached,
+      fileDeleted,
+      externalLinkDetached: Boolean(courseDetached && !fileName),
+    });
+  } catch (error) {
+    if (isJsonParseError(error)) {
+      sendBadJson(res);
+      return;
+    }
+    sendJson(res, 500, { error: "课程视频删除暂时未完成，请稍后重试。" });
+  }
+}
+
+async function handleAdminCourseDelete(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return;
+  if (!isAdminSession(session)) {
+    sendJson(res, 403, { error: "当前微信号没有课程删除权限。" });
+    return;
+  }
+
+  try {
+    const rawBody = await readBody(req);
+    const body = JSON.parse(rawBody || "{}");
+    const id = normalizeBookingText(body.id || "", 80);
+    if (!id) {
+      sendJson(res, 400, { error: "缺少课程标识。" });
+      return;
+    }
+    const course = readCourseRecords().find((item) => item.id === id);
+    if (!course) {
+      sendJson(res, 404, { error: "课程不存在或已删除。" });
+      return;
+    }
+    const fileName = getLocalCourseVideoFile(course.videoUrl);
+    writeCourseRecord({ id, deleted: true, deletedAt: new Date().toISOString() });
+    const fileDeleted = body.deleteVideo !== false && fileName ? deleteCourseVideoFileIfUnused(fileName) : false;
+    recordUsage(session, "admin.course.delete", { id, fileDeleted });
+    sendJson(res, 200, { ok: true, deletedId: id, fileDeleted });
+  } catch (error) {
+    if (isJsonParseError(error)) {
+      sendBadJson(res);
+      return;
+    }
+    sendJson(res, 500, { error: "课程删除暂时未完成，请稍后重试。" });
   }
 }
 
@@ -1912,6 +2098,8 @@ function handleAdminCourses(req, res) {
   }
   sendJson(res, 200, {
     ok: true,
+    synchronized: true,
+    synchronizationNote: "电脑后台与小程序课程管理使用同一后端和同一课程数据源。刷新后可看到另一端的最新修改。",
     records: readCourseRecords().map((course) => sanitizeCourse(course, session, true, req)),
   });
 }
@@ -2223,7 +2411,13 @@ async function handleUserMessageSend(req, res) {
       return;
     }
     recordUsage(session, "message.user.send", { length: content.length });
-    sendJson(res, 200, { ok: true, record: sanitizeCustomerMessage(record), message: "消息已发送，老师会在后台查看并回复。" });
+    const notification = await sendCustomerMessageWebhookNotifications(record);
+    sendJson(res, 200, {
+      ok: true,
+      record: sanitizeCustomerMessage(record),
+      notification,
+      message: notification.notified ? "消息已发送，老师已收到企业微信提醒。" : "消息已发送，老师会在后台查看并回复。",
+    });
   } catch (error) {
     if (isJsonParseError(error)) {
       sendBadJson(res);
@@ -2945,12 +3139,18 @@ const server = http.createServer((req, res) => {
       bookingTemplateFieldsValid: templateDiagnostics.valid,
       bookingTemplateFieldKeys: templateDiagnostics.keys,
       courseModuleEnabled: true,
+      courseAdminSynchronized: true,
+      courseDeleteEnabled: true,
+      courseVideoDeleteEnabled: true,
       adminWebEnabled: Boolean(MP_ADMIN_WEB_TOKEN && fs.existsSync(path.join(ADMIN_WEB_DIR, "index.html"))),
       courseMediaSigned: true,
       courseMediaSigningStable: Boolean(process.env.MP_MEDIA_SIGNING_SECRET || WECHAT_SECRET),
       studentUploadDatabaseEnabled: true,
       studentUploadDownloadEnabled: true,
       customerMessagingEnabled: true,
+      customerMessageWebhookConfigured: getCustomerMessageWebhookUrls().length > 0,
+      customerMessageWebhookCount: getCustomerMessageWebhookUrls().length,
+      customerMessageWebhookPrivacyProtected: true,
       customerMessageCount: readJsonlFile(MP_MESSAGES_FILE).length,
       documentPdfExportEnabled: true,
       documentDownloadFree: MP_DOCUMENT_DOWNLOAD_FREE,
@@ -3085,6 +3285,16 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/mp/admin/course-video/delete") {
+    handleAdminCourseVideoDelete(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/mp/admin/course/delete") {
+    handleAdminCourseDelete(req, res);
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/api/mp/booking/slots") {
     handleBookingSlots(req, res, url);
     return;
@@ -3167,6 +3377,7 @@ server.listen(PORT, () => {
 module.exports = server;
 module.exports.testHelpers = {
   buildBookingWebhookContent,
+  buildCustomerMessageWebhookContent,
   buildFallbackRecommendation,
   shouldUseRecommendationFallback,
 };
