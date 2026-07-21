@@ -110,6 +110,29 @@ test("user, booking, transcript, recommendation, course, upload and PDF flows", 
   assert.equal(adminLogin.payload.isTeacher, true);
   assert.equal(adminLogin.payload.canSubscribeBookingNotice, true);
   const adminToken = adminLogin.payload.token;
+  fs.appendFileSync(
+    path.join(testDataDir, "profiles.jsonl"),
+    `${JSON.stringify({
+      storageKey: adminLogin.payload.user.storageKey,
+      openid: "demo***ocal",
+      name: "旧版锁定学生",
+      lockedAt: "2026-01-01T00:00:00.000Z",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    })}\n`,
+    "utf8"
+  );
+  const legacyProfile = await requestJson("/api/mp/profile", { token: adminToken });
+  assert.equal(legacyProfile.payload.locked, true);
+  assert.equal(legacyProfile.payload.complete, false);
+  assert.ok(legacyProfile.payload.missingFields.includes("contact"));
+  const supplementedLegacyProfile = await requestJson("/api/mp/profile", {
+    token: adminToken,
+    body: { name: "旧版锁定学生", contact: "legacy-contact", school: "旧版大学", major: "材料工程", applicationLevel: "硕士" },
+  });
+  assert.equal(supplementedLegacyProfile.response.status, 200);
+  assert.equal(supplementedLegacyProfile.payload.complete, true);
+  assert.equal(supplementedLegacyProfile.payload.profile.name, "旧版锁定学生");
 
   const userLogin = await requestJson("/api/mp/user/login", { method: "POST", body: { code: "test-code" } });
   assert.equal(userLogin.response.status, 200);
@@ -118,6 +141,7 @@ test("user, booking, transcript, recommendation, course, upload and PDF flows", 
   assert.equal(userLogin.payload.isPlatformAdmin, true);
   assert.equal(userLogin.payload.canSubscribeBookingNotice, false);
   assert.equal(userLogin.payload.canManageCourses, true);
+  assert.equal(userLogin.payload.profileComplete, false);
   const userToken = userLogin.payload.token;
 
   const adminWebSession = await requestJson("/api/mp/session", { token: process.env.MP_ADMIN_WEB_TOKEN });
@@ -143,6 +167,33 @@ test("user, booking, transcript, recommendation, course, upload and PDF flows", 
   assert.equal(userBookingConfig.payload.canSubscribe, false);
   assert.equal(userBookingConfig.payload.templateId, "");
 
+  const messageBeforeProfile = await requestJson("/api/mp/messages", {
+    token: userToken,
+    body: { content: "资料未绑定前不应发送" },
+  });
+  assert.equal(messageBeforeProfile.response.status, 400);
+  assert.equal(messageBeforeProfile.payload.requiresOnboarding, true);
+  const bookingBeforeProfile = await requestJson("/api/mp/booking", {
+    token: userToken,
+    body: { advisorKey: "a1", advisorName: "张老师", date: "2099-12-28", dateDisplay: "2099年12月28日", time: "09:00" },
+  });
+  assert.equal(bookingBeforeProfile.response.status, 400);
+  assert.equal(bookingBeforeProfile.payload.requiresOnboarding, true);
+
+  const savedProfile = await requestJson("/api/mp/profile", {
+    token: userToken,
+    body: { name: "测试学生", school: "测试大学", major: "机械工程", contact: "13800000000", applicationLevel: "硕士" },
+  });
+  assert.equal(savedProfile.response.status, 200);
+  assert.equal(savedProfile.payload.locked, true);
+  assert.equal(savedProfile.payload.complete, true);
+  const lockedProfile = await requestJson("/api/mp/profile", {
+    token: userToken,
+    body: { name: "修改姓名", school: "测试大学", major: "机械工程", contact: "13800000000", applicationLevel: "硕士" },
+  });
+  assert.equal(lockedProfile.response.status, 409);
+  assert.equal(lockedProfile.payload.locked, true);
+
   const sentMessage = await requestJson("/api/mp/messages", {
     token: userToken,
     body: { content: "请问机械工程匹配结果如何理解？" },
@@ -152,14 +203,26 @@ test("user, booking, transcript, recommendation, course, upload and PDF flows", 
   assert.equal(sentMessage.payload.notification.configured, false);
   const customerWebhookText = server.testHelpers.buildCustomerMessageWebhookContent({
     studentName: "测试学生",
+    contact: "13800000000",
+    school: "测试大学",
+    major: "机械工程",
+    applicationLevel: "硕士",
     content: "此内容不应进入企业群通知",
   });
   assert.match(customerWebhookText, /测试学生/);
+  assert.match(customerWebhookText, /13800000000/);
+  assert.match(customerWebhookText, /测试大学/);
+  assert.match(customerWebhookText, /机械工程/);
+  assert.match(customerWebhookText, /硕士/);
   assert.doesNotMatch(customerWebhookText, /此内容不应进入企业群通知/);
   assert.doesNotMatch(customerWebhookText, /openid/i);
   const adminMessages = await requestJson("/api/mp/admin/messages", { token: adminToken });
   assert.equal(adminMessages.response.status, 200);
   assert.equal(adminMessages.payload.conversations.length, 1);
+  assert.equal(adminMessages.payload.conversations[0].contact, "13800000000");
+  assert.equal(adminMessages.payload.conversations[0].school, "测试大学");
+  assert.equal(adminMessages.payload.conversations[0].major, "机械工程");
+  assert.equal(adminMessages.payload.conversations[0].applicationLevel, "硕士");
   const messageStorageKey = adminMessages.payload.conversations[0].storageKey;
   const repliedMessage = await requestJson("/api/mp/admin/messages/reply", {
     token: adminToken,
@@ -171,6 +234,8 @@ test("user, booking, transcript, recommendation, course, upload and PDF flows", 
   assert.equal(userMessages.response.status, 200);
   assert.equal(userMessages.payload.records.length, 2);
   assert.equal(userMessages.payload.records[1].content, "老师已收到，会结合课程背景核验。");
+  assert.equal(userMessages.payload.complete, true);
+  assert.equal(userMessages.payload.profile.contact, "13800000000");
 
   const transcript = await requestJson("/api/mp/transcript-preview", {
     token: userToken,
@@ -220,19 +285,6 @@ test("user, booking, transcript, recommendation, course, upload and PDF flows", 
     majorOnlyRecommendation.payload.recommendations.slice(0, 3).map((item) => item.program).join(" "),
     /Computer|Informatik|Data|Software/i
   );
-
-  const savedProfile = await requestJson("/api/mp/profile", {
-    token: userToken,
-    body: { name: "测试学生", school: "测试大学", major: "机械工程", contact: "仅测试" },
-  });
-  assert.equal(savedProfile.response.status, 200);
-  assert.equal(savedProfile.payload.locked, true);
-  const lockedProfile = await requestJson("/api/mp/profile", {
-    token: userToken,
-    body: { name: "修改姓名" },
-  });
-  assert.equal(lockedProfile.response.status, 409);
-  assert.equal(lockedProfile.payload.locked, true);
 
   const upload = await requestJson("/api/mp/material/upload", {
     token: userToken,
@@ -367,11 +419,11 @@ test("user, booking, transcript, recommendation, course, upload and PDF flows", 
     time: "09:00",
     note: "自动化测试",
   };
-  const incompleteBooking = await requestJson("/api/mp/booking", {
+  const clientIdentityIgnored = await requestJson("/api/mp/booking", {
     token: userToken,
-    body: { ...bookingBody, contact: "" },
+    body: { ...bookingBody, date: "2099-12-29", dateDisplay: "2099年12月29日 周二", studentName: "伪造姓名", contact: "", major: "", applicationLevel: "本科" },
   });
-  assert.equal(incompleteBooking.response.status, 400);
+  assert.equal(clientIdentityIgnored.response.status, 200);
   const booking = await requestJson("/api/mp/booking", { token: userToken, body: bookingBody });
   assert.equal(booking.response.status, 200);
   assert.ok(booking.payload.bookingId);
@@ -381,6 +433,7 @@ test("user, booking, transcript, recommendation, course, upload and PDF flows", 
   const storedBooking = adminBookings.payload.records.find((item) => item.id === booking.payload.bookingId);
   assert.equal(storedBooking.studentName, "测试学生");
   assert.equal(storedBooking.contact, "13800000000");
+  assert.equal(storedBooking.school, "测试大学");
   assert.equal(storedBooking.major, "机械工程");
   assert.equal(storedBooking.applicationLevel, "硕士");
   assert.equal(storedBooking.dateTime, "2099年12月30日 09:00");

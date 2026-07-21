@@ -38,9 +38,15 @@ test("mini program pages, bindings, JSON, layout guards and package size", () =>
   assert.equal(app.pages.includes("pages/live/live"), true);
   assert.equal(JSON.parse(read("project.config.json")).appid, "wxd03d251346000689");
   assert.match(read("utils/env.js"), /https:\/\/liude-xiaozhan-mp-backend\.onrender\.com/);
-  assert.match(read("pages/booking/booking.wxml"), /联系方式/);
-  assert.match(read("pages/booking/booking.wxml"), /申请本科/);
-  assert.match(read("pages/booking/booking.wxml"), /申请硕士/);
+  assert.equal(app.pages.includes("pages/onboarding/onboarding"), true);
+  assert.match(read("pages/onboarding/onboarding.wxml"), /首次登录 · 一次设置/);
+  assert.match(read("pages/onboarding/onboarding.wxml"), /联系方式/);
+  assert.match(read("pages/onboarding/onboarding.wxml"), /申请本科/);
+  assert.match(read("pages/onboarding/onboarding.wxml"), /申请硕士/);
+  assert.match(read("utils/profile.js"), /hasAccountScope/);
+  assert.match(read("utils/profile.js"), /session\.user\?\.storageKey/);
+  assert.match(read("pages/booking/booking.wxml"), /已绑定学生资料/);
+  assert.doesNotMatch(read("pages/booking/booking.wxml"), /bindinput="update(?:StudentName|Contact|Major)"/);
   assert.match(read("pages/tools/tools.wxml"), /\* 必填/);
   assert.match(read("pages/results/results.wxml"), /导出匹配报告 PDF/);
   assert.match(read("pages/advisor/advisor.wxml"), /填写匹配度调查表/);
@@ -51,6 +57,7 @@ test("mini program pages, bindings, JSON, layout guards and package size", () =>
   assert.equal(app.pages.includes("pages/messages/messages"), true);
   assert.equal(app.pages.includes("pages/admin/messages"), true);
   assert.match(read("pages/messages/messages.wxml"), /客服对话/);
+  assert.match(read("pages/messages/messages.wxml"), /本次咨询身份/);
   assert.match(read("pages/messages/messages.wxml"), /scroll-into-view/);
   assert.match(read("pages/messages/messages.wxml"), />发送</);
   assert.match(read("pages/admin/messages.wxml"), /发送回复/);
@@ -110,4 +117,34 @@ test("mini program pages, bindings, JSON, layout guards and package size", () =>
     assert.ok(school.name && school.summary && school.tags?.length, `${school.id} 院校信息不完整`);
     assert.equal(fs.existsSync(path.join(miniRoot, String(school.logo || "").replace(/^\//, ""))), true, `${school.id} Logo 缺失`);
   });
+});
+
+test("student profile cache stays isolated by WeChat account", () => {
+  const env = require(path.join(miniRoot, "utils", "env.js"));
+  const storage = {
+    [env.STORAGE_KEYS.session]: { user: { storageKey: "current-user" } },
+    [env.STORAGE_KEYS.latestProfile]: { name: "previous-user", contact: "previous-contact" },
+  };
+  global.wx = {
+    getStorageSync(key) {
+      return storage[key];
+    },
+    setStorageSync(key, value) {
+      storage[key] = value;
+    },
+  };
+  const modulePath = path.join(miniRoot, "utils", "profile.js");
+  delete require.cache[require.resolve(modulePath)];
+  const studentProfile = require(modulePath);
+  assert.equal(studentProfile.getStored().name, "");
+  storage[env.scopedKey(env.STORAGE_KEYS.latestProfile)] = {
+    name: "current-user",
+    contact: "current-contact",
+    school: "current-school",
+    major: "current-major",
+    applicationLevel: "硕士",
+  };
+  assert.equal(studentProfile.getStored().name, "current-user");
+  assert.equal(studentProfile.getStored().contact, "current-contact");
+  delete global.wx;
 });

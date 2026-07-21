@@ -79,7 +79,7 @@
 
   async function loadBookings() {
     const payload = await api("/api/mp/admin/bookings?status=all");
-    $("bookingsList").innerHTML = (payload.records || []).map((item) => `<article class="card"><div class="card-head"><h3>${escapeHtml(item.studentName || "微信用户")}</h3><span class="badge">${escapeHtml(item.status || "confirmed")}</span></div><p class="meta">${escapeHtml(item.dateDisplay || item.date)} ${escapeHtml(item.time)} · ${escapeHtml(item.advisorName)}</p><p class="meta">联系方式：${escapeHtml(item.contact || "未填写")}</p><p class="meta">专业 / 层次：${escapeHtml(item.major || "未填写")} · ${escapeHtml(item.applicationLevel || "未填写")}</p><p class="meta">备注：${escapeHtml(item.note || "无")}</p></article>`).join("") || '<p class="meta">暂无预约。</p>';
+    $("bookingsList").innerHTML = (payload.records || []).map((item) => `<article class="card"><div class="card-head"><h3>${escapeHtml(item.studentName || "微信用户")}</h3><span class="badge">${escapeHtml(item.status || "confirmed")}</span></div><p class="meta">${escapeHtml(item.dateDisplay || item.date)} ${escapeHtml(item.time)} · ${escapeHtml(item.advisorName)}</p><p class="meta">联系方式：${escapeHtml(item.contact || "未填写")}</p><p class="meta">学校：${escapeHtml(item.school || "未填写")}</p><p class="meta">专业 / 层次：${escapeHtml(item.major || "未填写")} · ${escapeHtml(item.applicationLevel || "未填写")}</p><p class="meta">备注：${escapeHtml(item.note || "无")}</p></article>`).join("") || '<p class="meta">暂无预约。</p>';
   }
 
   async function loadUploads() {
@@ -91,7 +91,7 @@
     const payload = await api("/api/mp/admin/messages");
     $("messagesList").innerHTML = (payload.conversations || []).map((conversation) => {
       const history = (conversation.messages || []).slice(-20).map((item) => `<div class="message-line ${item.direction === "staff" ? "staff" : "user"}"><strong>${escapeHtml(item.senderLabel)}</strong><span>${escapeHtml(item.content)}</span><small>${escapeHtml(item.createdAt)}</small></div>`).join("");
-      return `<article class="card"><div class="card-head"><h3>${escapeHtml(conversation.studentName || "微信用户")}</h3><span class="badge">${escapeHtml(conversation.contact || "未填写联系方式")}</span></div><p class="meta">用户标识：${escapeHtml(conversation.storageKey)}</p><div class="message-history">${history}</div><textarea class="message-reply-input" data-storage-key="${escapeHtml(conversation.storageKey)}" maxlength="1000" placeholder="输入回复内容"></textarea><div class="card-actions"><button class="primary reply-message" data-storage-key="${escapeHtml(conversation.storageKey)}" type="button">发送回复</button></div></article>`;
+      return `<article class="card"><div class="card-head"><h3>${escapeHtml(conversation.studentName || "微信用户")}</h3><span class="badge">${escapeHtml(conversation.contact || "未填写联系方式")}</span></div><p class="meta">${escapeHtml(conversation.school || "未填写学校")} · ${escapeHtml(conversation.major || "未填写专业")} · ${escapeHtml(conversation.applicationLevel ? `申请${conversation.applicationLevel}` : "未填写申请层次")}</p><p class="meta">用户标识：${escapeHtml(conversation.storageKey)}</p><div class="message-history">${history}</div><textarea class="message-reply-input" data-storage-key="${escapeHtml(conversation.storageKey)}" maxlength="1000" placeholder="输入回复内容"></textarea><div class="card-actions"><button class="primary reply-message" data-storage-key="${escapeHtml(conversation.storageKey)}" type="button">发送回复</button></div></article>`;
     }).join("") || '<p class="meta">暂无客服消息。</p>';
   }
 
