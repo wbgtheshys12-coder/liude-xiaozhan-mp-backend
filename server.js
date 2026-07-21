@@ -562,14 +562,16 @@ async function handleUserLogin(req, res) {
     }
 
     const entitlements = getUserEntitlements(login.openid);
-    const token = createSession({
+    const loginSession = {
       mode: "user",
       openid: login.openid,
       unionid: login.unionid,
       entitlements,
-    });
+    };
+    const token = createSession(loginSession);
 
     const roles = getSessionRoles({ openid: login.openid });
+    const profile = sanitizeProfile(getUserProfile(loginSession) || {});
     sendJson(res, 200, {
       token,
       mode: "user",
@@ -580,6 +582,9 @@ async function handleUserLogin(req, res) {
         ...roles,
       },
       entitlements,
+      profile,
+      profileComplete: isProfileComplete(profile),
+      profileMissingFields: getProfileMissingFields(profile),
       ...roles,
     });
   } catch (error) {
@@ -598,6 +603,7 @@ function handleSession(req, res) {
     return;
   }
   const roles = getSessionRoles(session);
+  const profile = sanitizeProfile(getUserProfile(session) || {});
   sendJson(res, 200, {
     authenticated: true,
     mode: session.mode,
@@ -607,6 +613,9 @@ function handleSession(req, res) {
       ...roles,
     },
     entitlements: session.entitlements || {},
+    profile,
+    profileComplete: isProfileComplete(profile),
+    profileMissingFields: getProfileMissingFields(profile),
     ...roles,
   });
 }
@@ -698,7 +707,7 @@ function repairMojibake(value) {
 function repairBookingRecordText(booking) {
   if (!booking || typeof booking !== "object") return booking;
   const repaired = { ...booking };
-  ["advisorName", "studentName", "contact", "major", "applicationLevel", "dateDisplay", "dateTime", "note", "bookingText"].forEach((key) => {
+  ["advisorName", "studentName", "contact", "school", "major", "applicationLevel", "dateDisplay", "dateTime", "note", "bookingText"].forEach((key) => {
     repaired[key] = repairMojibake(repaired[key]);
   });
   return repaired;
@@ -717,14 +726,18 @@ function normalizeBooking(body, session) {
   const time = normalizeBookingText(body.time, 12);
   const advisorKey = normalizeBookingText(body.advisorKey || "a1", 20);
   const advisorName = normalizeBookingText(body.advisorName || (advisorKey === "a2" ? "陆老师" : "张老师"), 20);
-  const studentName = normalizeBookingText(body.studentName, 20);
-  const contact = normalizeBookingText(body.contact, 80);
-  const major = normalizeBookingText(body.major, 80);
-  const applicationLevel = normalizeBookingText(body.applicationLevel || body.targetDegree, 20);
+  const profile = sanitizeProfile(getUserProfile(session) || {});
+  const missingFields = getProfileMissingFields(profile);
+  const studentName = profile.name;
+  const contact = profile.contact;
+  const school = profile.school;
+  const major = profile.major;
+  const applicationLevel = profile.applicationLevel;
   const note = normalizeBookingText(body.note || "预约德国留学申请沟通", 50);
-  if (!studentName || !contact || !major || !["本科", "硕士"].includes(applicationLevel)) {
-    const error = new Error("请完整填写预约人姓名、联系方式、当前专业和申请层次（本科/硕士）。");
+  if (missingFields.length) {
+    const error = new Error("请先完成首次学生资料设置，再提交预约。");
     error.statusCode = 400;
+    error.missingFields = missingFields;
     throw error;
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -744,12 +757,11 @@ function normalizeBooking(body, session) {
   }
   const dateTime = formatWechatBookingDateTime(date, time);
   const id = `bk_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
-  const bookingText =
-    body.bookingText ||
-    [
+  const bookingText = [
       "留德小栈预约信息",
       `学生：${studentName}`,
       `联系方式：${contact}`,
+      `当前学校：${school}`,
       `当前专业：${major}`,
       `申请层次：${applicationLevel}`,
       `日期：${dateDisplay}`,
@@ -764,6 +776,7 @@ function normalizeBooking(body, session) {
     advisorName,
     studentName,
     contact,
+    school,
     major,
     applicationLevel,
     date,
@@ -1176,16 +1189,36 @@ function getUserProfile(session) {
 }
 
 function sanitizeProfile(profile = {}) {
+  const rawLevel = normalizeBookingText(profile.applicationLevel || profile.targetDegree, 20);
   return {
     name: normalizeBookingText(profile.name, 40),
     school: normalizeBookingText(profile.school, 80),
     major: normalizeBookingText(profile.major, 80),
     contact: normalizeBookingText(profile.contact, 80),
+    applicationLevel: ["本科", "硕士"].includes(rawLevel) ? rawLevel : "",
     companyAccount: normalizeBookingText(profile.companyAccount, 80),
     lockedAt: profile.lockedAt || "",
     companyBoundAt: profile.companyBoundAt || "",
     updatedAt: profile.updatedAt || "",
   };
+}
+
+const PROFILE_REQUIRED_FIELDS = ["name", "contact", "school", "major", "applicationLevel"];
+const PROFILE_FIELD_LABELS = {
+  name: "姓名",
+  contact: "联系方式",
+  school: "当前/毕业学校",
+  major: "当前/本科专业",
+  applicationLevel: "申请层次",
+};
+
+function getProfileMissingFields(profile = {}) {
+  const current = sanitizeProfile(profile);
+  return PROFILE_REQUIRED_FIELDS.filter((field) => !current[field]);
+}
+
+function isProfileComplete(profile = {}) {
+  return getProfileMissingFields(profile).length === 0;
 }
 
 function upsertProfile(session, patch) {
@@ -1452,6 +1485,7 @@ function buildBookingWebhookContent(booking, eventType = "created") {
     cancelled ? "留德小栈预约已取消" : "留德小栈新预约",
     `学生：${booking.studentName}`,
     `联系方式：${booking.contact || "未填写"}`,
+    `当前学校：${booking.school || "未填写"}`,
     `当前专业：${booking.major || "未填写"}`,
     `申请层次：${booking.applicationLevel || "未填写"}`,
     `顾问：${booking.advisorName}`,
@@ -1514,8 +1548,12 @@ function buildCustomerMessageWebhookContent(record) {
   return [
     "留德小栈收到新的客服咨询",
     `学生：${record.studentName || "微信用户"}`,
+    `联系方式：${record.contact || "未填写"}`,
+    `当前学校：${record.school || "未填写"}`,
+    `当前专业：${record.major || "未填写"}`,
+    `申请层次：${record.applicationLevel || "未填写"}`,
     "请进入后台管理网站或小程序“客服消息”查看并回复。",
-    "为保护隐私，企业群提醒不展示咨询原文或用户身份标识。",
+    "为保护隐私，企业群提醒不展示咨询原文、微信原始身份标识或文件内容。",
   ].join("\n");
 }
 
@@ -1634,7 +1672,9 @@ async function handleBooking(req, res) {
     sendJson(res, error.statusCode || 500, {
       ok: false,
       notified: false,
-      error: "预约提交暂时未完成，已填信息仍会保留，请稍后重试。",
+      error: error.statusCode === 400 ? error.message : "预约提交暂时未完成，请稍后重试。",
+      requiresOnboarding: Boolean(error.missingFields?.length),
+      missingFields: error.missingFields || [],
       channels: [],
     });
   }
@@ -1701,6 +1741,7 @@ function sanitizeBookingForAdmin(booking) {
     advisorName: booking.advisorName,
     studentName: booking.studentName,
     contact: booking.contact || "",
+    school: booking.school || "",
     major: booking.major || "",
     applicationLevel: booking.applicationLevel || "",
     date: booking.date,
@@ -1731,6 +1772,7 @@ function sanitizeBookingForUser(booking) {
     advisorName: booking.advisorName,
     studentName: booking.studentName,
     contact: booking.contact || "",
+    school: booking.school || "",
     major: booking.major || "",
     applicationLevel: booking.applicationLevel || "",
     date: booking.date,
@@ -2350,7 +2392,10 @@ function buildAdminMessageConversations() {
       groups.set(storageKey, {
         storageKey,
         studentName: normalizeBookingText(record.studentName || profile.name || "微信用户", 40),
-        contact: normalizeBookingText(profile.contact, 80),
+        contact: normalizeBookingText(record.contact || profile.contact, 80),
+        school: normalizeBookingText(record.school || profile.school, 80),
+        major: normalizeBookingText(record.major || profile.major, 80),
+        applicationLevel: normalizeBookingText(record.applicationLevel || profile.applicationLevel, 20),
         messages: [],
         lastMessageAt: "",
       });
@@ -2369,6 +2414,7 @@ function handleUserMessages(req, res) {
   const session = requireSession(req, res);
   if (!session) return;
   const storageKey = getSessionStorageKey(session);
+  const profile = sanitizeProfile(getUserProfile(session) || {});
   const records = readJsonlFile(MP_MESSAGES_FILE)
     .filter((record) => record?.user?.storageKey === storageKey)
     .sort((a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || "")))
@@ -2378,6 +2424,10 @@ function handleUserMessages(req, res) {
     ok: true,
     records,
     count: records.length,
+    profile,
+    complete: isProfileComplete(profile),
+    missingFields: getProfileMissingFields(profile),
+    identityBindingNote: "客服会话已绑定当前微信账号的学生资料，无需重复填写。",
     privacyNote: "消息仅当前微信账号和具有内部管理权限的人员可见。请勿发送银行卡密码、验证码等敏感信息。",
   });
 }
@@ -2393,13 +2443,27 @@ async function handleUserMessageSend(req, res) {
       sendJson(res, 400, { error: "请填写需要咨询的内容。" });
       return;
     }
-    const profile = getUserProfile(session) || {};
+    const profile = sanitizeProfile(getUserProfile(session) || {});
+    const missingFields = getProfileMissingFields(profile);
+    if (missingFields.length) {
+      sendJson(res, 400, {
+        error: "请先完成首次学生资料设置，再发送客服消息。",
+        requiresOnboarding: true,
+        missingFields,
+        profile,
+      });
+      return;
+    }
     const record = {
       id: createRecordId("msg"),
       direction: "user",
       content,
       senderLabel: "我",
-      studentName: normalizeBookingText(profile.name || "微信用户", 40),
+      studentName: profile.name,
+      contact: profile.contact,
+      school: profile.school,
+      major: profile.major,
+      applicationLevel: profile.applicationLevel,
       user: {
         storageKey: getSessionStorageKey(session),
         openid: maskOpenid(session.openid),
@@ -2472,6 +2536,10 @@ async function handleAdminMessageReply(req, res) {
       content,
       senderLabel: getMessageSenderLabel(session),
       studentName: normalizeBookingText(previous.studentName || "微信用户", 40),
+      contact: normalizeBookingText(previous.contact, 80),
+      school: normalizeBookingText(previous.school, 80),
+      major: normalizeBookingText(previous.major, 80),
+      applicationLevel: normalizeBookingText(previous.applicationLevel, 20),
       user: { storageKey },
       createdAt: new Date().toISOString(),
     };
@@ -2587,17 +2655,22 @@ function handleGetProfile(req, res) {
   if (!session) return;
   const profile = getUserProfile(session);
   const roles = getSessionRoles(session);
+  const sanitized = sanitizeProfile(profile || {});
+  const missingFields = getProfileMissingFields(sanitized);
   sendJson(res, 200, {
     ok: true,
-    profile: sanitizeProfile(profile || {}),
+    profile: sanitized,
     locked: Boolean(profile?.lockedAt),
+    complete: missingFields.length === 0,
+    requiresOnboarding: !roles.isAdmin && missingFields.length > 0,
+    missingFields,
     ...roles,
     user: {
       openid: maskOpenid(session.openid),
       storageKey: createUserStorageKey(session.openid),
       ...roles,
     },
-    bindingNote: "个人信息提交后将锁定；如需修改，请联系顾问处理。",
+    bindingNote: "学生资料只需填写一次，预约和客服会自动使用；提交后如需修改，请联系顾问处理。",
   });
 }
 
@@ -2609,33 +2682,59 @@ async function handleSaveProfile(req, res) {
     const rawBody = await readBody(req);
     const body = JSON.parse(rawBody || "{}");
     const existing = getUserProfile(session);
-    if (existing?.lockedAt) {
+    const existingProfile = sanitizeProfile(existing || {});
+    const submittedProfile = sanitizeProfile(body);
+    if (existing?.lockedAt && isProfileComplete(existingProfile)) {
       sendJson(res, 409, {
         ok: false,
         locked: true,
+        complete: true,
         error: "个人信息已提交并锁定，如需修改请联系顾问。",
-        profile: sanitizeProfile(existing),
+        profile: existingProfile,
       });
       return;
     }
-    const name = normalizeBookingText(body.name, 40);
-    if (!name) {
-      sendJson(res, 400, { error: "请填写姓名后再提交。" });
+    if (existing?.lockedAt) {
+      const changedLockedField = PROFILE_REQUIRED_FIELDS.find(
+        (field) => existingProfile[field] && submittedProfile[field] && submittedProfile[field] !== existingProfile[field]
+      );
+      if (changedLockedField) {
+        sendJson(res, 409, {
+          ok: false,
+          locked: true,
+          complete: false,
+          error: `${PROFILE_FIELD_LABELS[changedLockedField]}已锁定，本次只能补充缺失资料。`,
+          profile: existingProfile,
+          missingFields: getProfileMissingFields(existingProfile),
+        });
+        return;
+      }
+    }
+    const mergedProfile = {};
+    PROFILE_REQUIRED_FIELDS.forEach((field) => {
+      mergedProfile[field] = existing?.lockedAt ? existingProfile[field] || submittedProfile[field] : submittedProfile[field];
+    });
+    const missingFields = getProfileMissingFields(mergedProfile);
+    if (missingFields.length) {
+      sendJson(res, 400, {
+        error: `请补充${missingFields.map((field) => PROFILE_FIELD_LABELS[field]).join("、")}后再提交。`,
+        missingFields,
+        profile: sanitizeProfile({ ...existingProfile, ...mergedProfile }),
+      });
       return;
     }
     const profile = upsertProfile(session, {
-      name,
-      school: normalizeBookingText(body.school, 80),
-      major: normalizeBookingText(body.major, 80),
-      contact: normalizeBookingText(body.contact, 80),
-      lockedAt: new Date().toISOString(),
+      ...mergedProfile,
+      lockedAt: existing?.lockedAt || new Date().toISOString(),
+      completedAt: new Date().toISOString(),
     });
-    recordUsage(session, "profile.lock", { hasSchool: Boolean(profile.school), hasMajor: Boolean(profile.major) });
+    recordUsage(session, "profile.lock", { complete: true, legacySupplement: Boolean(existing?.lockedAt) });
     sendJson(res, 200, {
       ok: true,
       locked: true,
+      complete: true,
       profile: sanitizeProfile(profile),
-      message: "个人信息已提交并锁定。",
+      message: "学生资料已绑定当前微信账号，预约和客服将自动使用。",
     });
   } catch (error) {
     if (isJsonParseError(error)) {
