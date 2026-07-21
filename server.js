@@ -3116,6 +3116,7 @@ const server = http.createServer((req, res) => {
       webSeparated: true,
       wechatConfigured: Boolean(WECHAT_APPID && WECHAT_SECRET),
       openLogin: MP_OPEN_LOGIN,
+      demoLoginEnabled: MP_ALLOW_DEV_LOGIN,
       whitelistSize: MP_ALLOWED_OPENIDS.length,
       deniedOpenidLogging: MP_LOG_DENIED_OPENID,
       loginOpenidLogging: MP_LOG_LOGIN_OPENID,
@@ -3180,6 +3181,10 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === "POST" && url.pathname === "/api/mp/demo/login") {
+    if (!MP_ALLOW_DEV_LOGIN) {
+      sendJson(res, 404, { error: "Not found" });
+      return;
+    }
     handleDemoLogin(res);
     return;
   }

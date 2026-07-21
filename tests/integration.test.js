@@ -83,6 +83,7 @@ test("user, booking, transcript, recommendation, course, upload and PDF flows", 
   const health = await requestJson("/health");
   assert.equal(health.response.status, 200);
   assert.equal(health.payload.bookingTeacherOpenidCount, 2);
+  assert.equal(health.payload.demoLoginEnabled, true);
   assert.equal(health.payload.bookingWebhookCount, 0);
   assert.equal(health.payload.bookingCancellationNotificationConfigured, false);
   assert.deepEqual(health.payload.bookingTeacherRoleCounts, { a1: 1, a2: 1 });
