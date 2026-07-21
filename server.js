@@ -48,6 +48,18 @@ const MP_MEDIA_SIGNING_SECRET =
   (WECHAT_SECRET
     ? crypto.createHash("sha256").update(`${WECHAT_APPID}:${WECHAT_SECRET}:liude-course-media`).digest("hex")
     : crypto.randomBytes(32).toString("hex"));
+const MP_SESSION_TTL_SECONDS = (() => {
+  const defaultTtl = 30 * 24 * 60 * 60;
+  const configuredTtl = Number(process.env.MP_SESSION_TTL_SECONDS || defaultTtl);
+  if (!Number.isFinite(configuredTtl)) return defaultTtl;
+  return Math.max(3600, Math.min(Math.floor(configuredTtl), 180 * 24 * 60 * 60));
+})();
+const MP_SESSION_SECRET = process.env.MP_SESSION_SECRET || MP_MEDIA_SIGNING_SECRET;
+const MP_SESSION_KEY = crypto
+  .createHash("sha256")
+  .update(`liude-miniprogram-session-v1:${MP_SESSION_SECRET}`)
+  .digest();
+const MP_SESSION_AAD = Buffer.from("liude-miniprogram-session-v1", "utf8");
 const DEFAULT_BOOKING_TIMES = [
   "09:00",
   "10:00",
@@ -232,12 +244,65 @@ function getBearerToken(req) {
 }
 
 function createSession(session) {
-  const token = crypto.randomBytes(28).toString("hex");
-  sessions.set(token, {
-    ...session,
-    createdAt: Date.now(),
-  });
-  return token;
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    version: 1,
+    mode: String(session.mode || "user"),
+    openid: String(session.openid || ""),
+    unionid: String(session.unionid || ""),
+    issuedAt: now,
+    expiresAt: now + MP_SESSION_TTL_SECONDS,
+  };
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", MP_SESSION_KEY, iv);
+  cipher.setAAD(MP_SESSION_AAD);
+  const encrypted = Buffer.concat([cipher.update(JSON.stringify(payload), "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return ["mps1", iv.toString("base64url"), encrypted.toString("base64url"), tag.toString("base64url")].join(".");
+}
+
+function decodeSessionToken(token) {
+  if (!token || token.length > 4096) return null;
+  const parts = String(token).split(".");
+  if (parts.length !== 4 || parts[0] !== "mps1") return null;
+  try {
+    const iv = Buffer.from(parts[1], "base64url");
+    const encrypted = Buffer.from(parts[2], "base64url");
+    const tag = Buffer.from(parts[3], "base64url");
+    if (iv.length !== 12 || !encrypted.length || tag.length !== 16) return null;
+    const decipher = crypto.createDecipheriv("aes-256-gcm", MP_SESSION_KEY, iv);
+    decipher.setAAD(MP_SESSION_AAD);
+    decipher.setAuthTag(tag);
+    const payload = JSON.parse(Buffer.concat([decipher.update(encrypted), decipher.final()]).toString("utf8"));
+    const now = Math.floor(Date.now() / 1000);
+    if (
+      payload?.version !== 1 ||
+      !["user", "demo"].includes(payload.mode) ||
+      !payload.openid ||
+      String(payload.openid).length > 256 ||
+      !Number.isInteger(payload.issuedAt) ||
+      !Number.isInteger(payload.expiresAt) ||
+      payload.issuedAt > now + 300 ||
+      payload.expiresAt <= now ||
+      payload.expiresAt - payload.issuedAt > 180 * 24 * 60 * 60 ||
+      (payload.mode === "demo" && !MP_ALLOW_DEV_LOGIN)
+    ) {
+      return null;
+    }
+    return {
+      mode: payload.mode,
+      openid: String(payload.openid),
+      unionid: String(payload.unionid || ""),
+      entitlements:
+        payload.mode === "demo"
+          ? { recommendationCount: true, materialAssistant: true }
+          : getUserEntitlements(String(payload.openid)),
+      createdAt: payload.issuedAt * 1000,
+      expiresAt: payload.expiresAt * 1000,
+    };
+  } catch (error) {
+    return null;
+  }
 }
 
 function getSession(req) {
@@ -255,7 +320,7 @@ function getSession(req) {
       };
     }
   }
-  return sessions.get(token) || null;
+  return sessions.get(token) || decodeSessionToken(token);
 }
 
 function requireSession(req, res) {
@@ -3245,6 +3310,9 @@ const server = http.createServer((req, res) => {
       adminWebEnabled: Boolean(MP_ADMIN_WEB_TOKEN && fs.existsSync(path.join(ADMIN_WEB_DIR, "index.html"))),
       courseMediaSigned: true,
       courseMediaSigningStable: Boolean(process.env.MP_MEDIA_SIGNING_SECRET || WECHAT_SECRET),
+      sessionTokensStateless: true,
+      sessionTokenTtlSeconds: MP_SESSION_TTL_SECONDS,
+      sessionSigningStable: Boolean(process.env.MP_SESSION_SECRET || process.env.MP_MEDIA_SIGNING_SECRET || WECHAT_SECRET),
       studentUploadDatabaseEnabled: true,
       studentUploadDownloadEnabled: true,
       customerMessagingEnabled: true,
@@ -3483,5 +3551,8 @@ module.exports.testHelpers = {
   buildBookingWebhookContent,
   buildCustomerMessageWebhookContent,
   buildFallbackRecommendation,
+  clearSessions() {
+    sessions.clear();
+  },
   shouldUseRecommendationFallback,
 };

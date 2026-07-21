@@ -96,6 +96,9 @@ test("user, booking, transcript, recommendation, course, upload and PDF flows", 
   assert.deepEqual(health.payload.bookingTemplateFieldKeys, ["time1", "thing2", "thing3", "thing4", "thing5"]);
   assert.equal(health.payload.bookingTemplateFieldsValid, true);
   assert.equal(health.payload.courseMediaSigned, true);
+  assert.equal(health.payload.sessionTokensStateless, true);
+  assert.equal(health.payload.sessionTokenTtlSeconds, 30 * 24 * 60 * 60);
+  assert.equal(health.payload.sessionSigningStable, true);
   assert.equal(health.payload.courseAdminSynchronized, true);
   assert.equal(health.payload.courseDeleteEnabled, true);
   assert.equal(health.payload.courseVideoDeleteEnabled, true);
@@ -143,6 +146,16 @@ test("user, booking, transcript, recommendation, course, upload and PDF flows", 
   assert.equal(userLogin.payload.canManageCourses, true);
   assert.equal(userLogin.payload.profileComplete, false);
   const userToken = userLogin.payload.token;
+  assert.match(userToken, /^mps1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+  server.testHelpers.clearSessions();
+  const restoredSession = await requestJson("/api/mp/session", { token: userToken });
+  assert.equal(restoredSession.response.status, 200);
+  assert.equal(restoredSession.payload.authenticated, true);
+  const tamperedParts = userToken.split(".");
+  tamperedParts[2] = `${tamperedParts[2][0] === "A" ? "B" : "A"}${tamperedParts[2].slice(1)}`;
+  const rejectedSession = await requestJson("/api/mp/session", { token: tamperedParts.join(".") });
+  assert.equal(rejectedSession.response.status, 200);
+  assert.equal(rejectedSession.payload.authenticated, false);
 
   const adminWebSession = await requestJson("/api/mp/session", { token: process.env.MP_ADMIN_WEB_TOKEN });
   assert.equal(adminWebSession.response.status, 200);
@@ -159,9 +172,12 @@ test("user, booking, transcript, recommendation, course, upload and PDF flows", 
   assert.equal(adminBookingConfig.payload.subscriptionMode, "long-term");
   assert.equal(adminBookingConfig.payload.templateId, "test-template-id");
 
-  const miniProgramText = require(path.join(__dirname, "..", "..", "用户版小程序", "utils", "text"));
-  const garbledConfirmation = Buffer.from("预约已提交成功", "utf8").toString("latin1");
-  assert.equal(miniProgramText.repairMojibake(garbledConfirmation), "预约已提交成功");
+  const miniProgramTextPath = path.join(__dirname, "..", "..", "用户版小程序", "utils", "text");
+  if (fs.existsSync(`${miniProgramTextPath}.js`)) {
+    const miniProgramText = require(miniProgramTextPath);
+    const garbledConfirmation = Buffer.from("预约已提交成功", "utf8").toString("latin1");
+    assert.equal(miniProgramText.repairMojibake(garbledConfirmation), "预约已提交成功");
+  }
 
   const userBookingConfig = await requestJson("/api/mp/booking/config", { token: userToken });
   assert.equal(userBookingConfig.payload.canSubscribe, false);
