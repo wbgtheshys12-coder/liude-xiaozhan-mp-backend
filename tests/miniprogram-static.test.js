@@ -4,6 +4,8 @@ const path = require("node:path");
 const test = require("node:test");
 
 const miniRoot = path.resolve(__dirname, "..", "..", "用户版小程序");
+const miniProgramAvailable = fs.existsSync(path.join(miniRoot, "app.json"));
+const miniProgramTestOptions = { skip: miniProgramAvailable ? false : "standalone backend checkout has no Mini Program source" };
 
 function walkFiles(dir) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -33,7 +35,7 @@ function assertBalancedWxml(relativePath, source) {
   assert.deepEqual(stack, [], `${relativePath} 存在未闭合 WXML 标签`);
 }
 
-test("mini program pages, bindings, JSON, layout guards and package size", () => {
+test("mini program pages, bindings, JSON, layout guards and package size", miniProgramTestOptions, () => {
   const app = JSON.parse(read("app.json"));
   assert.equal(app.pages.includes("pages/live/live"), true);
   assert.equal(JSON.parse(read("project.config.json")).appid, "wxd03d251346000689");
@@ -67,6 +69,10 @@ test("mini program pages, bindings, JSON, layout guards and package size", () =>
   assert.match(read("pages/admin/courses.wxml"), /bindtap="deleteCourse"/);
   assert.match(read("utils/api.js"), /\/api\/mp\/admin\/course-video\/delete/);
   assert.match(read("utils/api.js"), /\/api\/mp\/admin\/course\/delete/);
+  assert.match(read("utils/api.js"), /skipAuthRecovery/);
+  assert.match(read("utils/api.js"), /error\?\.statusCode !== 401/);
+  assert.match(read("utils/api.js"), /authRetried: true/);
+  assert.match(read("utils/api.js"), /function refreshSession\(\)/);
   assert.doesNotMatch(read("pages/course/course.js"), /先上传成绩单/);
 
   app.pages.forEach((pagePath) => {
@@ -119,7 +125,7 @@ test("mini program pages, bindings, JSON, layout guards and package size", () =>
   });
 });
 
-test("student profile cache stays isolated by WeChat account", () => {
+test("student profile cache stays isolated by WeChat account", miniProgramTestOptions, () => {
   const env = require(path.join(miniRoot, "utils", "env.js"));
   const storage = {
     [env.STORAGE_KEYS.session]: { user: { storageKey: "current-user" } },
@@ -147,4 +153,62 @@ test("student profile cache stays isolated by WeChat account", () => {
   assert.equal(studentProfile.getStored().name, "current-user");
   assert.equal(studentProfile.getStored().contact, "current-contact");
   delete global.wx;
+});
+
+test("expired Mini Program sessions refresh once and retry the interrupted requests", miniProgramTestOptions, async () => {
+  const env = require(path.join(miniRoot, "utils", "env.js"));
+  const storage = {
+    [env.STORAGE_KEYS.token]: "expired-token",
+    [env.STORAGE_KEYS.session]: { token: "expired-token" },
+  };
+  const app = { globalData: { token: "expired-token", session: storage[env.STORAGE_KEYS.session] } };
+  let loginCalls = 0;
+  let protectedCalls = 0;
+  let redirects = 0;
+  global.getApp = () => app;
+  global.getCurrentPages = () => [{ route: "pages/courses/courses" }];
+  global.wx = {
+    getStorageSync(key) {
+      return storage[key];
+    },
+    setStorageSync(key, value) {
+      storage[key] = value;
+    },
+    removeStorageSync(key) {
+      delete storage[key];
+    },
+    login(options) {
+      loginCalls += 1;
+      options.success({ code: "fresh-wechat-code" });
+    },
+    request(options) {
+      if (options.url.endsWith("/api/mp/user/login")) {
+        options.success({ statusCode: 200, data: { token: "fresh-token", user: { storageKey: "student-key" } } });
+        return;
+      }
+      protectedCalls += 1;
+      if (options.header.Authorization === "Bearer fresh-token") {
+        options.success({ statusCode: 200, data: { ok: true } });
+        return;
+      }
+      options.success({ statusCode: 401, data: { error: "请先登录小程序。" } });
+    },
+    reLaunch(options) {
+      redirects += 1;
+      options.complete?.();
+    },
+  };
+  const apiPath = path.join(miniRoot, "utils", "api.js");
+  delete require.cache[require.resolve(apiPath)];
+  const api = require(apiPath);
+  const results = await Promise.all([api.getCourses(), api.getCourses()]);
+  assert.deepEqual(results, [{ ok: true }, { ok: true }]);
+  assert.equal(loginCalls, 1);
+  assert.equal(protectedCalls, 4);
+  assert.equal(storage[env.STORAGE_KEYS.token], "fresh-token");
+  assert.equal(redirects, 0);
+  delete require.cache[require.resolve(apiPath)];
+  delete global.wx;
+  delete global.getApp;
+  delete global.getCurrentPages;
 });
