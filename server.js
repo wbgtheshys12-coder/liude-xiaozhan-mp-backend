@@ -3100,20 +3100,68 @@ function wrapPdfText(value, maxUnits = 40) {
       }
       let line = "";
       let units = 0;
-      for (const char of paragraph) {
-        const nextUnits = pdfCharacterUnits(char);
-        if (line && units + nextUnits > maxUnits) {
-          result.push(line);
-          line = char;
-          units = nextUnits;
-        } else {
-          line += char;
-          units += nextUnits;
+      let pendingSpace = "";
+      const tokens = paragraph.match(/\s+|[\u0000-\u00ff]+|[^\u0000-\u00ff]/gu) || [];
+      for (const token of tokens) {
+        if (/^\s+$/u.test(token)) {
+          pendingSpace = line ? " " : "";
+          continue;
         }
+        let segment = `${pendingSpace}${token}`;
+        let segmentUnits = pdfLineUnits(segment);
+        if (line && units + segmentUnits > maxUnits) {
+          result.push(line.trimEnd());
+          line = "";
+          units = 0;
+          segment = token;
+          segmentUnits = pdfLineUnits(segment);
+        }
+        if (segmentUnits <= maxUnits) {
+          line += segment;
+          units += segmentUnits;
+          pendingSpace = "";
+          continue;
+        }
+        for (const char of segment) {
+          const charUnits = pdfCharacterUnits(char);
+          if (line && units + charUnits > maxUnits) {
+            result.push(line.trimEnd());
+            line = "";
+            units = 0;
+          }
+          line += char;
+          units += charUnits;
+        }
+        pendingSpace = "";
       }
-      result.push(line);
+      result.push(line.trimEnd());
     });
   return result;
+}
+
+function paginatePdfText(value, maxUnits = 40, linesPerPage = 40) {
+  const pages = [];
+  let page = [];
+  const paragraphs = String(value || "").replace(/\r\n/g, "\n").split("\n");
+  for (const paragraph of paragraphs) {
+    let lines = wrapPdfText(paragraph, maxUnits);
+    if (lines.length > linesPerPage) {
+      if (page.length) {
+        pages.push(page);
+        page = [];
+      }
+      while (lines.length > linesPerPage) {
+        pages.push(lines.slice(0, linesPerPage));
+        lines = lines.slice(linesPerPage);
+      }
+    } else if (page.length && page.length + lines.length > linesPerPage) {
+      pages.push(page);
+      page = [];
+    }
+    page.push(...lines);
+  }
+  if (page.length || !pages.length) pages.push(page);
+  return pages;
 }
 
 function formatDocumentDateTime(date = new Date()) {
@@ -3201,14 +3249,10 @@ function createWatermarkedPdf(title, content, watermark, generatedAtText = forma
     logoId = 0;
     logoDimensions = null;
   }
-  const bodyLines = wrapPdfText(content, 42);
   const titleLines = wrapPdfText(title, 28);
   const linesPerPage = 40;
   const pages = [];
-  const chunks = [];
-  for (let index = 0; index < bodyLines.length || index === 0; index += linesPerPage) {
-    chunks.push(bodyLines.slice(index, index + linesPerPage));
-  }
+  const chunks = paginatePdfText(content, 42, linesPerPage);
   chunks.forEach((chunk, pageIndex) => {
     const commands = ["q", "/GS1 gs"];
     if (logoId && logoDimensions) {
@@ -3690,5 +3734,7 @@ module.exports.testHelpers = {
     sessions.clear();
   },
   formatDocumentDateTime,
+  paginatePdfText,
   shouldUseRecommendationFallback,
+  wrapPdfText,
 };

@@ -109,6 +109,24 @@ test("user, booking, transcript, recommendation, course, upload and PDF flows", 
   assert.equal(health.payload.documentLogoWatermarkEnabled, true);
   assert.equal(health.payload.documentOutputTimezone, "Asia/Shanghai");
   assert.equal(health.payload.documentGermanProfessionalVersion, "待开发/人工咨询");
+  const wrappedLatinText = server.testHelpers.wrapPdfText(
+    "课程匹配包含 Mathematics, Informatik, Elektrotechnik und künstliche Intelligenz，用于检查中英文混排。",
+    42
+  );
+  assert.ok(wrappedLatinText.some((line) => line.includes("Intelligenz")));
+  assert.ok(!wrappedLatinText.some((line) => line.endsWith("Int") || line.startsWith("elligenz")));
+  const paginatedText = server.testHelpers.paginatePdfText(
+    Array.from(
+      { length: 36 },
+      (_, index) =>
+        `第${index + 1}段：课程匹配包含 Mathematics, Informatik, Elektrotechnik und künstliche Intelligenz，用于检查中英文混排。`
+    ).join("\n"),
+    42,
+    40
+  );
+  assert.ok(paginatedText.length >= 2);
+  assert.ok(paginatedText.every((page) => page.length <= 40));
+  assert.ok(paginatedText.every((page) => /^第\d+段/.test(page[0] || "")));
   assert.equal(health.payload.adminWebEnabled, true);
   assert.equal(health.payload.externalPersistentDataDirConfigured, true);
 
