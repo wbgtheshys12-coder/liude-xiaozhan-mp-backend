@@ -81,6 +81,9 @@ const MP_BOOKING_TIMES = normalizeTimeList(
 const MP_BOOKING_TIMEZONE_OFFSET_MINUTES = Number(process.env.MP_BOOKING_TIMEZONE_OFFSET_MINUTES || 8 * 60);
 const MAX_REQUEST_BYTES = Number(process.env.MAX_REQUEST_BYTES || 40 * 1024 * 1024);
 const ADMIN_WEB_DIR = path.join(__dirname, "admin-web");
+const DOCUMENT_LOGO_PATH = path.join(__dirname, "assets", "document-logo.jpg");
+const DOCUMENT_TIMEZONE = "Asia/Shanghai";
+const DOCUMENT_TEMPLATE_VERSION = "liude-doc-template-20260726";
 
 const sessions = new Map();
 let wechatAccessToken = { value: "", expiresAt: 0 };
@@ -2998,7 +3001,7 @@ function handleMaterialAccess(req, res) {
       freeDuringLaunch: MP_DOCUMENT_DOWNLOAD_FREE,
       paymentStatus: MP_DOCUMENT_DOWNLOAD_FREE ? "free-launch" : "entitled",
       message: MP_DOCUMENT_DOWNLOAD_FREE
-        ? "当前上线初期，动机信和简历生成、下载暂时免费。收费能力待开发。"
+        ? "当前上线初期，中文初稿和水印 PDF 下载免费；德语专业版需咨询文书老师，在线收费功能待开发。"
         : "当前账号已开通文书工具。",
     });
     return;
@@ -3052,8 +3055,37 @@ function pdfTextHex(value) {
     .join("");
 }
 
+function pdfLatinHex(value) {
+  return Buffer.from(String(value || ""), "latin1").toString("hex");
+}
+
+function splitPdfFontRuns(value) {
+  const runs = [];
+  for (const char of String(value || "").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, " ")) {
+    const font = char.codePointAt(0) <= 0xff ? "F2" : "F1";
+    const current = runs[runs.length - 1];
+    if (current && current.font === font) {
+      current.text += char;
+    } else {
+      runs.push({ font, text: char });
+    }
+  }
+  return runs;
+}
+
+function pdfMixedTextOperators(value, fontSize) {
+  return splitPdfFontRuns(value).map((run) => {
+    const hex = run.font === "F2" ? pdfLatinHex(run.text) : pdfTextHex(run.text);
+    return `/${run.font} ${fontSize} Tf <${hex}> Tj`;
+  });
+}
+
 function pdfCharacterUnits(char) {
   return /[\u0000-\u00ff]/.test(char) ? 0.55 : 1;
+}
+
+function pdfLineUnits(value) {
+  return Array.from(String(value || "")).reduce((sum, char) => sum + pdfCharacterUnits(char), 0);
 }
 
 function wrapPdfText(value, maxUnits = 40) {
@@ -3068,23 +3100,117 @@ function wrapPdfText(value, maxUnits = 40) {
       }
       let line = "";
       let units = 0;
-      for (const char of paragraph) {
-        const nextUnits = pdfCharacterUnits(char);
-        if (line && units + nextUnits > maxUnits) {
-          result.push(line);
-          line = char;
-          units = nextUnits;
-        } else {
-          line += char;
-          units += nextUnits;
+      let pendingSpace = "";
+      const tokens = paragraph.match(/\s+|[\u0000-\u00ff]+|[^\u0000-\u00ff]/gu) || [];
+      for (const token of tokens) {
+        if (/^\s+$/u.test(token)) {
+          pendingSpace = line ? " " : "";
+          continue;
         }
+        let segment = `${pendingSpace}${token}`;
+        let segmentUnits = pdfLineUnits(segment);
+        if (line && units + segmentUnits > maxUnits) {
+          result.push(line.trimEnd());
+          line = "";
+          units = 0;
+          segment = token;
+          segmentUnits = pdfLineUnits(segment);
+        }
+        if (segmentUnits <= maxUnits) {
+          line += segment;
+          units += segmentUnits;
+          pendingSpace = "";
+          continue;
+        }
+        for (const char of segment) {
+          const charUnits = pdfCharacterUnits(char);
+          if (line && units + charUnits > maxUnits) {
+            result.push(line.trimEnd());
+            line = "";
+            units = 0;
+          }
+          line += char;
+          units += charUnits;
+        }
+        pendingSpace = "";
       }
-      result.push(line);
+      result.push(line.trimEnd());
     });
   return result;
 }
 
-function createWatermarkedPdf(title, content, watermark) {
+function paginatePdfText(value, maxUnits = 40, linesPerPage = 40) {
+  const pages = [];
+  let page = [];
+  const paragraphs = String(value || "").replace(/\r\n/g, "\n").split("\n");
+  for (const paragraph of paragraphs) {
+    let lines = wrapPdfText(paragraph, maxUnits);
+    if (lines.length > linesPerPage) {
+      if (page.length) {
+        pages.push(page);
+        page = [];
+      }
+      while (lines.length > linesPerPage) {
+        pages.push(lines.slice(0, linesPerPage));
+        lines = lines.slice(linesPerPage);
+      }
+    } else if (page.length && page.length + lines.length > linesPerPage) {
+      pages.push(page);
+      page = [];
+    }
+    page.push(...lines);
+  }
+  if (page.length || !pages.length) pages.push(page);
+  return pages;
+}
+
+function formatDocumentDateTime(date = new Date()) {
+  const options = {
+    timeZone: DOCUMENT_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  };
+  let parts;
+  try {
+    parts = new Intl.DateTimeFormat("zh-CN", options).formatToParts(date);
+  } catch (error) {
+    parts = new Intl.DateTimeFormat("zh-CN", { ...options, timeZone: "Asia/Shanghai" }).formatToParts(date);
+  }
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}年${Number(values.month)}月${Number(values.day)}日 ${values.hour}:${values.minute}:${values.second}（北京时间）`;
+}
+
+function readJpegDimensions(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 12 || buffer[0] !== 0xff || buffer[1] !== 0xd8) return null;
+  let offset = 2;
+  while (offset + 9 < buffer.length) {
+    if (buffer[offset] !== 0xff) {
+      offset += 1;
+      continue;
+    }
+    const marker = buffer[offset + 1];
+    offset += 2;
+    if (marker === 0xd8 || marker === 0xd9) continue;
+    if (offset + 2 > buffer.length) break;
+    const length = buffer.readUInt16BE(offset);
+    if (length < 2 || offset + length > buffer.length) break;
+    if ([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf].includes(marker)) {
+      return {
+        height: buffer.readUInt16BE(offset + 3),
+        width: buffer.readUInt16BE(offset + 5),
+      };
+    }
+    offset += length;
+  }
+  return null;
+}
+
+function createWatermarkedPdf(title, content, watermark, generatedAtText = formatDocumentDateTime()) {
   const objects = [null];
   const addObject = (value) => {
     objects.push(value);
@@ -3098,46 +3224,79 @@ function createWatermarkedPdf(title, content, watermark) {
   const fontId = addObject(
     `<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light /Encoding /UniGB-UCS2-H /DescendantFonts [${cidFontId} 0 R] >>`
   );
-  const opacityId = addObject("<< /Type /ExtGState /ca 0.10 /CA 0.10 >>");
-  const bodyLines = wrapPdfText(content, 42);
-  const titleLines = wrapPdfText(title, 30);
-  const linesPerPage = 47;
-  const pages = [];
-  const chunks = [];
-  for (let index = 0; index < bodyLines.length || index === 0; index += linesPerPage) {
-    chunks.push(bodyLines.slice(index, index + linesPerPage));
+  const latinFontId = addObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
+  const opacityId = addObject("<< /Type /ExtGState /ca 0.08 /CA 0.08 >>");
+  let logoId = 0;
+  let logoDimensions = null;
+  try {
+    if (fs.existsSync(DOCUMENT_LOGO_PATH)) {
+      const logo = fs.readFileSync(DOCUMENT_LOGO_PATH);
+      logoDimensions = readJpegDimensions(logo);
+      if (logoDimensions?.width && logoDimensions?.height) {
+        logoId = addObject(
+          Buffer.concat([
+            Buffer.from(
+              `<< /Type /XObject /Subtype /Image /Width ${logoDimensions.width} /Height ${logoDimensions.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${logo.length} >>\nstream\n`,
+              "ascii"
+            ),
+            logo,
+            Buffer.from("\nendstream", "ascii"),
+          ])
+        );
+      }
+    }
+  } catch (error) {
+    logoId = 0;
+    logoDimensions = null;
   }
+  const titleLines = wrapPdfText(title, 28);
+  const linesPerPage = 40;
+  const pages = [];
+  const chunks = paginatePdfText(content, 42, linesPerPage);
   chunks.forEach((chunk, pageIndex) => {
-    const commands = [
-      "q",
-      "/GS1 gs",
-      "0.82 0.57 -0.57 0.82 115 420 cm",
-      `BT /F1 48 Tf 0 0 Td <${pdfTextHex(watermark)}> Tj ET`,
-      "Q",
-      "BT",
-      "/F1 17 Tf",
-    ];
-    let y = 795;
+    const commands = ["q", "/GS1 gs"];
+    if (logoId && logoDimensions) {
+      const logoWidth = 248;
+      const logoHeight = Math.round((logoWidth * logoDimensions.height) / logoDimensions.width);
+      const logoX = Math.round((595 - logoWidth) / 2);
+      const logoY = Math.round((842 - logoHeight) / 2) - 24;
+      commands.push(`${logoWidth} 0 0 ${logoHeight} ${logoX} ${logoY} cm`, "/Im1 Do");
+    } else {
+      commands.push("0.82 0.57 -0.57 0.82 115 420 cm", "BT", ...pdfMixedTextOperators(watermark, 48), "ET");
+    }
+    commands.push("Q", "0.122 0.345 0.655 rg");
+    let y = 802;
     titleLines.slice(0, 2).forEach((line) => {
-      commands.push(`1 0 0 1 48 ${y} Tm <${pdfTextHex(line)}> Tj`);
-      y -= 25;
+      const titleSize = 17;
+      const titleX = Math.max(48, Math.round((595 - pdfLineUnits(line) * titleSize) / 2));
+      commands.push("BT", `1 0 0 1 ${titleX} ${y} Tm`, ...pdfMixedTextOperators(line, titleSize), "ET");
+      y -= 22;
     });
-    commands.push("/F1 10 Tf", `1 0 0 1 48 ${y} Tm <${pdfTextHex(`留德小栈 · 第 ${pageIndex + 1} 页`)}> Tj`);
-    y -= 24;
-    commands.push("/F1 11 Tf");
+    commands.push("0.122 0.345 0.655 RG", "1.4 w", `48 ${y + 6} m 547 ${y + 6} l S`, "0.6 w", `48 ${y + 2} m 547 ${y + 2} l S`);
+    y -= 22;
+    commands.push("0.09 0.14 0.23 rg");
     chunk.forEach((line) => {
-      commands.push(`1 0 0 1 48 ${y} Tm <${pdfTextHex(line || " ")}> Tj`);
+      commands.push("BT", `1 0 0 1 48 ${y} Tm`, ...pdfMixedTextOperators(line || " ", 11), "ET");
       y -= 15;
     });
-    commands.push("ET");
+    const footerText = `本文件生成于 ${generatedAtText}，生成内容仅为申请材料准备初稿，不具有完整申请学校的作用。本文件最终解释权归留德小栈所有。`;
+    const footerLines = wrapPdfText(footerText, 72).slice(0, 2);
+    commands.push("0.36 0.42 0.51 rg", "0.5 w", "48 55 m 547 55 l S");
+    footerLines.forEach((line, index) => {
+      commands.push("BT", `1 0 0 1 48 ${43 - index * 9} Tm`, ...pdfMixedTextOperators(line, 6.5), "ET");
+    });
+    const pageLabel = `${pageIndex + 1} / ${chunks.length}`;
+    const pageX = Math.round((595 - pdfLineUnits(pageLabel) * 8) / 2);
+    commands.push("BT", `1 0 0 1 ${pageX} 18 Tm`, ...pdfMixedTextOperators(pageLabel, 8), "ET");
     const contentBuffer = Buffer.from(commands.join("\n"), "ascii");
     const streamId = addObject(Buffer.concat([
       Buffer.from(`<< /Length ${contentBuffer.length} >>\nstream\n`, "ascii"),
       contentBuffer,
       Buffer.from("\nendstream", "ascii"),
     ]));
+    const xObjectResources = logoId ? ` /XObject << /Im1 ${logoId} 0 R >>` : "";
     const pageId = addObject(
-      `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${fontId} 0 R >> /ExtGState << /GS1 ${opacityId} 0 R >> >> /Contents ${streamId} 0 R >>`
+      `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${fontId} 0 R /F2 ${latinFontId} 0 R >> /ExtGState << /GS1 ${opacityId} 0 R >>${xObjectResources} >> /Contents ${streamId} 0 R >>`
     );
     pages.push(pageId);
   });
@@ -3172,6 +3331,15 @@ async function handleDocumentPdf(req, res) {
     const rawBody = await readBody(req);
     const body = JSON.parse(rawBody || "{}");
     const kind = ["questionnaire", "matching"].includes(body.kind) ? body.kind : "draft";
+    const language = String(body.language || "zh").trim().toLowerCase() === "de" ? "de" : "zh";
+    if (language === "de") {
+      sendJson(res, 501, {
+        error: "德语专业版需由文书老师按目标学校要求翻译和审核，在线收费功能待开发。",
+        status: "待开发",
+        consultationRequired: true,
+      });
+      return;
+    }
     const defaultTitle = kind === "questionnaire" ? "申请材料调查表" : kind === "matching" ? "院校专业匹配报告" : "申请文书";
     const title = normalizeBookingText(body.title || defaultTitle, 80);
     const content = normalizeLongText(body.content || "", 30000);
@@ -3186,7 +3354,9 @@ async function handleDocumentPdf(req, res) {
       ? `${content.slice(0, previewLength)}\n\n—— 付费前预览到此结束，仅展示完整内容前 20% ——`
       : content;
     const watermark = preview ? "留德小栈 付费前预览" : "留德小栈 水印版";
-    const pdf = createWatermarkedPdf(title, visibleContent, watermark);
+    const generatedAt = new Date();
+    const generatedAtText = formatDocumentDateTime(generatedAt);
+    const pdf = createWatermarkedPdf(title, visibleContent, watermark, generatedAtText);
     const usageAction =
       kind === "questionnaire"
         ? "document.export.questionnaire.pdf"
@@ -3203,6 +3373,10 @@ async function handleDocumentPdf(req, res) {
       preview,
       previewRatio: preview ? 0.2 : 1,
       watermarked: true,
+      language,
+      generatedAt: generatedAt.toISOString(),
+      generatedAtText,
+      templateVersion: DOCUMENT_TEMPLATE_VERSION,
     });
   } catch (error) {
     if (isJsonParseError(error)) {
@@ -3217,7 +3391,7 @@ function handlePaymentPlaceholder(req, res) {
   const session = requireSession(req, res);
   if (!session) return;
   sendJson(res, 501, {
-    error: "收费功能待开发。当前上线初期，动机信和简历下载暂时免费。",
+    error: "收费功能待开发。当前上线初期，中文初稿和水印 PDF 下载暂时免费；德语专业版请联系文书老师。",
     paymentReady: false,
     status: "待开发",
   });
@@ -3322,6 +3496,10 @@ const server = http.createServer((req, res) => {
       customerMessageCount: readJsonlFile(MP_MESSAGES_FILE).length,
       documentPdfExportEnabled: true,
       documentDownloadFree: MP_DOCUMENT_DOWNLOAD_FREE,
+      documentTemplateVersion: DOCUMENT_TEMPLATE_VERSION,
+      documentLogoWatermarkEnabled: fs.existsSync(DOCUMENT_LOGO_PATH),
+      documentOutputTimezone: DOCUMENT_TIMEZONE,
+      documentGermanProfessionalVersion: "待开发/人工咨询",
       paymentStatus: "待开发",
       profileLockEnabled: true,
       externalPersistentDataDirConfigured: path.resolve(MP_DATA_DIR) !== path.resolve(path.join(__dirname, "data")),
@@ -3551,8 +3729,12 @@ module.exports.testHelpers = {
   buildBookingWebhookContent,
   buildCustomerMessageWebhookContent,
   buildFallbackRecommendation,
+  createWatermarkedPdf,
   clearSessions() {
     sessions.clear();
   },
+  formatDocumentDateTime,
+  paginatePdfText,
   shouldUseRecommendationFallback,
+  wrapPdfText,
 };
