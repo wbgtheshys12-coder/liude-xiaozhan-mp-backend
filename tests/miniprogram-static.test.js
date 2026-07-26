@@ -50,6 +50,18 @@ test("mini program pages, bindings, JSON, layout guards and package size", miniP
   assert.match(read("pages/booking/booking.wxml"), /已绑定学生资料/);
   assert.doesNotMatch(read("pages/booking/booking.wxml"), /bindinput="update(?:StudentName|Contact|Major)"/);
   assert.match(read("pages/tools/tools.wxml"), /\* 必填/);
+  const documentToolSource = `${read("pages/tools/tools.js")}\n${read("pages/tools/tools.wxml")}`;
+  assert.match(documentToolSource, /动机申请信生成/);
+  assert.match(documentToolSource, /留德申请个人简历生成/);
+  assert.match(documentToolSource, /课程描述生成/);
+  assert.match(documentToolSource, /中文初稿/);
+  assert.match(documentToolSource, /德语专业版/);
+  assert.match(documentToolSource, /AI 辅助/);
+  assert.match(documentToolSource, /学校要求/);
+  assert.match(documentToolSource, /ECTS/);
+  assert.match(documentToolSource, /请勿填写身份证号、护照号/);
+  assert.doesNotMatch(read("pages/tools/tools.wxml"), /Word|exportWord|exportQuestionnaireWord/);
+  assert.doesNotMatch(read("pages/tools/tools.js"), /buildWordHtml|buildQuestionnaireWordHtml|\.doc`/);
   assert.match(read("pages/results/results.wxml"), /导出匹配报告 PDF/);
   assert.match(read("pages/advisor/advisor.wxml"), /填写匹配度调查表/);
   const advisorCopy = `${read("pages/advisor/advisor.wxml")}\n${read("pages/advisor/advisor.js")}`;
@@ -65,6 +77,10 @@ test("mini program pages, bindings, JSON, layout guards and package size", miniP
   assert.match(read("pages/admin/messages.wxml"), /发送回复/);
   assert.match(read("utils/api.js"), /\/api\/mp\/admin\/messages\/reply/);
   assert.match(read("pages/admin/courses.wxml"), /视频已配置/);
+  assert.match(read("pages/admin/courses.wxml"), /选择并上传视频/);
+  assert.match(read("utils/api.js"), /从手机相册选择视频/);
+  assert.match(read("utils/api.js"), /从微信聊天文件选择/);
+  assert.match(read("utils/api.js"), /wx\.chooseVideo/);
   assert.match(read("pages/admin/courses.wxml"), /bindtap="removeVideo"/);
   assert.match(read("pages/admin/courses.wxml"), /bindtap="deleteCourse"/);
   assert.match(read("utils/api.js"), /\/api\/mp\/admin\/course-video\/delete/);
@@ -116,6 +132,13 @@ test("mini program pages, bindings, JSON, layout guards and package size", miniP
   assert.match(appWxss, /overflow-x:\s*hidden/);
   assert.match(appWxss, /overflow-wrap:\s*anywhere/);
   assert.match(appWxss, /button[\s\S]*min-width:\s*0/);
+  assert.match(appWxss, /scroll-view[\s\S]*min-width:\s*0/);
+  const allWxss = files
+    .filter((file) => file.endsWith(".wxss"))
+    .map((file) => fs.readFileSync(file, "utf8"))
+    .join("\n");
+  assert.doesNotMatch(allWxss, /word-break:\s*keep-all/);
+  assert.doesNotMatch(allWxss, /grid-template-columns:\s*(?:1fr\s+1fr|repeat\(\d+,\s*1fr\))/);
 
   const schools = require(path.join(miniRoot, "utils", "schools.js")).getSchools();
   assert.ok(schools.length >= 35, `院校数量只有 ${schools.length}`);
@@ -211,4 +234,45 @@ test("expired Mini Program sessions refresh once and retry the interrupted reque
   delete global.wx;
   delete global.getApp;
   delete global.getCurrentPages;
+});
+
+test("course video picker offers both phone album and WeChat files", miniProgramTestOptions, async () => {
+  let pickerItems = [];
+  let albumOpened = false;
+  let messageFilesOpened = false;
+  global.wx = {
+    requirePrivacyAuthorize(options) {
+      options.success();
+    },
+    showActionSheet(options) {
+      pickerItems = options.itemList;
+      options.success({ tapIndex: 1 });
+    },
+    chooseMedia() {
+      albumOpened = true;
+    },
+    chooseMessageFile(options) {
+      messageFilesOpened = true;
+      options.success({ tempFiles: [{ name: "lesson.mp4", path: "wxfile://lesson.mp4", size: 1024 }] });
+    },
+    getFileSystemManager() {
+      return {
+        readFile(options) {
+          options.success({ data: "dmlkZW8=" });
+        },
+      };
+    },
+  };
+  const apiPath = path.join(miniRoot, "utils", "api.js");
+  delete require.cache[require.resolve(apiPath)];
+  const api = require(apiPath);
+  const file = await api.chooseCourseVideoFile();
+  assert.deepEqual(pickerItems, ["从手机相册选择视频", "从微信聊天文件选择"]);
+  assert.equal(albumOpened, false);
+  assert.equal(messageFilesOpened, true);
+  assert.equal(file.name, "lesson.mp4");
+  assert.equal(file.type, "video/mp4");
+  assert.equal(file.content, "data:video/mp4;base64,dmlkZW8=");
+  delete require.cache[require.resolve(apiPath)];
+  delete global.wx;
 });

@@ -105,6 +105,10 @@ test("user, booking, transcript, recommendation, course, upload and PDF flows", 
   assert.equal(health.payload.studentUploadDownloadEnabled, true);
   assert.equal(health.payload.documentPdfExportEnabled, true);
   assert.equal(health.payload.documentDownloadFree, true);
+  assert.equal(health.payload.documentTemplateVersion, "liude-doc-template-20260726");
+  assert.equal(health.payload.documentLogoWatermarkEnabled, true);
+  assert.equal(health.payload.documentOutputTimezone, "Asia/Shanghai");
+  assert.equal(health.payload.documentGermanProfessionalVersion, "待开发/人工咨询");
   assert.equal(health.payload.adminWebEnabled, true);
   assert.equal(health.payload.externalPersistentDataDirConfigured, true);
 
@@ -470,18 +474,41 @@ test("user, booking, transcript, recommendation, course, upload and PDF flows", 
     token: userToken,
     body: {
       kind: "draft",
+      toolKey: "motivation",
+      language: "zh",
       title: "测试动机信",
       fileName: "test-motivation.pdf",
-      content: "这是一份用于自动化校验的长文书内容。".repeat(80),
+      content: "Motivation Letter für Universität\n这是一份用于自动化校验的长文书内容。\n".repeat(80),
     },
   });
   assert.equal(pdfPreview.response.status, 200);
   assert.equal(pdfPreview.payload.preview, false);
+  assert.equal(pdfPreview.payload.language, "zh");
+  assert.equal(pdfPreview.payload.templateVersion, "liude-doc-template-20260726");
+  assert.match(pdfPreview.payload.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
+  assert.match(pdfPreview.payload.generatedAtText, /^\d{4}年\d{1,2}月\d{1,2}日 \d{2}:\d{2}:\d{2}（北京时间）$/);
   const pdfBuffer = Buffer.from(pdfPreview.payload.contentBase64, "base64");
   assert.equal(pdfBuffer.slice(0, 5).toString("ascii"), "%PDF-");
   const pdfJs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const parsedPdf = await pdfJs.getDocument({ data: new Uint8Array(pdfBuffer) }).promise;
   assert.ok(parsedPdf.numPages >= 1);
+  const firstPageText = await (await parsedPdf.getPage(1)).getTextContent();
+  const latinText = firstPageText.items.map((item) => item.str || "").join(" ").replace(/\s+/g, " ");
+  assert.match(latinText, /Motivation Letter für Universität/);
+
+  const germanPdf = await requestJson("/api/mp/document/pdf", {
+    token: userToken,
+    body: {
+      kind: "draft",
+      toolKey: "motivation",
+      language: "de",
+      title: "Deutsches Motivationsschreiben",
+      content: "Professionelle deutsche Fassung",
+    },
+  });
+  assert.equal(germanPdf.response.status, 501);
+  assert.equal(germanPdf.payload.status, "待开发");
+  assert.equal(germanPdf.payload.consultationRequired, true);
 
   const deleteUpload = await requestJson("/api/mp/material/delete", {
     token: userToken,
