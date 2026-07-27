@@ -18,6 +18,21 @@ function read(relativePath) {
   return fs.readFileSync(path.join(miniRoot, relativePath), "utf8");
 }
 
+function contrastRatio(foreground, background) {
+  const luminance = (hex) => {
+    let value = String(hex || "").replace("#", "");
+    if (value.length === 3) value = [...value].map((part) => `${part}${part}`).join("");
+    const channels = [0, 2, 4].map((index) => Number.parseInt(value.slice(index, index + 2), 16) / 255);
+    const linear = channels.map((channel) =>
+      channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+    );
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+  };
+  const first = luminance(foreground);
+  const second = luminance(background);
+  return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
+}
+
 function assertBalancedWxml(relativePath, source) {
   const structuralTags = new Set(["view", "text", "button", "block", "label", "picker", "scroll-view", "checkbox-group", "video"]);
   const stack = [];
@@ -60,7 +75,15 @@ test("mini program pages, bindings, JSON, layout guards and package size", miniP
   assert.match(documentToolSource, /学校要求/);
   assert.match(documentToolSource, /ECTS/);
   assert.match(documentToolSource, /请勿填写身份证号、护照号/);
-  assert.doesNotMatch(read("pages/tools/tools.wxml"), /Word|exportWord|exportQuestionnaireWord/);
+  assert.match(documentToolSource, /生成动机信初稿/);
+  assert.match(documentToolSource, /导出完整动机信 Word/);
+  assert.match(documentToolSource, /导出完整动机信 PDF（水印）/);
+  assert.match(documentToolSource, /导出完整留德申请个人简历 Word/);
+  assert.match(documentToolSource, /导出完整留德申请个人简历 PDF（水印）/);
+  assert.match(documentToolSource, /导出完整课程描述 Word/);
+  assert.match(documentToolSource, /导出完整课程描述 PDF（水印）/);
+  assert.match(read("pages/tools/tools.wxml"), /bindtap="exportWord"/);
+  assert.match(read("utils/api.js"), /\/api\/mp\/document\/word/);
   assert.doesNotMatch(read("pages/tools/tools.js"), /buildWordHtml|buildQuestionnaireWordHtml|\.doc`/);
   assert.match(read("pages/results/results.wxml"), /导出匹配报告 PDF/);
   assert.match(read("pages/advisor/advisor.wxml"), /填写匹配度调查表/);
@@ -125,6 +148,18 @@ test("mini program pages, bindings, JSON, layout guards and package size", miniP
       const opens = (source.match(/{/g) || []).length;
       const closes = (source.match(/}/g) || []).length;
       assert.equal(opens, closes, `${file} 的 WXSS 花括号不匹配`);
+      for (const match of source.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+        const selector = match[1].trim();
+        const body = match[2];
+        const foreground = Array.from(body.matchAll(/(?:^|[;\s])color\s*:\s*(#[0-9a-f]{3,6})/gi)).at(-1)?.[1];
+        const background = Array.from(body.matchAll(/background(?:-color)?\s*:\s*(#[0-9a-f]{3,6})/gi)).at(-1)?.[1];
+        if (foreground && background) {
+          assert.ok(
+            contrastRatio(foreground, background) >= 4.5,
+            `${file} 的 ${selector} 文字/背景对比度不足：${foreground} / ${background}`
+          );
+        }
+      }
     });
 
   const appWxss = read("app.wxss");
@@ -139,6 +174,7 @@ test("mini program pages, bindings, JSON, layout guards and package size", miniP
     .join("\n");
   assert.doesNotMatch(allWxss, /word-break:\s*keep-all/);
   assert.doesNotMatch(allWxss, /grid-template-columns:\s*(?:1fr\s+1fr|repeat\(\d+,\s*1fr\))/);
+  assert.doesNotMatch(allWxss, /(?:^|[;\s])width:\s*(?:7[6-9]\d|[89]\d{2}|[1-9]\d{3,})rpx/);
 
   const schools = require(path.join(miniRoot, "utils", "schools.js")).getSchools();
   assert.ok(schools.length >= 35, `院校数量只有 ${schools.length}`);

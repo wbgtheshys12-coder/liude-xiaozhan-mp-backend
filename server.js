@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const http = require("http");
 const path = require("path");
+const docx = require("docx");
 const localEngine = require("./local-engine");
 
 const PORT = Number(process.env.PORT || 3108);
@@ -83,7 +84,7 @@ const MAX_REQUEST_BYTES = Number(process.env.MAX_REQUEST_BYTES || 40 * 1024 * 10
 const ADMIN_WEB_DIR = path.join(__dirname, "admin-web");
 const DOCUMENT_LOGO_PATH = path.join(__dirname, "assets", "document-logo.jpg");
 const DOCUMENT_TIMEZONE = "Asia/Shanghai";
-const DOCUMENT_TEMPLATE_VERSION = "liude-doc-template-20260726";
+const DOCUMENT_TEMPLATE_VERSION = "liude-doc-template-20260727-word-pdf";
 
 const sessions = new Map();
 let wechatAccessToken = { value: "", expiresAt: 0 };
@@ -3324,15 +3325,228 @@ function createWatermarkedPdf(title, content, watermark, generatedAtText = forma
   return Buffer.concat(output);
 }
 
+function prepareDocumentExport(session, body) {
+  const kind = ["questionnaire", "matching"].includes(body.kind) ? body.kind : "draft";
+  const language = String(body.language || "zh").trim().toLowerCase() === "de" ? "de" : "zh";
+  const defaultTitle = kind === "questionnaire" ? "申请材料调查表" : kind === "matching" ? "院校专业匹配报告" : "申请文书";
+  const title = normalizeBookingText(body.title || defaultTitle, 80);
+  const content = normalizeLongText(body.content || "", 30000);
+  const fullAccess = MP_DOCUMENT_DOWNLOAD_FREE || session.mode === "demo" || Boolean(session.entitlements?.materialAssistant);
+  const preview = kind === "draft" && !fullAccess;
+  const previewLength = Math.max(Math.ceil(content.length / 5), Math.min(content.length, 180));
+  const visibleContent = preview
+    ? `${content.slice(0, previewLength)}\n\n—— 付费前预览到此结束，仅展示完整内容前 20% ——`
+    : content;
+  return {
+    kind,
+    language,
+    title,
+    content,
+    preview,
+    visibleContent,
+    generatedAt: new Date(),
+  };
+}
+
+function isDocumentSectionHeading(line) {
+  const value = String(line || "").trim();
+  if (!value || value.length > 26) return false;
+  if (
+    /^(动机申请信中文初稿|留德申请个人简历中文信息稿|课程描述初稿|个人与学习背景|为什么选择德国|为什么选择该专业|毕业后的计划|个人信息|教育背景|语言与标准考试|工作\/实习经历|研究\/项目\/毕业论文|发表论文|奖励与荣誉|课外活动\/社会实践|技能、证书与兴趣)$/.test(
+      value
+    )
+  ) {
+    return true;
+  }
+  return /^(课程主要内容|学习成果|考核方式|与目标方向的关系|相关课程补充)[：:]?$/.test(value);
+}
+
+function createDocxBodyParagraph(line) {
+  const value = String(line || "").trim();
+  if (!value) {
+    return new docx.Paragraph({ spacing: { after: 80 } });
+  }
+  if (isDocumentSectionHeading(value)) {
+    return new docx.Paragraph({
+      children: [
+        new docx.TextRun({
+          text: value.replace(/[：:]$/, ""),
+          bold: true,
+          color: "1F5DA8",
+          size: 24,
+          font: { ascii: "Arial", hAnsi: "Arial", eastAsia: "Microsoft YaHei" },
+        }),
+      ],
+      keepNext: true,
+      spacing: { before: 180, after: 70, line: 320 },
+      border: {
+        bottom: { style: docx.BorderStyle.SINGLE, color: "C9DDF5", size: 6, space: 4 },
+      },
+    });
+  }
+  const isNotice = value.startsWith("说明：") || value.startsWith("待补充字段：") || value.includes("付费前预览到此结束");
+  const isGeneratedAt = value.startsWith("生成时间：");
+  return new docx.Paragraph({
+    children: [
+      new docx.TextRun({
+        text: value,
+        bold: value.includes("付费前预览到此结束"),
+        color: isNotice ? "52667F" : isGeneratedAt ? "65758A" : "25364A",
+        size: isNotice || isGeneratedAt ? 19 : 21,
+        font: { ascii: "Arial", hAnsi: "Arial", eastAsia: "Microsoft YaHei" },
+      }),
+    ],
+    alignment: docx.AlignmentType.JUSTIFIED,
+    spacing: { after: isNotice ? 120 : 90, line: 360 },
+    shading: isNotice ? { fill: "F2F7FD", color: "auto" } : undefined,
+    border: isNotice
+      ? { left: { style: docx.BorderStyle.SINGLE, color: "2C6CB4", size: 14, space: 8 } }
+      : undefined,
+  });
+}
+
+async function createBrandedDocx(title, content, generatedAtText = formatDocumentDateTime()) {
+  const brandBlue = "1F5DA8";
+  const logoRun = fs.existsSync(DOCUMENT_LOGO_PATH)
+    ? new docx.ImageRun({
+        type: "jpg",
+        data: fs.readFileSync(DOCUMENT_LOGO_PATH),
+        transformation: { width: 52, height: 54 },
+        altText: { title: "留德小栈", description: "留德小栈品牌标识", name: "Liude Xiaozhan" },
+      })
+    : null;
+  const headerChildren = [];
+  if (logoRun) headerChildren.push(logoRun);
+  headerChildren.push(
+    new docx.TextRun({
+      text: logoRun ? "  留德小栈 · LIUDE XIAOZHAN" : "留德小栈 · LIUDE XIAOZHAN",
+      bold: true,
+      color: brandBlue,
+      size: 18,
+      font: { ascii: "Arial", hAnsi: "Arial", eastAsia: "Microsoft YaHei" },
+    })
+  );
+  const document = new docx.Document({
+    creator: "留德小栈",
+    lastModifiedBy: "留德小栈",
+    title,
+    subject: "德国留学申请材料初稿",
+    description: "由留德小栈小程序生成的申请材料中文初稿",
+    features: { updateFields: true },
+    styles: {
+      default: {
+        document: {
+          run: {
+            font: { ascii: "Arial", hAnsi: "Arial", eastAsia: "Microsoft YaHei" },
+            size: 21,
+            color: "25364A",
+          },
+          paragraph: {
+            spacing: { line: 360, after: 90 },
+            widowControl: true,
+          },
+        },
+      },
+    },
+    sections: [
+      {
+        properties: {
+          page: {
+            size: {
+              width: docx.convertMillimetersToTwip(210),
+              height: docx.convertMillimetersToTwip(297),
+              orientation: docx.PageOrientation.PORTRAIT,
+            },
+            margin: {
+              top: docx.convertMillimetersToTwip(22),
+              right: docx.convertMillimetersToTwip(22),
+              bottom: docx.convertMillimetersToTwip(26),
+              left: docx.convertMillimetersToTwip(22),
+              header: docx.convertMillimetersToTwip(7),
+              footer: docx.convertMillimetersToTwip(8),
+            },
+          },
+        },
+        headers: {
+          default: new docx.Header({
+            children: [
+              new docx.Paragraph({
+                alignment: docx.AlignmentType.RIGHT,
+                children: headerChildren,
+                spacing: { after: 60 },
+              }),
+            ],
+          }),
+        },
+        footers: {
+          default: new docx.Footer({
+            children: [
+              new docx.Paragraph({
+                border: {
+                  top: { style: docx.BorderStyle.SINGLE, color: "9CBCE0", size: 6, space: 5 },
+                },
+                spacing: { before: 40, after: 35, line: 240 },
+                children: [
+                  new docx.TextRun({
+                    text: `本文件生成于 ${generatedAtText}，内容仅为申请材料准备初稿，正式提交前请按目标学校要求复核。`,
+                    color: "65758A",
+                    size: 15,
+                    font: { ascii: "Arial", hAnsi: "Arial", eastAsia: "Microsoft YaHei" },
+                  }),
+                ],
+              }),
+              new docx.Paragraph({
+                alignment: docx.AlignmentType.CENTER,
+                spacing: { after: 0 },
+                children: [
+                  new docx.TextRun({
+                    children: ["留德小栈 · 第 ", docx.PageNumber.CURRENT, " / ", docx.PageNumber.TOTAL_PAGES, " 页"],
+                    color: brandBlue,
+                    size: 15,
+                    font: { ascii: "Arial", hAnsi: "Arial", eastAsia: "Microsoft YaHei" },
+                  }),
+                ],
+              }),
+            ],
+          }),
+        },
+        children: [
+          new docx.Paragraph({
+            alignment: docx.AlignmentType.CENTER,
+            spacing: { before: 120, after: 260, line: 420 },
+            border: {
+              top: { style: docx.BorderStyle.DOUBLE, color: brandBlue, size: 12, space: 8 },
+              bottom: { style: docx.BorderStyle.DOUBLE, color: brandBlue, size: 12, space: 8 },
+            },
+            children: [
+              new docx.TextRun({
+                text: title,
+                bold: true,
+                color: brandBlue,
+                size: 34,
+                font: { ascii: "Arial", hAnsi: "Arial", eastAsia: "Microsoft YaHei" },
+              }),
+            ],
+          }),
+          ...String(content || "")
+            .replace(/\r\n?/g, "\n")
+            .split("\n")
+            .map(createDocxBodyParagraph),
+        ],
+      },
+    ],
+  });
+  return docx.Packer.toBuffer(document);
+}
+
 async function handleDocumentPdf(req, res) {
   const session = requireSession(req, res);
   if (!session) return;
   try {
     const rawBody = await readBody(req);
     const body = JSON.parse(rawBody || "{}");
-    const kind = ["questionnaire", "matching"].includes(body.kind) ? body.kind : "draft";
-    const language = String(body.language || "zh").trim().toLowerCase() === "de" ? "de" : "zh";
-    if (language === "de") {
+    const documentData = prepareDocumentExport(session, body);
+    if (documentData.language === "de") {
       sendJson(res, 501, {
         error: "德语专业版需由文书老师按目标学校要求翻译和审核，在线收费功能待开发。",
         status: "待开发",
@@ -3340,41 +3554,31 @@ async function handleDocumentPdf(req, res) {
       });
       return;
     }
-    const defaultTitle = kind === "questionnaire" ? "申请材料调查表" : kind === "matching" ? "院校专业匹配报告" : "申请文书";
-    const title = normalizeBookingText(body.title || defaultTitle, 80);
-    const content = normalizeLongText(body.content || "", 30000);
-    if (!content) {
+    if (!documentData.content) {
       sendJson(res, 400, { error: "没有可导出的文书内容。" });
       return;
     }
-    const fullAccess = MP_DOCUMENT_DOWNLOAD_FREE || session.mode === "demo" || Boolean(session.entitlements?.materialAssistant);
-    const preview = kind === "draft" && !fullAccess;
-    const previewLength = Math.max(Math.ceil(content.length / 5), Math.min(content.length, 180));
-    const visibleContent = preview
-      ? `${content.slice(0, previewLength)}\n\n—— 付费前预览到此结束，仅展示完整内容前 20% ——`
-      : content;
-    const watermark = preview ? "留德小栈 付费前预览" : "留德小栈 水印版";
-    const generatedAt = new Date();
-    const generatedAtText = formatDocumentDateTime(generatedAt);
-    const pdf = createWatermarkedPdf(title, visibleContent, watermark, generatedAtText);
+    const watermark = documentData.preview ? "留德小栈 付费前预览" : "留德小栈 水印版";
+    const generatedAtText = formatDocumentDateTime(documentData.generatedAt);
+    const pdf = createWatermarkedPdf(documentData.title, documentData.visibleContent, watermark, generatedAtText);
     const usageAction =
-      kind === "questionnaire"
+      documentData.kind === "questionnaire"
         ? "document.export.questionnaire.pdf"
-        : kind === "matching"
+        : documentData.kind === "matching"
           ? "document.export.matching.pdf"
           : "document.export.draft.pdf";
     recordUsage(session, usageAction, {
-      preview,
+      preview: documentData.preview,
     });
     sendJson(res, 200, {
       ok: true,
-      fileName: `${safeFileName(body.fileName || title, "liude-document").replace(/\.pdf$/i, "")}.pdf`,
+      fileName: `${safeFileName(body.fileName || documentData.title, "liude-document").replace(/\.pdf$/i, "")}.pdf`,
       contentBase64: pdf.toString("base64"),
-      preview,
-      previewRatio: preview ? 0.2 : 1,
+      preview: documentData.preview,
+      previewRatio: documentData.preview ? 0.2 : 1,
       watermarked: true,
-      language,
-      generatedAt: generatedAt.toISOString(),
+      language: documentData.language,
+      generatedAt: documentData.generatedAt.toISOString(),
       generatedAtText,
       templateVersion: DOCUMENT_TEMPLATE_VERSION,
     });
@@ -3384,6 +3588,56 @@ async function handleDocumentPdf(req, res) {
       return;
     }
     sendJson(res, 500, { error: "PDF 暂时未生成，请稍后重试。" });
+  }
+}
+
+async function handleDocumentWord(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return;
+  try {
+    const rawBody = await readBody(req);
+    const body = JSON.parse(rawBody || "{}");
+    const documentData = prepareDocumentExport(session, body);
+    if (documentData.language === "de") {
+      sendJson(res, 501, {
+        error: "德语专业版需由文书老师按目标学校要求翻译和审核，在线收费功能待开发。",
+        status: "待开发",
+        consultationRequired: true,
+      });
+      return;
+    }
+    if (!documentData.content) {
+      sendJson(res, 400, { error: "没有可导出的文书内容。" });
+      return;
+    }
+    const generatedAtText = formatDocumentDateTime(documentData.generatedAt);
+    const word = await createBrandedDocx(documentData.title, documentData.visibleContent, generatedAtText);
+    const usageAction =
+      documentData.kind === "questionnaire"
+        ? "document.export.questionnaire.word"
+        : documentData.kind === "matching"
+          ? "document.export.matching.word"
+          : "document.export.draft.word";
+    recordUsage(session, usageAction, { preview: documentData.preview });
+    sendJson(res, 200, {
+      ok: true,
+      fileName: `${safeFileName(body.fileName || documentData.title, "liude-document").replace(/\.(?:docx?|word)$/i, "")}.docx`,
+      contentBase64: word.toString("base64"),
+      preview: documentData.preview,
+      previewRatio: documentData.preview ? 0.2 : 1,
+      watermarked: false,
+      language: documentData.language,
+      generatedAt: documentData.generatedAt.toISOString(),
+      generatedAtText,
+      templateVersion: DOCUMENT_TEMPLATE_VERSION,
+    });
+  } catch (error) {
+    if (isJsonParseError(error)) {
+      sendBadJson(res);
+      return;
+    }
+    console.error("DOCX export failed", error);
+    sendJson(res, 500, { error: "Word 暂时未生成，请稍后重试。" });
   }
 }
 
@@ -3495,6 +3749,7 @@ const server = http.createServer((req, res) => {
       customerMessageWebhookPrivacyProtected: true,
       customerMessageCount: readJsonlFile(MP_MESSAGES_FILE).length,
       documentPdfExportEnabled: true,
+      documentWordExportEnabled: true,
       documentDownloadFree: MP_DOCUMENT_DOWNLOAD_FREE,
       documentTemplateVersion: DOCUMENT_TEMPLATE_VERSION,
       documentLogoWatermarkEnabled: fs.existsSync(DOCUMENT_LOGO_PATH),
@@ -3615,6 +3870,11 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/mp/document/word") {
+    handleDocumentWord(req, res);
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/api/mp/courses") {
     handleCourses(req, res);
     return;
@@ -3729,6 +3989,7 @@ module.exports.testHelpers = {
   buildBookingWebhookContent,
   buildCustomerMessageWebhookContent,
   buildFallbackRecommendation,
+  createBrandedDocx,
   createWatermarkedPdf,
   clearSessions() {
     sessions.clear();
