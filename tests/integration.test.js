@@ -56,7 +56,7 @@ async function requestJson(urlPath, options = {}) {
   return { response, payload };
 }
 
-test("user, booking, transcript, recommendation, course, upload and PDF flows", async () => {
+test("user, booking, transcript, recommendation, course, upload, Word and PDF flows", async () => {
   await waitForServer();
 
   const rateLimitError = new Error("429 Too Many Requests");
@@ -104,8 +104,9 @@ test("user, booking, transcript, recommendation, course, upload and PDF flows", 
   assert.equal(health.payload.courseVideoDeleteEnabled, true);
   assert.equal(health.payload.studentUploadDownloadEnabled, true);
   assert.equal(health.payload.documentPdfExportEnabled, true);
+  assert.equal(health.payload.documentWordExportEnabled, true);
   assert.equal(health.payload.documentDownloadFree, true);
-  assert.equal(health.payload.documentTemplateVersion, "liude-doc-template-20260726");
+  assert.equal(health.payload.documentTemplateVersion, "liude-doc-template-20260727-word-pdf");
   assert.equal(health.payload.documentLogoWatermarkEnabled, true);
   assert.equal(health.payload.documentOutputTimezone, "Asia/Shanghai");
   assert.equal(health.payload.documentGermanProfessionalVersion, "待开发/人工咨询");
@@ -502,7 +503,7 @@ test("user, booking, transcript, recommendation, course, upload and PDF flows", 
   assert.equal(pdfPreview.response.status, 200);
   assert.equal(pdfPreview.payload.preview, false);
   assert.equal(pdfPreview.payload.language, "zh");
-  assert.equal(pdfPreview.payload.templateVersion, "liude-doc-template-20260726");
+  assert.equal(pdfPreview.payload.templateVersion, "liude-doc-template-20260727-word-pdf");
   assert.match(pdfPreview.payload.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
   assert.match(pdfPreview.payload.generatedAtText, /^\d{4}年\d{1,2}月\d{1,2}日 \d{2}:\d{2}:\d{2}（北京时间）$/);
   const pdfBuffer = Buffer.from(pdfPreview.payload.contentBase64, "base64");
@@ -513,6 +514,26 @@ test("user, booking, transcript, recommendation, course, upload and PDF flows", 
   const firstPageText = await (await parsedPdf.getPage(1)).getTextContent();
   const latinText = firstPageText.items.map((item) => item.str || "").join(" ").replace(/\s+/g, " ");
   assert.match(latinText, /Motivation Letter für Universität/);
+
+  const wordDocument = await requestJson("/api/mp/document/word", {
+    token: userToken,
+    body: {
+      kind: "draft",
+      toolKey: "motivation",
+      language: "zh",
+      title: "留德小栈德国高校申请动机信",
+      fileName: "test-motivation.docx",
+      content: "动机信中文初稿\n生成时间：2026年7月27日 10:20:30\n说明：本内容由 AI 辅助整理。\n\n个人与学习背景\n申请人：测试学生\n".repeat(12),
+    },
+  });
+  assert.equal(wordDocument.response.status, 200);
+  assert.equal(wordDocument.payload.preview, false);
+  assert.equal(wordDocument.payload.language, "zh");
+  assert.equal(wordDocument.payload.templateVersion, "liude-doc-template-20260727-word-pdf");
+  assert.match(wordDocument.payload.fileName, /\.docx$/);
+  const wordBuffer = Buffer.from(wordDocument.payload.contentBase64, "base64");
+  assert.equal(wordBuffer.slice(0, 2).toString("ascii"), "PK");
+  assert.ok(wordBuffer.length > 5000);
 
   const germanPdf = await requestJson("/api/mp/document/pdf", {
     token: userToken,
