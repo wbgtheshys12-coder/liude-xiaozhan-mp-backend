@@ -68,29 +68,46 @@ test("mini program pages, bindings, JSON, layout guards and package size", miniP
   const documentToolSource = `${read("pages/tools/tools.js")}\n${read("pages/tools/tools.wxml")}`;
   assert.match(documentToolSource, /动机申请信生成/);
   assert.match(documentToolSource, /留德申请个人简历生成/);
-  assert.match(documentToolSource, /课程描述生成/);
-  assert.match(documentToolSource, /中文初稿/);
-  assert.match(documentToolSource, /德语专业版/);
+  assert.doesNotMatch(documentToolSource, /课程描述生成|courseDescription/);
+  assert.match(documentToolSource, /德语或英语/);
+  assert.match(documentToolSource, /德语 \/ 英语初稿免费/);
   assert.match(documentToolSource, /AI 辅助/);
   assert.match(documentToolSource, /学校要求/);
-  assert.match(documentToolSource, /ECTS/);
   assert.match(documentToolSource, /请勿填写身份证号、护照号/);
   assert.match(documentToolSource, /生成动机信初稿/);
   assert.match(documentToolSource, /导出完整动机信 Word/);
   assert.match(documentToolSource, /导出完整动机信 PDF（水印）/);
   assert.match(documentToolSource, /导出完整留德申请个人简历 Word/);
   assert.match(documentToolSource, /导出完整留德申请个人简历 PDF（水印）/);
-  assert.match(documentToolSource, /导出完整课程描述 Word/);
-  assert.match(documentToolSource, /导出完整课程描述 PDF（水印）/);
   assert.match(read("pages/tools/tools.wxml"), /bindtap="exportWord"/);
   assert.match(read("utils/api.js"), /\/api\/mp\/document\/word/);
   assert.doesNotMatch(read("pages/tools/tools.js"), /buildWordHtml|buildQuestionnaireWordHtml|\.doc`/);
   assert.match(read("pages/results/results.wxml"), /导出匹配报告 PDF/);
   assert.match(read("pages/advisor/advisor.wxml"), /填写匹配度调查表/);
   const advisorCopy = `${read("pages/advisor/advisor.wxml")}\n${read("pages/advisor/advisor.js")}`;
+  assert.match(advisorCopy, /语言考试（可多选）/);
+  assert.match(advisorCopy, /EDUCATION_STATUS_OPTIONS/);
+  assert.match(advisorCopy, /请按成绩单补充关键课程/);
+  assert.match(advisorCopy, /课程与成绩核对（必做）/);
   assert.match(advisorCopy, /成绩单为可选项/);
   assert.match(advisorCopy, /按现有信息推荐/);
+  assert.match(read("pages/advisor/advisor.js"), /transcriptFileCount: this\.data\.files\.length/);
+  assert.match(read("pages/advisor/advisor.js"), /files: \[\]/);
+  assert.match(read("utils/api.js"), /retryWithoutFiles: true/);
   assert.doesNotMatch(advisorCopy, /无法识别|识别失败|识别不了|上游服务|兜底/);
+  assert.doesNotMatch(
+    [
+      read("pages/home/home.js"),
+      read("pages/service/service.js"),
+      read("pages/course/course.js"),
+      read("pages/course/course.wxml"),
+      read("utils/materials.js"),
+    ].join("\n"),
+    /课程描述生成|tool=courseDescription/
+  );
+  assert.match(read("pages/school/school.wxml"), /学费提醒/);
+  assert.match(read("pages/school/school.wxml"), /cityDisplay/);
+  assert.match(read("pages/me/me.wxml"), /official-account/);
   assert.equal(app.pages.includes("pages/messages/messages"), true);
   assert.equal(app.pages.includes("pages/admin/messages"), true);
   assert.match(read("pages/messages/messages.wxml"), /客服对话/);
@@ -180,6 +197,9 @@ test("mini program pages, bindings, JSON, layout guards and package size", miniP
   assert.ok(schools.length >= 35, `院校数量只有 ${schools.length}`);
   schools.forEach((school) => {
     assert.ok(school.name && school.summary && school.tags?.length, `${school.id} 院校信息不完整`);
+    assert.match(school.cityDisplay, /（.+）/, `${school.id} 城市缺少中文名`);
+    assert.match(school.stateDisplay, /（.+）/, `${school.id} 州缺少中文名`);
+    assert.ok(school.tuition?.label && school.tuition?.detail && /^https:\/\//.test(school.tuition?.sourceUrl), `${school.id} 学费信息不完整`);
     assert.equal(fs.existsSync(path.join(miniRoot, String(school.logo || "").replace(/^\//, ""))), true, `${school.id} Logo 缺失`);
   });
 });
