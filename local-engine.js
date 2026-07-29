@@ -7,6 +7,7 @@ const { createRequire } = require("module");
 const { pathToFileURL } = require("url");
 
 const MAX_FILES = 3;
+const MAX_EXTRACTED_TRANSCRIPT_ROWS = 100;
 const EXTERNAL_PROGRAMS_FILE = path.join(__dirname, "data", "external-programs.json");
 const OCR_ALLOW_REMOTE_TESSDATA = process.env.OCR_ALLOW_REMOTE_TESSDATA === "true";
 const OCR_TESSDATA_DIR = process.env.OCR_TESSDATA_DIR || path.join(__dirname, "tessdata");
@@ -53,12 +54,87 @@ const SENSITIVE_POLITICAL_PATTERNS = [
 ];
 
 const FALLBACK_PROGRAMS = [
+  {
+    domains: ["industrial", "business", "economics", "engineering", "civil"],
+    university: "TU Berlin",
+    programDisplayName: "Industrial Engineering and Management (Wirtschaftsingenieurwesen), M.Sc.",
+    city: "Berlin",
+    degree: "Master of Science",
+    keywords: ["wirtschaftsingenieurwesen", "industrial engineering", "management", "civil engineering", "operations research"],
+    overview: "Interdisciplinary engineering and management program with technical specializations including civil engineering, logistics, energy, mechanical engineering and information systems.",
+    prerequisites: "A relevant engineering or natural-science first degree plus documented foundations in economics, engineering, mathematics and quantitative methods; verify the current allocation of required credits on the official program page.",
+    languageRequirements: "German and English requirements apply; verify the current accepted certificates on the official TU Berlin page.",
+    duration: "4 semesters",
+    ects: "120 ECTS",
+    sourcePaths: [{ url: "https://www.tu.berlin/en/studying/study-programs/all-programs-offered/study-course/industrial-engineering-and-management-m-sc" }],
+  },
+  {
+    domains: ["industrial", "business", "economics", "engineering", "data"],
+    university: "Karlsruhe Institute of Technology",
+    programDisplayName: "Industrial Engineering and Management Master of Science",
+    city: "Karlsruhe",
+    degree: "Master of Science",
+    keywords: ["wirtschaftsingenieurwesen", "industrial engineering", "management", "operations research", "engineering"],
+    overview: "Interdisciplinary program combining business administration, economics, computer science, operations research and engineering.",
+    prerequisites: "Relevant first degree plus the required mathematics/statistics, engineering or computer-science, and economics credits; verify the current selection regulations.",
+    languageRequirements: "German C1 and English B2 are listed by KIT; verify accepted certificates and the current deadline before applying.",
+    duration: "4 semesters",
+    ects: "120 ECTS",
+    sourcePaths: [{ url: "https://www.sle.kit.edu/english/vorstudium/master-wirtschaftsingenieurwesen.php" }],
+  },
+  {
+    domains: ["industrial", "business", "economics", "engineering", "civil"],
+    university: "RWTH Aachen University",
+    programDisplayName: "Wirtschaftsingenieurwesen – Fachrichtung Bauingenieurwesen, M.Sc.",
+    city: "Aachen",
+    degree: "Master of Science",
+    keywords: ["wirtschaftsingenieurwesen", "industrial engineering", "civil engineering", "construction", "management"],
+    overview: "Business administration and engineering program with a civil-engineering specialization and advanced technical and economic study components.",
+    prerequisites: "Prior knowledge comparable to RWTH's related bachelor program is assessed by the current examination regulations; formal pre-assessment is not generally offered.",
+    languageRequirements: "Verify the current German-language and application requirements on the official RWTH pages.",
+    sourcePaths: [{ url: "https://www.wiwi.rwth-aachen.de/cms/wirtschaftswissenschaften/studium/studiengaenge/masterstudiengaenge/wirtschaftsingenieurwesen-m-sc-/~wyocn/fachrichtung-bauingenieurwesen-m-sc-/" }],
+  },
+  {
+    domains: ["industrial", "business", "economics", "engineering", "civil"],
+    university: "TU Darmstadt",
+    programDisplayName: "Wirtschaftsingenieurwesen – technische Fachrichtung Bauingenieurwesen, M.Sc.",
+    city: "Darmstadt",
+    degree: "Master of Science",
+    keywords: ["wirtschaftsingenieurwesen", "business administration and engineering", "civil engineering", "construction", "management"],
+    overview: "Interdisciplinary program combining business, economics and law with civil-engineering specialization.",
+    prerequisites: "A relevant degree with competencies comparable to the reference bachelor program is required; verify the current regulations and module requirements.",
+    languageRequirements: "German-taught program; verify the current accepted language certificate on the official TU Darmstadt page.",
+    duration: "4 semesters",
+    ects: "120 ECTS",
+    sourcePaths: [{ url: "https://www.tu-darmstadt.de/studieren/studieninteressierte/studienangebot_studiengaenge/studiengang_181504.en.jsp" }],
+  },
+  {
+    domains: ["industrial", "business", "engineering", "mechanical"],
+    university: "University of Stuttgart",
+    programDisplayName: "Technologiemanagement",
+    city: "Stuttgart",
+    degree: "Master of Science",
+    keywords: ["technology management", "industrial engineering", "engineering", "management", "project management"],
+    overview: "Interdisciplinary program combining engineering specializations with management, innovation, controlling, logistics and entrepreneurship.",
+    prerequisites: "Builds on technical and business foundations; verify the current admission regulations and subject-specific eligibility criteria.",
+    languageRequirements: "German-taught program; English is useful for specialist literature. Verify current certificate requirements.",
+    duration: "4 semesters",
+    sourcePaths: [{ url: "https://www.uni-stuttgart.de/en/study/study-programs/Technologiemanagement-M.Sc./" }],
+  },
+  {
+    domains: ["industrial", "business", "engineering", "mechanical"],
+    university: "Technical University of Munich",
+    programDisplayName: "Development, Production and Management in Mechanical Engineering",
+    city: "Munich",
+    degree: "Master of Science",
+    keywords: ["industrial engineering", "development", "production", "management", "project management", "logistics"],
+  },
   { domains: ["data", "cs", "ai"], university: "University of Stuttgart", programDisplayName: "Artificial Intelligence and Data Science", city: "Stuttgart", degree: "Master", keywords: ["ai", "data", "machine learning"] },
   { domains: ["data", "cs", "ai"], university: "Technical University of Munich", programDisplayName: "Data Engineering and Analytics", city: "Munich", degree: "Master", keywords: ["data", "analytics", "engineering"] },
   { domains: ["cs", "software"], university: "TU Berlin", programDisplayName: "Computer Science (Informatik), M.Sc", city: "Berlin", degree: "Master", keywords: ["computer", "software", "informatics"] },
   { domains: ["energy", "mechanical", "engineering"], university: "Technical University of Munich", programDisplayName: "Energy and Process Engineering", city: "Munich", degree: "Master", keywords: ["energy", "process", "thermal"] },
   { domains: ["energy", "environment", "engineering"], university: "FAU Erlangen-Nurnberg", programDisplayName: "Clean Energy Processes (M.Sc.)", city: "Erlangen", degree: "Master", keywords: ["clean energy", "processes", "energy"] },
-  { domains: ["mechanical", "engineering"], university: "Technical University of Munich", programDisplayName: "Development, Production and Management in Mechanical Engineering", city: "Munich", degree: "Master", keywords: ["mechanical", "production", "manufacturing"] },
+  { domains: ["industrial", "mechanical", "engineering", "business"], university: "Technical University of Munich", programDisplayName: "Development, Production and Management in Mechanical Engineering", city: "Munich", degree: "Master", keywords: ["industrial engineering", "management", "mechanical", "production", "manufacturing"] },
   { domains: ["materials", "engineering"], university: "University of Stuttgart", programDisplayName: "Materials Science (Materialwissenschaft)", city: "Stuttgart", degree: "Master", keywords: ["materials", "material science"] },
   { domains: ["robotics", "automation", "engineering"], university: "University of Stuttgart", programDisplayName: "Engineering Cybernetics", city: "Stuttgart", degree: "Master", keywords: ["control", "automation", "cybernetics"] },
   { domains: ["electrical", "engineering"], university: "Karlsruhe Institute of Technology", programDisplayName: "Electrical Engineering and Information Technology", city: "Karlsruhe", degree: "Master", keywords: ["electrical", "electronics", "communication"] },
@@ -304,10 +380,11 @@ function getPdfJsResourceOptions() {
     if (!fs.existsSync(path.join(standardFontTarget, "FoxitSerif.pfb"))) {
       copyDirectorySafe(path.join(packageRoot, "standard_fonts"), standardFontTarget);
     }
+    const asPdfJsResourcePath = (value) => `${path.resolve(value).replace(/\\/g, "/").replace(/\/+$/, "")}/`;
     pdfJsResourceOptions = {
-      cMapUrl: pathToFileURL(cMapTarget + path.sep).href,
+      cMapUrl: asPdfJsResourcePath(cMapTarget),
       cMapPacked: true,
-      standardFontDataUrl: pathToFileURL(standardFontTarget + path.sep).href,
+      standardFontDataUrl: asPdfJsResourcePath(standardFontTarget),
     };
     return pdfJsResourceOptions;
   } catch (error) {
@@ -320,7 +397,8 @@ function buildPdfDocumentOptions(buffer) {
     data: new Uint8Array(buffer),
     useWorkerFetch: false,
     isEvalSupported: false,
-    disableFontFace: true,
+    disableFontFace: false,
+    useSystemFonts: true,
     ...getPdfJsResourceOptions(),
   };
 }
@@ -393,14 +471,16 @@ function extractTextFromPdfWithPdfJsText(buffer) {
         copyDirOnce(path.join(pdfjsRoot, "cmaps"), cMapTarget, "UniGB-UCS2-H.bcmap");
         copyDirOnce(path.join(pdfjsRoot, "standard_fonts"), fontTarget, "FoxitSerif.pfb");
         const pdfjs = await import(pathToFileURL(require.resolve("pdfjs-dist/legacy/build/pdf.mjs")).href);
+        const asPdfJsResourcePath = (value) => path.resolve(value).replace(/\\\\/g, "/").replace(/\\/+$/, "") + "/";
         const pdf = await pdfjs.getDocument({
           data: new Uint8Array(fs.readFileSync(pdfPath)),
           useWorkerFetch: false,
           isEvalSupported: false,
-          disableFontFace: true,
-          cMapUrl: pathToFileURL(cMapTarget + path.sep).href,
+          disableFontFace: false,
+          useSystemFonts: true,
+          cMapUrl: asPdfJsResourcePath(cMapTarget),
           cMapPacked: true,
-          standardFontDataUrl: pathToFileURL(fontTarget + path.sep).href,
+          standardFontDataUrl: asPdfJsResourcePath(fontTarget),
         }).promise;
         const chunks = [];
         const maxPages = Math.min(pdf.numPages, Math.max(1, Math.min(maxPagesArg, 12)));
@@ -485,14 +565,16 @@ function renderPdfPagesToImageFiles(buffer) {
         copyDirOnce(path.join(pdfjsRoot, "cmaps"), cMapTarget, "UniGB-UCS2-H.bcmap");
         copyDirOnce(path.join(pdfjsRoot, "standard_fonts"), fontTarget, "FoxitSerif.pfb");
         const pdfjs = await import(pathToFileURL(require.resolve("pdfjs-dist/legacy/build/pdf.mjs")).href);
+        const asPdfJsResourcePath = (value) => path.resolve(value).replace(/\\\\/g, "/").replace(/\\/+$/, "") + "/";
         const pdf = await pdfjs.getDocument({
           data: new Uint8Array(fs.readFileSync(pdfPath)),
           useWorkerFetch: false,
           isEvalSupported: false,
-          disableFontFace: true,
-          cMapUrl: pathToFileURL(cMapTarget + path.sep).href,
+          disableFontFace: false,
+          useSystemFonts: true,
+          cMapUrl: asPdfJsResourcePath(cMapTarget),
           cMapPacked: true,
-          standardFontDataUrl: pathToFileURL(fontTarget + path.sep).href,
+          standardFontDataUrl: asPdfJsResourcePath(fontTarget),
         }).promise;
         const paths = [];
         const count = Math.min(pdf.numPages, maxPages);
@@ -507,7 +589,7 @@ function renderPdfPagesToImageFiles(buffer) {
           const context = canvas.getContext("2d");
           context.fillStyle = "#fff";
           context.fillRect(0, 0, width, height);
-          await page.render({ canvasContext: context, viewport }).promise;
+          await page.render({ canvasContext: context, viewport, annotationMode: pdfjs.AnnotationMode.DISABLE }).promise;
           const outPath = path.join(outDir, "page-" + pageIndex + ".png");
           fs.writeFileSync(outPath, canvas.toBuffer("image/png"));
           paths.push(outPath);
@@ -826,7 +908,11 @@ function extractMajorFromText(text) {
   const compact = compactChineseSpacing(text);
   const match = compact.match(/专业[:：\s]*([\u4e00-\u9fa5A-Za-z0-9（）()·\- ]{2,34})/);
   if (match) {
-    return cleanText(match[1]).replace(/(课程名称?|科目|学分|成绩|属性|考试时间).*$/, "").slice(0, 30);
+    const candidate = cleanText(match[1])
+      .replace(/^specialty\s*/i, "")
+      .replace(/(课程名称?|科目|学分|成绩|属性|考试时间).*$/, "");
+    const chineseMajor = candidate.match(/[\u4e00-\u9fa5]{2,16}/);
+    return cleanText(chineseMajor?.[0] || candidate).slice(0, 30);
   }
   const englishPatterns = [
     /\bMajor\s*[:：]?\s*([A-Z][A-Za-z0-9 &()/.\-]{2,80}?)(?=\s+(?:Credit|Gredit|Course|Academic|Student|College|Date|Admission|Program|F\/M)\b|$)/i,
@@ -857,6 +943,11 @@ function collectDomainSignals(text) {
   add("ai", ["AI", "机器学习", "人工智能"], /人工智能|机器学习|深度学习|\bai\b|artificial intelligence|machine learning/);
   add("data", ["数据", "统计", "analytics"], /数据|统计|概率论|analytics|data|database|econometrics/);
   add("cs", ["计算机", "软件", "算法"], /计算机|软件|算法|computer|software|informatik|programming|数据结构|操作系统/);
+  add(
+    "industrial",
+    ["经济工程", "工程管理", "工业工程", "Industrial Engineering", "Wirtschaftsingenieurwesen"],
+    /wirtschaftsingenieur|industrial engineering|engineering management|technology management|technologiemanagement|business administration and engineering|construction management|project management|经济工程|工业工程|工程管理|工程造价/
+  );
   add("robotics", ["自动化", "控制", "机器人"], /机器人|自动化|控制|robotics?|automation|control engineering|automatic control|\bcontrol\b|cybernetics/);
   add("mechanical", ["机械", "汽车", "制造"], /机械|车辆|汽车|制造|内燃机|传热|动力|mechatronics|mechanical|automotive/);
   add("energy", ["能源", "动力", "热能"], /能源|动力|热能|内燃机|传热|发动机|energy|power|thermal|combustion|clean energy|process engineering/);
@@ -916,7 +1007,7 @@ function looksLikeValidTranscriptRow(row) {
   if (!course || course.length < 2 || course.length > 40) return false;
   if (course.includes(SENSITIVE_TEXT_REPLACEMENT)) return false;
   if (/20\d{2}/.test(course) || /\b\d{2,3}\b/.test(course)) return false;
-  if (/成绩单|课程名称?|科目|学分|成绩|transcript|credits?|gredits?|grade|semester|\bmajor\b/i.test(course)) return false;
+  if (/成绩单|课程名称?|课程属性|修读学期|科目|学分|成绩|curriculum name|transcript|credits?|gredits?|grade|semester|\bmajor\b/i.test(course)) return false;
   if (!Number.isFinite(credits) || credits <= 0 || credits > 12) return false;
   if (/^\d+$/.test(String(row.grade || "")) && (!Number.isFinite(numericGrade) || numericGrade < 0 || numericGrade > 100)) return false;
   if (/身份证|学号|姓名|毕业日期|入学日期|学制|院长签字/.test(course)) return false;
@@ -946,7 +1037,7 @@ function extractTranscriptRowsFromText(text) {
     if (seen.has(key)) continue;
     seen.add(key);
     rows.push(row);
-    if (rows.length >= 60) break;
+    if (rows.length >= MAX_EXTRACTED_TRANSCRIPT_ROWS) break;
   }
   const gradeFirstRowPattern =
     /([\u4e00-\u9fa5A-Za-z][\u4e00-\u9fa5A-Za-z0-9（）()ⅠⅡⅢⅣIV\-·/ ]{1,44}?)\s+([6-9][0-9]|100|及格|中等|优秀|良好|合格)\s+([0-9](?:\.[0-9])?)\s*(必修|选修|任选|限选)?\s*(20\d{2}[-/.年]?\d{1,2})?/g;
@@ -963,7 +1054,7 @@ function extractTranscriptRowsFromText(text) {
     if (seen.has(key)) continue;
     seen.add(key);
     rows.push(row);
-    if (rows.length >= 60) break;
+    if (rows.length >= MAX_EXTRACTED_TRANSCRIPT_ROWS) break;
   }
   const squashedCreditPattern =
     /([\u4e00-\u9fa5A-Za-z][\u4e00-\u9fa5A-Za-z0-9（）()ⅠⅡⅢⅣIV\-·/ ]{1,44}?)\s+([1-9])0\s+([6-9][0-9]|100)\s*(必修|选修|任选|限选)?\s*(20\d{2}[-/.年]?\d{1,2})?/g;
@@ -980,7 +1071,7 @@ function extractTranscriptRowsFromText(text) {
     if (seen.has(key)) continue;
     seen.add(key);
     rows.push(row);
-    if (rows.length >= 60) break;
+    if (rows.length >= MAX_EXTRACTED_TRANSCRIPT_ROWS) break;
   }
   const englishRowPattern =
     /\b[A-Z0-9]{6,10}\s+([A-Z][A-Za-z0-9.,'’&()+/\- ]{2,88}?)\s+([0-9](?:\.[05])?)\s+(?:Y\s+)?([A-F][+-]?|P|EX|W|PASS|N\/A|[0-9]{2,3})\s+(?:N\/A|[0-4](?:\.\d)?)\s+(20\d{2}-(?:Autumn|Spring|Summer|Fall)|20\d{2}[A-Za-z-]*)/g;
@@ -1148,7 +1239,7 @@ function buildTranscriptSummary(parsedFiles, profile = {}) {
       seenCourses.add(key);
       return true;
     }),
-  ].slice(0, 60);
+  ].slice(0, MAX_EXTRACTED_TRANSCRIPT_ROWS);
   const scoreInfo = extractScoreFromTranscript([transcriptText, profile.gpa].join(" "));
   const templateMajor = cleanText(parsedFiles.find((file) => file.templateMajor)?.templateMajor || "");
   const major = templateMajor || extractMajorFromText(transcriptText) || cleanText(profile.major);
@@ -1189,10 +1280,53 @@ function buildTranscriptSummary(parsedFiles, profile = {}) {
   };
 }
 
+function selectRepresentativeTranscriptRows(rows, limit = 50) {
+  const source = Array.isArray(rows) ? rows.filter(Boolean) : [];
+  const selected = [];
+  const seen = new Set();
+  const add = (row) => {
+    const key = normalizeText([row.course, row.grade, row.credits, row.term].join("|"));
+    if (!key || seen.has(key) || selected.length >= limit) return;
+    seen.add(key);
+    selected.push(row);
+  };
+  const evidencePatterns = [
+    /高等数学|线性代数|概率|统计|微积分|mathemat|calculus|linear algebra|probab|statisti/i,
+    /经济|计量|投资|融资|会计|财务|econom|investment|financ|account/i,
+    /管理|造价|合同|招投标|manag|cost|contract|tender|bidding/i,
+    /BIM|数据|数据库|计算机|编程|data|databas|comput|program/i,
+    /建筑|土木|结构|测量|力学|construct|civil|structur|survey|mechanic/i,
+    /项目|课程设计|毕业设计|实习|project|design practice|internship|practice/i,
+  ];
+  for (const pattern of evidencePatterns) {
+    source.filter((row) => pattern.test(cleanText(row.course))).slice(0, 10).forEach(add);
+  }
+  source.forEach(add);
+  return selected;
+}
+
 function buildTranscriptPreviewRows(transcriptSummary) {
-  if (transcriptSummary.rowsFromTemplate?.length) return transcriptSummary.rowsFromTemplate;
-  if (transcriptSummary.rowsFromOcr?.length) return transcriptSummary.rowsFromOcr;
-  if (transcriptSummary.rowsFromProfile?.length) return transcriptSummary.rowsFromProfile;
+  const sourceRows = transcriptSummary.rowsFromTemplate?.length
+    ? transcriptSummary.rowsFromTemplate
+    : transcriptSummary.rowsFromOcr?.length
+      ? transcriptSummary.rowsFromOcr
+      : transcriptSummary.rowsFromProfile?.length
+        ? transcriptSummary.rowsFromProfile
+        : [];
+  if (sourceRows.length) {
+    const hasScoreRow = sourceRows.some((row) => /综合成绩|GPA/i.test(cleanText(row.course)));
+    const scoreRow = !hasScoreRow && transcriptSummary.extractedScoreText
+      ? {
+          course: "综合成绩 / GPA",
+          grade: transcriptSummary.extractedScoreText,
+          credits: "",
+          term: "",
+          note: "从成绩单整理出的综合成绩，请核对",
+        }
+      : null;
+    const rows = selectRepresentativeTranscriptRows(sourceRows, scoreRow ? 49 : 50);
+    return scoreRow ? [scoreRow, ...rows] : rows;
+  }
   if (transcriptSummary.extractedScoreText) {
     return [{ course: "综合成绩 / GPA", grade: transcriptSummary.extractedScoreText, credits: "", term: "", note: "从成绩单文字中识别到综合成绩，请核对" }];
   }
@@ -1322,6 +1456,7 @@ const DOMAIN_LABELS = {
   ai: "人工智能",
   data: "数据科学",
   cs: "计算机/软件",
+  industrial: "经济工程/工业工程",
   robotics: "机器人/自动化/控制",
   mechanical: "机械工程",
   energy: "能源动力/热能",
@@ -1342,6 +1477,7 @@ const DOMAIN_LABELS = {
 };
 
 const DOMAIN_ORDER = [
+  "industrial",
   "robotics",
   "energy",
   "mechanical",
@@ -1367,6 +1503,10 @@ const DOMAIN_ORDER = [
 const GENERIC_DOMAINS = new Set(["general", "engineering", "social", "life"]);
 
 const DOMAIN_RULES = {
+  industrial: {
+    strong: /wirtschaftsingenieur|industrial engineering|engineering management|technology management|technologiemanagement|business administration and engineering|construction management|project management|production and management|operations and supply chain|经济工程|工业工程|工程管理|工程造价/,
+    related: ["business", "economics", "engineering", "civil", "mechanical", "data"],
+  },
   ai: {
     strong: /artificial intelligence|machine learning|deep learning|人工智能|机器学习|深度学习|\bai\b/,
     related: ["data", "cs"],
@@ -1438,25 +1578,26 @@ const DOMAIN_RULES = {
 };
 
 const COURSE_AREA_RULES = {
-  math: { label: "数学基础", pattern: /高等数学|数学分析|微积分|线性代数|概率论|数理统计|statistics|stochastics|calculus|linear algebra|mathematics/i },
-  programming: { label: "编程/计算机基础", pattern: /程序设计|编程|计算机|数据结构|操作系统|computer|programming|informatics|software|database/i },
+  math: { label: "数学基础", pattern: /高等数学|数学分析|微积分|线性代数|概率论|数理统计|statisti|stochastics|calculus|linear algebra|mathemat/i },
+  programming: { label: "编程/计算机基础", pattern: /程序设计|编程|计算机|数据结构|操作系统|comput|program|informatics|software|databas/i },
   algorithms: { label: "算法/理论计算机", pattern: /算法|离散数学|计算理论|theoretical computer|algorithm|logic|discrete/i },
-  data: { label: "数据/统计/数据库", pattern: /数据|数据库|统计|计量|data|database|statistics|analytics|econometrics/i },
+  data: { label: "数据/统计/数据库", pattern: /数据|数据库|统计|计量|data|databas|statisti|analytics|econometrics/i },
   ai: { label: "人工智能/机器学习", pattern: /人工智能|机器学习|深度学习|神经网络|artificial intelligence|machine learning|deep learning|neural/i },
   electrical: { label: "电气电子", pattern: /电路|电气|电子|通信|信号|电磁|electrical|electronic\b|electronics|telecommunication|communication|information engineering|information technology|signal|circuit|electromagnetic/i },
   control: { label: "控制/自动化", pattern: /自动控制|控制理论|控制工程|自动化|机器人|机电|measurement and control|control engineering|automation|robotics|cybernetics|mechatronics/i },
   mechanical: { label: "机械/制造", pattern: /机械|工程图学|机械设计|制造|车辆|汽车|mechanical|manufacturing|production|automotive|machine design/i },
   energy: { label: "能源动力/热工", pattern: /能源|动力|热能|传热|热力学|内燃机|发动机|燃烧|energy|power|thermal|thermodynamics|combustion|heat transfer|engine/i },
   materials: { label: "材料", pattern: /材料|金属|高分子|复合材料|materials?|material science|werkstoff|polymer/i },
-  civil: { label: "土木/结构", pattern: /土木|结构|力学|建筑|civil|structural|construction|mechanics/i },
+  civil: { label: "土木/结构", pattern: /土木|结构|力学|建筑|civil|structur|construct|mechanic/i },
   environment: { label: "环境/可持续", pattern: /环境|生态|可持续|气候|environment|ecology|sustainability|climate/i },
   textile: { label: "纺织服装/设计", pattern: /服装|纺织|成衣|面料|设计|fashion|textile|clothing|garment|design/i },
   law: { label: "法律/知识产权", pattern: /法学|法律|民法|商法|知识产权|行政法|law|legal|intellectual property|regulatory/i },
-  business: { label: "管理/商科", pattern: /管理|市场|运营|供应链|会计|财务|business|management|marketing|supply chain|accounting|finance/i },
-  economics: { label: "经济/计量", pattern: /经济|计量经济|宏观|微观|economics|econometrics|microeconomics|macroeconomics/i },
+  business: { label: "管理/商科", pattern: /管理|市场|运营|供应链|会计|财务|business|manag|marketing|supply chain|account|financ/i },
+  economics: { label: "经济/计量", pattern: /经济|计量经济|宏观|微观|econom|econometrics|microeconomics|macroeconomics/i },
 };
 
 const DOMAIN_COURSE_REQUIREMENTS = {
+  industrial: { required: ["math", "business", "economics"], recommended: ["data", "civil"] },
   ai: { required: ["programming", "algorithms", "math"], recommended: ["ai", "data"] },
   data: { required: ["math", "data", "programming"], recommended: ["algorithms", "ai"] },
   cs: { required: ["programming", "algorithms", "math"], recommended: ["data"] },
@@ -1521,6 +1662,7 @@ function inferDomainsFromText(text) {
     if (pattern.test(corpus) && !domains.includes(domain)) domains.push(domain);
   };
   add("economics", /economics?|econometrics|经济|计量经济/);
+  add("industrial", /wirtschaftsingenieur|industrial engineering|engineering management|technology management|technologiemanagement|business administration and engineering|construction management|project management|经济工程|工业工程|工程管理|工程造价/);
   add("life", /biology|biomedical|biotechnology|medical|health|生物|医学|健康/);
   add("social", /social|society|psychology|media|culture|社会|心理|媒体|文化/);
   add("textile", /textile|fashion|clothing|garment|纺织|服装/);
@@ -1537,7 +1679,14 @@ function inferTargetDomains(primaryTargetText, majorText, fallbackDomains = []) 
 
 function getProgramDomains(program, corpus, titleCorpus) {
   const explicit = Array.isArray(program.domains) ? program.domains.map((item) => String(item).toLowerCase()) : [];
-  const inferred = inferDomainsFromText([titleCorpus, corpus].join(" ")).filter((domain) => domain !== "general");
+  const inferred = inferDomainsFromText([titleCorpus, corpus].join(" "))
+    .filter((domain) => domain !== "general")
+    .filter(
+      (domain) =>
+        domain !== "industrial" ||
+        explicit.includes("industrial") ||
+        DOMAIN_RULES.industrial.strong.test(titleCorpus)
+    );
   return orderDomains([...explicit, ...inferred]);
 }
 
@@ -1545,8 +1694,8 @@ function extractTargetTerms(text) {
   const corpus = normalizeText(text);
   const terms = [];
   const patterns = [
-    /artificial intelligence|machine learning|deep learning|data science|data engineering|computer science|software engineering|electronic information engineering|electronics engineering|communication engineering|communications?|information engineering|information technology|mechanical engineering|energy science|energy engineering|process engineering|electrical engineering|civil engineering|intellectual property|business analytics|supply chain/gi,
-    /人工智能|机器学习|深度学习|数据科学|数据工程|计算机|软件工程|机械工程|机械|能源与动力|能源|动力|热能|内燃机|传热|电气|电子|自动化|控制|机器人|材料科学|材料|土木|结构|知识产权|法学|法律|金融|会计|服装|纺织|设计|环境|可持续/g,
+    /wirtschaftsingenieurwesen|industrial engineering(?: and management)?|engineering management|technology management|business administration and engineering|construction management|project management|artificial intelligence|machine learning|deep learning|data science|data engineering|computer science|software engineering|electronic information engineering|electronics engineering|communication engineering|communications?|information engineering|information technology|mechanical engineering|energy science|energy engineering|process engineering|electrical engineering|civil engineering|intellectual property|business analytics|supply chain/gi,
+    /经济工程|工业工程|工程管理|工程造价|人工智能|机器学习|深度学习|数据科学|数据工程|计算机|软件工程|机械工程|机械|能源与动力|能源|动力|热能|内燃机|传热|电气|电子|自动化|控制|机器人|材料科学|材料|土木|结构|知识产权|法学|法律|金融|会计|服装|纺织|设计|环境|可持续/g,
   ];
   for (const pattern of patterns) {
     for (const match of corpus.matchAll(pattern)) {
@@ -1632,6 +1781,21 @@ function detectCrossDomainRisk(targetDomains, programDomains, titleCorpus) {
   const hasTarget = (domains) => domains.some((domain) => specificTargets.includes(domain));
   const programHas = (domains) => domains.some((domain) => programDomains.includes(domain));
 
+  if (hasTarget(["industrial"])) {
+    if (!programHas(["industrial"])) {
+      penalty += 24;
+      cap = Math.min(cap, 66);
+      risks.push("经济工程/工业工程目标未在项目名称或专业标签中体现");
+    } else {
+      const exactIndustrialTitle =
+        /wirtschaftsingenieur|industrial engineering|business administration and engineering/.test(titleCorpus);
+      cap = Math.min(cap, exactIndustrialTitle ? 90 : 85);
+      risks.push("经济工程项目通常严格核对数学、经济和工程学分，匹配度不等同录取概率");
+      if (!exactIndustrialTitle) {
+        risks.push("该项目属于工程与管理交叉方向，但并非名称完全一致的 Wirtschaftsingenieurwesen");
+      }
+    }
+  }
   if (hasTarget(["energy", "mechanical", "robotics", "electrical", "materials", "civil"]) && programHas(["finance", "business", "economics", "law"])) {
     penalty += 22;
     cap = Math.min(cap, 70);
@@ -1713,9 +1877,10 @@ function addScoreBreakdown(breakdown, label, points) {
 
 function rankingPriority(scored) {
   const strength = scored.audit?.strongestFit?.strength;
+  const industrialPriority = scored.audit?.exactIndustrialTitle ? 24 : 0;
   const titlePriority = strength === "title" ? 30 : strength === "strong" ? 18 : strength === "medium" ? 8 : 0;
   const coursePriority = Math.min(15, Math.round((scored.audit?.courseFit?.score || 0) / 8));
-  return titlePriority + coursePriority;
+  return industrialPriority + titlePriority + coursePriority;
 }
 
 function numericCredits(value) {
@@ -1899,6 +2064,18 @@ function scoreProgram(program, context) {
       addScoreBreakdown(breakdown, "授课语言偏好", 4);
     }
   }
+  const programLanguages = Array.isArray(program.languageOfInstruction)
+    ? program.languageOfInstruction.map((item) => normalizeText(item))
+    : [];
+  const requiresGerman =
+    programLanguages.includes("german") ||
+    /german|deutsch|德语/.test(normalizeText(program.languageRequirements));
+  const hasGermanEvidence =
+    /德语|german|testdaf|dsh|goethe|telc|onset|ösd|b1|b2|c1|c2/.test(context.languageEvidence || "");
+  if (requiresGerman && !hasGermanEvidence) {
+    cap = Math.min(cap, 82);
+    risks.push("当前资料未看到德语证明，而该项目包含德语授课或德语准入要求");
+  }
 
   const evidencePoints = evidence.score >= 82 ? 8 : evidence.score >= 64 ? 5 : 2;
   score += evidencePoints;
@@ -1924,10 +2101,10 @@ function scoreProgram(program, context) {
   const crossRisk = detectCrossDomainRisk(targetDomains, domains, titleCorpus);
   if (crossRisk.penalty) {
     score -= crossRisk.penalty;
-    cap = Math.min(cap, crossRisk.cap);
-    risks.push(...crossRisk.risks);
     addScoreBreakdown(breakdown, "方向冲突扣分", -crossRisk.penalty);
   }
+  cap = Math.min(cap, crossRisk.cap);
+  risks.push(...crossRisk.risks);
   if (
     /electrical|electronic\b|electronics|communication|telecommunication|information engineering|电气|电子|通信|信息工程/.test(context.primaryTargetText) &&
     !/electrical|electronic\b|electronics|communication|telecommunication|information technology|information engineering|signal|circuit|电气|电子|通信|信息|信号|电路/.test(titleCorpus)
@@ -2012,6 +2189,9 @@ function scoreProgram(program, context) {
       breakdown,
       cap,
       strongTargetHit: strongestFit.points >= 18,
+      exactIndustrialTitle:
+        targetDomains.includes("industrial") &&
+        /wirtschaftsingenieur|industrial engineering|business administration and engineering/.test(titleCorpus),
     },
   };
 }
@@ -2021,6 +2201,9 @@ function curatedFallbackMatches(program, context) {
   const domains = Array.isArray(program.domains) ? program.domains.map((item) => String(item).toLowerCase()) : [];
   const titleCorpus = normalizeText([program.programDisplayName, program.programTitle, program.program].join(" "));
   const target = context.targetText;
+  if (/wirtschaftsingenieur|industrial engineering|engineering management|technology management|technologiemanagement|business administration and engineering|construction management|project management|经济工程|工业工程|工程管理|工程造价/.test(target)) {
+    return domains.includes("industrial") || /wirtschaftsingenieur|industrial engineering|engineering management|technology management|technologiemanagement|business administration and engineering|construction management|project management/.test(titleCorpus);
+  }
   if (/机器人|自动化|控制|robotics?|automation|control engineering|automatic control|\bcontrol\b/.test(target)) {
     return domains.some((domain) => ["robotics", "automation"].includes(domain)) || /cybernetics|robotics?|automation|control engineering|automatic control|\bcontrol\b/.test(titleCorpus);
   }
@@ -2080,6 +2263,7 @@ function buildStandaloneRecommendation(profile, transcriptSummary) {
     targetText: normalizeText([effectiveTargetText, profile.targetField, profile.major, transcriptSummary.extractedMajor].join(" ")),
     cityPrefs: splitPreference(profile.cityPreference),
     languagePref: normalizeText(profile.instructionLanguage),
+    languageEvidence: normalizeText([profile.language, profile.instructionLanguage].join(" ")),
     transcriptConfidence: transcriptSummary.confidence,
   };
   context.transcriptAreaProfile = buildTranscriptAreaProfile(context);
@@ -2113,7 +2297,12 @@ function buildStandaloneRecommendation(profile, transcriptSummary) {
     .map((program) => {
       const scored = scoreProgram(program, context);
       if (curatedFallbackMatches(program, context)) {
-        scored.score = Math.max(scored.score, scored.audit?.strongTargetHit ? (context.transcriptConfidence === "低" ? 82 : 88) : 74);
+        const courseScore = Number(scored.audit?.courseFit?.score || 0);
+        const evidenceFloor = scored.audit?.strongTargetHit
+          ? Math.min(88, (context.transcriptConfidence === "低" ? 76 : 79) + Math.round(courseScore * 0.09))
+          : 70;
+        const cappedEvidenceFloor = Math.min(evidenceFloor, Number(scored.audit?.cap || 96));
+        scored.score = Math.max(scored.score, cappedEvidenceFloor);
       }
       return { program, ...scored };
     })
@@ -2237,7 +2426,10 @@ function buildStandaloneRecommendation(profile, transcriptSummary) {
 }
 
 async function createRecommendation(profile = {}) {
-  const parsedFiles = await parseUploadedFiles(profile.files);
+  const hasReviewedTranscriptRows =
+    profile.transcriptReviewed === true &&
+    Array.isArray(profile.transcriptRows);
+  const parsedFiles = hasReviewedTranscriptRows ? [] : await parseUploadedFiles(profile.files);
   const transcriptSummary = buildTranscriptSummary(parsedFiles, profile);
   return buildStandaloneRecommendation(profile, transcriptSummary);
 }
@@ -2275,5 +2467,6 @@ module.exports = {
   buildTranscriptSummary,
   testHelpers: {
     extractTranscriptRowsFromText,
+    selectRepresentativeTranscriptRows,
   },
 };

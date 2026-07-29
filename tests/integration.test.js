@@ -82,6 +82,10 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
 
   const health = await requestJson("/health");
   assert.equal(health.response.status, 200);
+  assert.equal(health.payload.transcriptEngine, "pdf-form-safe-20260729");
+  assert.equal(health.payload.recommendationEngineVersion, "industrial-engineering-20260729");
+  assert.equal(health.payload.recommendationReviewedTranscriptReuseEnabled, true);
+  assert.equal(health.payload.recommendationFileReplayDisabled, true);
   assert.equal(health.payload.bookingTeacherOpenidCount, 2);
   assert.equal(health.payload.demoLoginEnabled, true);
   assert.equal(health.payload.bookingWebhookCount, 0);
@@ -106,10 +110,13 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
   assert.equal(health.payload.documentPdfExportEnabled, true);
   assert.equal(health.payload.documentWordExportEnabled, true);
   assert.equal(health.payload.documentDownloadFree, true);
-  assert.equal(health.payload.documentTemplateVersion, "liude-doc-template-20260727-word-pdf");
+  assert.equal(health.payload.documentTemplateVersion, "liude-doc-template-20260730-de-en");
   assert.equal(health.payload.documentLogoWatermarkEnabled, true);
   assert.equal(health.payload.documentOutputTimezone, "Asia/Shanghai");
-  assert.equal(health.payload.documentGermanProfessionalVersion, "待开发/人工咨询");
+  assert.deepEqual(health.payload.documentLanguages, ["de", "en"]);
+  assert.equal(health.payload.documentGermanFormatCvEnabled, true);
+  assert.equal(health.payload.documentProfessionalReview, "人工咨询");
+  assert.equal(health.payload.courseDescriptionPublicEnabled, false);
   const wrappedLatinText = server.testHelpers.wrapPdfText(
     "课程匹配包含 Mathematics, Informatik, Elektrotechnik und künstliche Intelligenz，用于检查中英文混排。",
     42
@@ -503,7 +510,7 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
   assert.equal(pdfPreview.response.status, 200);
   assert.equal(pdfPreview.payload.preview, false);
   assert.equal(pdfPreview.payload.language, "zh");
-  assert.equal(pdfPreview.payload.templateVersion, "liude-doc-template-20260727-word-pdf");
+  assert.equal(pdfPreview.payload.templateVersion, "liude-doc-template-20260730-de-en");
   assert.match(pdfPreview.payload.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
   assert.match(pdfPreview.payload.generatedAtText, /^\d{4}年\d{1,2}月\d{1,2}日 \d{2}:\d{2}:\d{2}（北京时间）$/);
   const pdfBuffer = Buffer.from(pdfPreview.payload.contentBase64, "base64");
@@ -529,7 +536,7 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
   assert.equal(wordDocument.response.status, 200);
   assert.equal(wordDocument.payload.preview, false);
   assert.equal(wordDocument.payload.language, "zh");
-  assert.equal(wordDocument.payload.templateVersion, "liude-doc-template-20260727-word-pdf");
+  assert.equal(wordDocument.payload.templateVersion, "liude-doc-template-20260730-de-en");
   assert.match(wordDocument.payload.fileName, /\.docx$/);
   const wordBuffer = Buffer.from(wordDocument.payload.contentBase64, "base64");
   assert.equal(wordBuffer.slice(0, 2).toString("ascii"), "PK");
@@ -541,13 +548,40 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
       kind: "draft",
       toolKey: "motivation",
       language: "de",
-      title: "Deutsches Motivationsschreiben",
-      content: "Professionelle deutsche Fassung",
+      title: "Motivationsschreiben",
+      fileName: "motivationsschreiben-de.pdf",
+      content: "Motivationsschreiben\n\nSehr geehrte Damen und Herren,\n\nStudienmotivation\nIch bewerbe mich für einen Masterstudiengang.\n\nAkademischer Hintergrund\nRelevante Module und Projekterfahrungen.\n\nMit freundlichen Grüßen",
     },
   });
-  assert.equal(germanPdf.response.status, 501);
-  assert.equal(germanPdf.payload.status, "待开发");
-  assert.equal(germanPdf.payload.consultationRequired, true);
+  assert.equal(germanPdf.response.status, 200);
+  assert.equal(germanPdf.payload.language, "de");
+  assert.equal(germanPdf.payload.templateVersion, "liude-doc-template-20260730-de-en");
+  assert.match(germanPdf.payload.generatedAtText, /^\d{2}\.\d{2}\.\d{4}.*\d{2}:\d{2}:\d{2} \(China Standard Time\)$/);
+  const germanPdfBuffer = Buffer.from(germanPdf.payload.contentBase64, "base64");
+  assert.equal(germanPdfBuffer.slice(0, 5).toString("ascii"), "%PDF-");
+  const parsedGermanPdf = await pdfJs.getDocument({ data: new Uint8Array(germanPdfBuffer) }).promise;
+  const germanPageText = await (await parsedGermanPdf.getPage(1)).getTextContent();
+  const germanPageString = germanPageText.items.map((item) => item.str || "").join(" ");
+  assert.match(germanPageString, /Motivationsschreiben/);
+  assert.equal((germanPageString.match(/Motivationsschreiben/gi) || []).length, 1);
+
+  const englishCvWord = await requestJson("/api/mp/document/word", {
+    token: userToken,
+    body: {
+      kind: "draft",
+      toolKey: "cv",
+      language: "en",
+      title: "Curriculum Vitae",
+      fileName: "cv-en.docx",
+      content: "Curriculum Vitae\n\nPERSONAL DETAILS\nTest Applicant\n\nEDUCATION\nBachelor of Engineering\n\nPRACTICAL EXPERIENCE\nEngineering internship\n\nLANGUAGE SKILLS\nEnglish C1\nGerman B2",
+    },
+  });
+  assert.equal(englishCvWord.response.status, 200);
+  assert.equal(englishCvWord.payload.language, "en");
+  assert.equal(englishCvWord.payload.templateVersion, "liude-doc-template-20260730-de-en");
+  const englishCvBuffer = Buffer.from(englishCvWord.payload.contentBase64, "base64");
+  assert.equal(englishCvBuffer.slice(0, 2).toString("ascii"), "PK");
+  assert.ok(englishCvBuffer.length > 5000);
 
   const deleteUpload = await requestJson("/api/mp/material/delete", {
     token: userToken,

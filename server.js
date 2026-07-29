@@ -84,7 +84,7 @@ const MAX_REQUEST_BYTES = Number(process.env.MAX_REQUEST_BYTES || 40 * 1024 * 10
 const ADMIN_WEB_DIR = path.join(__dirname, "admin-web");
 const DOCUMENT_LOGO_PATH = path.join(__dirname, "assets", "document-logo.jpg");
 const DOCUMENT_TIMEZONE = "Asia/Shanghai";
-const DOCUMENT_TEMPLATE_VERSION = "liude-doc-template-20260727-word-pdf";
+const DOCUMENT_TEMPLATE_VERSION = "liude-doc-template-20260730-de-en";
 
 const sessions = new Map();
 let wechatAccessToken = { value: "", expiresAt: 0 };
@@ -375,6 +375,12 @@ function createUserStorageKey(openid) {
 }
 
 const FALLBACK_PROGRAMS = [
+  { domains: ["industrial", "business", "engineering", "civil"], university: "TU Berlin", program: "Industrial Engineering and Management (Wirtschaftsingenieurwesen), M.Sc.", city: "Berlin" },
+  { domains: ["industrial", "business", "engineering"], university: "Karlsruhe Institute of Technology", program: "Industrial Engineering and Management Master of Science", city: "Karlsruhe" },
+  { domains: ["industrial", "business", "engineering", "civil"], university: "RWTH Aachen University", program: "Wirtschaftsingenieurwesen – Fachrichtung Bauingenieurwesen, M.Sc.", city: "Aachen" },
+  { domains: ["industrial", "business", "engineering", "civil"], university: "TU Darmstadt", program: "Wirtschaftsingenieurwesen – technische Fachrichtung Bauingenieurwesen, M.Sc.", city: "Darmstadt" },
+  { domains: ["industrial", "business", "engineering"], university: "University of Stuttgart", program: "Technologiemanagement", city: "Stuttgart" },
+  { domains: ["industrial", "business", "engineering", "mechanical"], university: "Technical University of Munich", program: "Development, Production and Management in Mechanical Engineering", city: "Munich" },
   { domains: ["data", "cs", "ai"], university: "University of Stuttgart", program: "Artificial Intelligence and Data Science", city: "Stuttgart" },
   { domains: ["data", "cs", "ai"], university: "Technical University of Munich", program: "Data Engineering and Analytics", city: "Munich" },
   { domains: ["cs", "software"], university: "TU Berlin", program: "Computer Science (Informatik), M.Sc", city: "Berlin" },
@@ -422,6 +428,7 @@ function detectFallbackDomains(profile) {
     if (pattern.test(corpus) && !domains.includes(domain)) domains.push(domain);
   };
 
+  add("industrial", /wirtschaftsingenieur|industrial engineering|engineering management|technology management|technologiemanagement|business administration and engineering|construction management|project management|经济工程|工业工程|工程管理|工程造价/);
   add("ai", /人工智能|机器学习|深度学习|\bai\b|artificial intelligence|machine learning/);
   add("data", /数据|统计|analytics|data|database|econometrics/);
   add("cs", /计算机|软件|算法|computer|software|informatik|programming/);
@@ -474,7 +481,7 @@ function buildFallbackRecommendation(body, error) {
     inputQuality: {
       level: "低",
       score: 30,
-      warnings: ["当前资料较少，建议后续补充完整成绩单、课程描述、语言成绩和目标方向。"],
+      warnings: ["当前资料较少，建议后续补充完整成绩单课程、语言成绩和目标方向。"],
       strengths: domains.includes("general") ? [] : ["已根据已填写文本识别到初步申请方向。"],
     },
     accuracyNotes: [
@@ -517,7 +524,7 @@ function buildFallbackRecommendation(body, error) {
         level: "基础",
       },
     })),
-    nextSteps: ["补充成绩单或课程描述后再次生成。", "由顾问核对候选项目官网要求。"],
+    nextSteps: ["补充成绩单课程或匹配度调查表后再次生成。", "由顾问核对候选项目官网要求。"],
     source: "mini-program-local-fallback",
     aiReview: {
       enabled: false,
@@ -3002,7 +3009,7 @@ function handleMaterialAccess(req, res) {
       freeDuringLaunch: MP_DOCUMENT_DOWNLOAD_FREE,
       paymentStatus: MP_DOCUMENT_DOWNLOAD_FREE ? "free-launch" : "entitled",
       message: MP_DOCUMENT_DOWNLOAD_FREE
-        ? "当前上线初期，中文初稿和水印 PDF 下载免费；德语专业版需咨询文书老师，在线收费功能待开发。"
+        ? "当前上线初期，德语/英语结构初稿、Word 和水印 PDF 下载免费；人工翻译、逐校改写和专业审校可联系文书老师。"
         : "当前账号已开通文书工具。",
     });
     return;
@@ -3186,6 +3193,32 @@ function formatDocumentDateTime(date = new Date()) {
   return `${values.year}年${Number(values.month)}月${Number(values.day)}日 ${values.hour}:${values.minute}:${values.second}（北京时间）`;
 }
 
+function formatDocumentDateTimeForLanguage(date = new Date(), language = "zh") {
+  if (language === "zh") return formatDocumentDateTime(date);
+  const locale = language === "de" ? "de-DE" : "en-GB";
+  const formatted = new Intl.DateTimeFormat(locale, {
+    timeZone: DOCUMENT_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).format(date);
+  return language === "de" ? `${formatted} (China Standard Time)` : `${formatted} (China Standard Time)`;
+}
+
+function documentFooterText(language, generatedAtText) {
+  if (language === "de") {
+    return `Erstellt am ${generatedAtText}. KI-gestützter Entwurf zur Bewerbungsvorbereitung; vor der Einreichung sind alle Angaben und Programmanforderungen zu prüfen.`;
+  }
+  if (language === "en") {
+    return `Generated on ${generatedAtText}. AI-assisted application-preparation draft; verify all facts and programme requirements before submission.`;
+  }
+  return `本文件生成于 ${generatedAtText}，生成内容仅为申请材料准备初稿，不具有完整申请学校的作用。本文件最终解释权归留德小栈所有。`;
+}
+
 function readJpegDimensions(buffer) {
   if (!Buffer.isBuffer(buffer) || buffer.length < 12 || buffer[0] !== 0xff || buffer[1] !== 0xd8) return null;
   let offset = 2;
@@ -3211,7 +3244,7 @@ function readJpegDimensions(buffer) {
   return null;
 }
 
-function createWatermarkedPdf(title, content, watermark, generatedAtText = formatDocumentDateTime()) {
+function createWatermarkedPdf(title, content, watermark, generatedAtText = formatDocumentDateTime(), language = "zh") {
   const objects = [null];
   const addObject = (value) => {
     objects.push(value);
@@ -3280,7 +3313,7 @@ function createWatermarkedPdf(title, content, watermark, generatedAtText = forma
       commands.push("BT", `1 0 0 1 48 ${y} Tm`, ...pdfMixedTextOperators(line || " ", 11), "ET");
       y -= 15;
     });
-    const footerText = `本文件生成于 ${generatedAtText}，生成内容仅为申请材料准备初稿，不具有完整申请学校的作用。本文件最终解释权归留德小栈所有。`;
+    const footerText = documentFooterText(language, generatedAtText);
     const footerLines = wrapPdfText(footerText, 72).slice(0, 2);
     commands.push("0.36 0.42 0.51 rg", "0.5 w", "48 55 m 547 55 l S");
     footerLines.forEach((line, index) => {
@@ -3327,16 +3360,28 @@ function createWatermarkedPdf(title, content, watermark, generatedAtText = forma
 
 function prepareDocumentExport(session, body) {
   const kind = ["questionnaire", "matching"].includes(body.kind) ? body.kind : "draft";
-  const language = String(body.language || "zh").trim().toLowerCase() === "de" ? "de" : "zh";
+  const requestedLanguage = String(body.language || "zh").trim().toLowerCase();
+  const language = ["de", "en"].includes(requestedLanguage) ? requestedLanguage : "zh";
   const defaultTitle = kind === "questionnaire" ? "申请材料调查表" : kind === "matching" ? "院校专业匹配报告" : "申请文书";
   const title = normalizeBookingText(body.title || defaultTitle, 80);
-  const content = normalizeLongText(body.content || "", 30000);
+  const rawContent = normalizeLongText(body.content || "", 30000);
+  const contentLines = rawContent.replace(/\r\n?/g, "\n").split("\n");
+  const titleKey = title.toLocaleLowerCase().replace(/[\s\-–—_:：]+/g, "");
+  const firstLineKey = String(contentLines[0] || "").trim().toLocaleLowerCase().replace(/[\s\-–—_:：]+/g, "");
+  const content =
+    titleKey && firstLineKey === titleKey
+      ? contentLines.slice(1).join("\n").replace(/^\n+/, "")
+      : rawContent;
   const fullAccess = MP_DOCUMENT_DOWNLOAD_FREE || session.mode === "demo" || Boolean(session.entitlements?.materialAssistant);
   const preview = kind === "draft" && !fullAccess;
   const previewLength = Math.max(Math.ceil(content.length / 5), Math.min(content.length, 180));
-  const visibleContent = preview
-    ? `${content.slice(0, previewLength)}\n\n—— 付费前预览到此结束，仅展示完整内容前 20% ——`
-    : content;
+  const previewEnding =
+    language === "de"
+      ? "— Ende der Vorschau: 20 % des vollständigen Dokuments —"
+      : language === "en"
+        ? "— End of preview: 20% of the complete document —"
+        : "—— 付费前预览到此结束，仅展示完整内容前 20% ——";
+  const visibleContent = preview ? `${content.slice(0, previewLength)}\n\n${previewEnding}` : content;
   return {
     kind,
     language,
@@ -3352,7 +3397,7 @@ function isDocumentSectionHeading(line) {
   const value = String(line || "").trim();
   if (!value || value.length > 26) return false;
   if (
-    /^(动机申请信中文初稿|留德申请个人简历中文信息稿|课程描述初稿|个人与学习背景|为什么选择德国|为什么选择该专业|毕业后的计划|个人信息|教育背景|语言与标准考试|工作\/实习经历|研究\/项目\/毕业论文|发表论文|奖励与荣誉|课外活动\/社会实践|技能、证书与兴趣)$/.test(
+    /^(动机申请信中文初稿|留德申请个人简历中文信息稿|课程描述初稿|个人与学习背景|为什么选择德国|为什么选择该专业|毕业后的计划|个人信息|教育背景|语言与标准考试|工作\/实习经历|研究\/项目\/毕业论文|发表论文|奖励与荣誉|课外活动\/社会实践|技能、证书与兴趣|MOTIVATION LETTER|MOTIVATIONSSCHREIBEN|CURRICULUM VITAE|LEBENSLAUF|PERSONAL DETAILS|PERSÖNLICHE DATEN|EDUCATION|AUSBILDUNG|EXCHANGE \/ SUMMER SCHOOL|AUSLANDS- \/ SOMMERSCHULERFAHRUNG|LANGUAGES AND STANDARDISED TESTS|SPRACHKENNTNISSE UND STANDARDISIERTE TESTS|PROFESSIONAL EXPERIENCE|BERUFS- UND PRAKTIKUMSERFAHRUNG|RESEARCH, PROJECTS AND THESIS|FORSCHUNG, PROJEKTE UND ABSCHLUSSARBEIT|PUBLICATIONS|PUBLIKATIONEN|HONOURS AND AWARDS|AUSZEICHNUNGEN|EXTRACURRICULAR ACTIVITIES|AUSSERUNIVERSITÄRES ENGAGEMENT|SKILLS, CERTIFICATES AND INTERESTS|KENNTNISSE, ZERTIFIKATE UND INTERESSEN)$/.test(
       value
     )
   ) {
@@ -3384,8 +3429,15 @@ function createDocxBodyParagraph(line) {
       },
     });
   }
-  const isNotice = value.startsWith("说明：") || value.startsWith("待补充字段：") || value.includes("付费前预览到此结束");
-  const isGeneratedAt = value.startsWith("生成时间：");
+  const isNotice =
+    value.startsWith("说明：") ||
+    value.startsWith("待补充字段：") ||
+    value.startsWith("Hinweis:") ||
+    value.startsWith("Note:") ||
+    value.includes("付费前预览到此结束") ||
+    value.includes("Ende der Vorschau") ||
+    value.includes("End of preview");
+  const isGeneratedAt = value.startsWith("生成时间：") || value.startsWith("Erstellt am:") || value.startsWith("Generated:");
   return new docx.Paragraph({
     children: [
       new docx.TextRun({
@@ -3405,7 +3457,7 @@ function createDocxBodyParagraph(line) {
   });
 }
 
-async function createBrandedDocx(title, content, generatedAtText = formatDocumentDateTime()) {
+async function createBrandedDocx(title, content, generatedAtText = formatDocumentDateTime(), language = "zh") {
   const brandBlue = "1F5DA8";
   const logoRun = fs.existsSync(DOCUMENT_LOGO_PATH)
     ? new docx.ImageRun({
@@ -3419,7 +3471,14 @@ async function createBrandedDocx(title, content, generatedAtText = formatDocumen
   if (logoRun) headerChildren.push(logoRun);
   headerChildren.push(
     new docx.TextRun({
-      text: logoRun ? "  留德小栈 · LIUDE XIAOZHAN" : "留德小栈 · LIUDE XIAOZHAN",
+      text:
+        language === "zh"
+          ? logoRun
+            ? "  留德小栈 · LIUDE XIAOZHAN"
+            : "留德小栈 · LIUDE XIAOZHAN"
+          : logoRun
+            ? "  LIUDE XIAOZHAN"
+            : "LIUDE XIAOZHAN",
       bold: true,
       color: brandBlue,
       size: 18,
@@ -3430,8 +3489,18 @@ async function createBrandedDocx(title, content, generatedAtText = formatDocumen
     creator: "留德小栈",
     lastModifiedBy: "留德小栈",
     title,
-    subject: "德国留学申请材料初稿",
-    description: "由留德小栈小程序生成的申请材料中文初稿",
+    subject:
+      language === "de"
+        ? "Entwurf für eine Studienbewerbung in Deutschland"
+        : language === "en"
+          ? "Draft for a German university application"
+          : "德国留学申请材料初稿",
+    description:
+      language === "de"
+        ? "KI-gestützter Bewerbungsentwurf von LIUDE XIAOZHAN"
+        : language === "en"
+          ? "AI-assisted application draft by LIUDE XIAOZHAN"
+          : "由留德小栈小程序生成的申请材料中文初稿",
     features: { updateFields: true },
     styles: {
       default: {
@@ -3488,7 +3557,7 @@ async function createBrandedDocx(title, content, generatedAtText = formatDocumen
                 spacing: { before: 40, after: 35, line: 240 },
                 children: [
                   new docx.TextRun({
-                    text: `本文件生成于 ${generatedAtText}，内容仅为申请材料准备初稿，正式提交前请按目标学校要求复核。`,
+                    text: documentFooterText(language, generatedAtText),
                     color: "65758A",
                     size: 15,
                     font: { ascii: "Arial", hAnsi: "Arial", eastAsia: "Microsoft YaHei" },
@@ -3500,7 +3569,12 @@ async function createBrandedDocx(title, content, generatedAtText = formatDocumen
                 spacing: { after: 0 },
                 children: [
                   new docx.TextRun({
-                    children: ["留德小栈 · 第 ", docx.PageNumber.CURRENT, " / ", docx.PageNumber.TOTAL_PAGES, " 页"],
+                    children:
+                      language === "de"
+                        ? ["LIUDE XIAOZHAN · Seite ", docx.PageNumber.CURRENT, " / ", docx.PageNumber.TOTAL_PAGES]
+                        : language === "en"
+                          ? ["LIUDE XIAOZHAN · Page ", docx.PageNumber.CURRENT, " / ", docx.PageNumber.TOTAL_PAGES]
+                          : ["留德小栈 · 第 ", docx.PageNumber.CURRENT, " / ", docx.PageNumber.TOTAL_PAGES, " 页"],
                     color: brandBlue,
                     size: 15,
                     font: { ascii: "Arial", hAnsi: "Arial", eastAsia: "Microsoft YaHei" },
@@ -3546,21 +3620,30 @@ async function handleDocumentPdf(req, res) {
     const rawBody = await readBody(req);
     const body = JSON.parse(rawBody || "{}");
     const documentData = prepareDocumentExport(session, body);
-    if (documentData.language === "de") {
-      sendJson(res, 501, {
-        error: "德语专业版需由文书老师按目标学校要求翻译和审核，在线收费功能待开发。",
-        status: "待开发",
-        consultationRequired: true,
-      });
-      return;
-    }
     if (!documentData.content) {
       sendJson(res, 400, { error: "没有可导出的文书内容。" });
       return;
     }
-    const watermark = documentData.preview ? "留德小栈 付费前预览" : "留德小栈 水印版";
-    const generatedAtText = formatDocumentDateTime(documentData.generatedAt);
-    const pdf = createWatermarkedPdf(documentData.title, documentData.visibleContent, watermark, generatedAtText);
+    const watermark =
+      documentData.language === "de"
+        ? documentData.preview
+          ? "LIUDE XIAOZHAN VORSCHAU"
+          : "LIUDE XIAOZHAN ENTWURF"
+        : documentData.language === "en"
+          ? documentData.preview
+            ? "LIUDE XIAOZHAN PREVIEW"
+            : "LIUDE XIAOZHAN DRAFT"
+          : documentData.preview
+            ? "留德小栈 付费前预览"
+            : "留德小栈 水印版";
+    const generatedAtText = formatDocumentDateTimeForLanguage(documentData.generatedAt, documentData.language);
+    const pdf = createWatermarkedPdf(
+      documentData.title,
+      documentData.visibleContent,
+      watermark,
+      generatedAtText,
+      documentData.language
+    );
     const usageAction =
       documentData.kind === "questionnaire"
         ? "document.export.questionnaire.pdf"
@@ -3598,20 +3681,12 @@ async function handleDocumentWord(req, res) {
     const rawBody = await readBody(req);
     const body = JSON.parse(rawBody || "{}");
     const documentData = prepareDocumentExport(session, body);
-    if (documentData.language === "de") {
-      sendJson(res, 501, {
-        error: "德语专业版需由文书老师按目标学校要求翻译和审核，在线收费功能待开发。",
-        status: "待开发",
-        consultationRequired: true,
-      });
-      return;
-    }
     if (!documentData.content) {
       sendJson(res, 400, { error: "没有可导出的文书内容。" });
       return;
     }
-    const generatedAtText = formatDocumentDateTime(documentData.generatedAt);
-    const word = await createBrandedDocx(documentData.title, documentData.visibleContent, generatedAtText);
+    const generatedAtText = formatDocumentDateTimeForLanguage(documentData.generatedAt, documentData.language);
+    const word = await createBrandedDocx(documentData.title, documentData.visibleContent, generatedAtText, documentData.language);
     const usageAction =
       documentData.kind === "questionnaire"
         ? "document.export.questionnaire.word"
@@ -3645,7 +3720,7 @@ function handlePaymentPlaceholder(req, res) {
   const session = requireSession(req, res);
   if (!session) return;
   sendJson(res, 501, {
-    error: "收费功能待开发。当前上线初期，中文初稿和水印 PDF 下载暂时免费；德语专业版请联系文书老师。",
+    error: "收费功能待开发。当前上线初期，德语/英语结构稿和水印 PDF 暂时免费；人工翻译、逐校改写和专业审校可联系文书老师。",
     paymentReady: false,
     status: "待开发",
   });
@@ -3704,7 +3779,10 @@ const server = http.createServer((req, res) => {
       ok: true,
       service: "liude-xiaozhan-miniprogram-backend",
       engine: "mini-program-standalone",
-      transcriptEngine: "template-first-20260610",
+      transcriptEngine: "pdf-form-safe-20260729",
+      recommendationEngineVersion: "industrial-engineering-20260729",
+      recommendationReviewedTranscriptReuseEnabled: true,
+      recommendationFileReplayDisabled: true,
       webSeparated: true,
       wechatConfigured: Boolean(WECHAT_APPID && WECHAT_SECRET),
       openLogin: MP_OPEN_LOGIN,
@@ -3754,7 +3832,10 @@ const server = http.createServer((req, res) => {
       documentTemplateVersion: DOCUMENT_TEMPLATE_VERSION,
       documentLogoWatermarkEnabled: fs.existsSync(DOCUMENT_LOGO_PATH),
       documentOutputTimezone: DOCUMENT_TIMEZONE,
-      documentGermanProfessionalVersion: "待开发/人工咨询",
+      documentLanguages: ["de", "en"],
+      documentGermanFormatCvEnabled: true,
+      documentProfessionalReview: "人工咨询",
+      courseDescriptionPublicEnabled: false,
       paymentStatus: "待开发",
       profileLockEnabled: true,
       externalPersistentDataDirConfigured: path.resolve(MP_DATA_DIR) !== path.resolve(path.join(__dirname, "data")),
