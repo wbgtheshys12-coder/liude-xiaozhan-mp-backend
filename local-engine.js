@@ -604,10 +604,55 @@ function renderPdfPagesToImageFiles(buffer) {
           const context = canvas.getContext("2d");
           context.fillStyle = "#fff";
           context.fillRect(0, 0, width, height);
-          await page.render({ canvasContext: context, viewport, annotationMode: pdfjs.AnnotationMode.DISABLE }).promise;
-          const outPath = path.join(outDir, "page-" + pageIndex + ".png");
-          fs.writeFileSync(outPath, canvas.toBuffer("image/png"));
-          paths.push(outPath);
+          try {
+            await page.render({ canvasContext: context, viewport, annotationMode: pdfjs.AnnotationMode.DISABLE }).promise;
+            const outPath = path.join(outDir, "page-" + pageIndex + ".png");
+            fs.writeFileSync(outPath, canvas.toBuffer("image/png"));
+            paths.push(outPath);
+          } catch (renderError) {
+            const operatorList = await page.getOperatorList();
+            const embeddedImages = [];
+            for (let operatorIndex = 0; operatorIndex < operatorList.fnArray.length; operatorIndex += 1) {
+              if (operatorList.fnArray[operatorIndex] !== pdfjs.OPS.paintImageXObject) continue;
+              const imageId = operatorList.argsArray[operatorIndex]?.[0];
+              if (!imageId) continue;
+              let imageObject = null;
+              try {
+                imageObject = await new Promise((resolve) => page.objs.get(imageId, resolve));
+              } catch (error) {
+                imageObject = null;
+              }
+              if (!imageObject?.data || !imageObject.width || !imageObject.height) continue;
+              const area = imageObject.width * imageObject.height;
+              if (area < 120000) continue;
+              let opaqueRatio = 1;
+              if (imageObject.kind === 3 && imageObject.data.length >= area * 4) {
+                let opaque = 0;
+                const stride = Math.max(1, Math.floor(area / 12000));
+                let sampled = 0;
+                for (let pixel = 0; pixel < area; pixel += stride) {
+                  if (imageObject.data[pixel * 4 + 3] >= 224) opaque += 1;
+                  sampled += 1;
+                }
+                opaqueRatio = sampled ? opaque / sampled : 0;
+              }
+              if (opaqueRatio < 0.62) continue;
+              embeddedImages.push({ imageObject, area, opaqueRatio });
+            }
+            embeddedImages.sort((a, b) => b.area - a.area);
+            for (const [imageIndex, entry] of embeddedImages.slice(0, 3).entries()) {
+              const imageObject = entry.imageObject;
+              if (imageObject.kind !== 3 || imageObject.data.length < imageObject.width * imageObject.height * 4) continue;
+              const imageCanvas = createCanvas(imageObject.width, imageObject.height);
+              const imageContext = imageCanvas.getContext("2d");
+              const imageData = imageContext.createImageData(imageObject.width, imageObject.height);
+              imageData.data.set(imageObject.data);
+              imageContext.putImageData(imageData, 0, 0);
+              const imagePath = path.join(outDir, "page-" + pageIndex + "-embedded-" + (imageIndex + 1) + ".png");
+              fs.writeFileSync(imagePath, imageCanvas.toBuffer("image/png"));
+              paths.push(imagePath);
+            }
+          }
         }
         process.stdout.write(JSON.stringify(paths));
       })().catch((error) => {
@@ -694,13 +739,51 @@ function loadSharpOptional() {
 async function createImageVariantPaths(sourcePath, targetDir) {
   const sharp = loadSharpOptional();
   if (!sharp) return [];
+  let metadata = {};
+  try {
+    metadata = await sharp(sourcePath, { limitInputPixels: false }).metadata();
+  } catch (error) {
+    metadata = {};
+  }
+  const width = Number(metadata.width || 0);
+  const height = Number(metadata.height || 0);
   const variants = [
     { name: "ocr-large-gray.jpg", build: (image) => image.clone().rotate().resize({ width: 2600, height: 2600, fit: "inside", withoutEnlargement: false }).grayscale().normalize().sharpen() },
+  ];
+  if (width >= 900 && height >= 650) {
+    const rightPanel = {
+      left: Math.max(0, Math.round(width * 0.45)),
+      top: Math.max(0, Math.round(height * 0.14)),
+      width: Math.max(1, Math.round(width * 0.53)),
+      height: Math.max(1, Math.round(height * 0.78)),
+    };
+    const centerPanel = {
+      left: Math.max(0, Math.round(width * 0.12)),
+      top: Math.max(0, Math.round(height * 0.12)),
+      width: Math.max(1, Math.round(width * 0.76)),
+      height: Math.max(1, Math.round(height * 0.82)),
+    };
+    if (rightPanel.left + rightPanel.width > width) rightPanel.width = width - rightPanel.left;
+    if (rightPanel.top + rightPanel.height > height) rightPanel.height = height - rightPanel.top;
+    if (centerPanel.left + centerPanel.width > width) centerPanel.width = width - centerPanel.left;
+    if (centerPanel.top + centerPanel.height > height) centerPanel.height = height - centerPanel.top;
+    variants.push(
+      {
+        name: "ocr-right-panel.jpg",
+        build: (image) => image.clone().extract(rightPanel).resize({ width: 3000, height: 3000, fit: "inside", withoutEnlargement: false }).grayscale().normalize().sharpen(),
+      },
+      {
+        name: "ocr-center-panel.jpg",
+        build: (image) => image.clone().extract(centerPanel).resize({ width: 3000, height: 3000, fit: "inside", withoutEnlargement: false }).grayscale().normalize().sharpen(),
+      }
+    );
+  }
+  variants.push(
     { name: "ocr-binary-soft.jpg", build: (image) => image.clone().rotate().resize({ width: 2600, height: 2600, fit: "inside", withoutEnlargement: false }).grayscale().normalize().threshold(150) },
     { name: "ocr-binary-strong.jpg", build: (image) => image.clone().rotate().resize({ width: 3000, height: 3000, fit: "inside", withoutEnlargement: false }).grayscale().linear(1.25, -18).normalize().threshold(176) },
     { name: "ocr-rot90.jpg", build: (image) => image.clone().rotate(90).resize({ width: 2600, height: 2600, fit: "inside", withoutEnlargement: false }).grayscale().normalize().sharpen() },
-    { name: "ocr-rot270.jpg", build: (image) => image.clone().rotate(270).resize({ width: 2600, height: 2600, fit: "inside", withoutEnlargement: false }).grayscale().normalize().sharpen() },
-  ];
+    { name: "ocr-rot270.jpg", build: (image) => image.clone().rotate(270).resize({ width: 2600, height: 2600, fit: "inside", withoutEnlargement: false }).grayscale().normalize().sharpen() }
+  );
   const paths = [];
   for (const variant of variants) {
     const target = path.join(targetDir, variant.name);
@@ -902,10 +985,22 @@ async function parseUploadedFiles(files) {
 
 function extractScoreFromTranscript(text) {
   const corpus = cleanPlainText(text);
+  const ratioMatch = corpus.match(
+    /([0-9](?:\.\d{1,3})?|10(?:\.0{1,3})?|[1-9]\d(?:\.\d{1,3})?|100(?:\.0{1,3})?)\s*\/\s*(4(?:\.0)?|5(?:\.0)?|7(?:\.0)?|10(?:\.0)?|100(?:\.0)?)/i
+  );
+  if (ratioMatch) {
+    const numeric = Number(ratioMatch[1]);
+    const scale = Number(ratioMatch[2]);
+    if (Number.isFinite(numeric) && Number.isFinite(scale) && scale > 0 && numeric >= 0 && numeric <= scale) {
+      return {
+        raw: `${numeric}/${scale === 100 ? "100" : scale % 1 === 0 ? scale.toFixed(1) : scale}`,
+        normalized: Math.round((numeric / scale) * 1000) / 10,
+      };
+    }
+  }
   const patterns = [
-    /(平均学分绩点|平均绩点|绩点|GPA|CGPA)[:：\s]*([0-4](?:\.\d{1,3})?)(?:\s*\/\s*4(?:\.0)?)?/i,
-    /(加权平均分|平均分|均分|百分制|平均成绩|综合成绩)[:：\s]*([6-9]\d(?:\.\d{1,2})?|100(?:\.0{1,2})?)(?:\s*\/\s*100)?/i,
-    /([6-9]\d(?:\.\d{1,2})?|100(?:\.0{1,2})?)\s*\/\s*100/i,
+    /(平均学分绩点|平均绩点|绩点|GPA|CGPA|cumulative\s+GPA|overall\s+GPA)[:：\s|]*([0-9](?:\.\d{1,3})?|10(?:\.0{1,3})?)/i,
+    /(加权平均分|平均分|均分|百分制|平均成绩|综合成绩|overall\s+programme\s+average|programme\s+average|overall\s+average|final\s+stage\s+average)[:：\s|]*([0-9]\d?(?:\.\d{1,2})?|100(?:\.0{1,2})?)/i,
   ];
   for (const pattern of patterns) {
     const match = corpus.match(pattern);
@@ -914,6 +1009,12 @@ function extractScoreFromTranscript(text) {
     const numeric = Number(rawValue);
     if (!Number.isFinite(numeric)) continue;
     if (numeric <= 4) return { raw: `${numeric}/4.0`, normalized: Math.round((numeric / 4) * 1000) / 10 };
+    if (/GPA|绩点/i.test(match[1] || "") && numeric <= 7) {
+      return { raw: `${numeric}/7.0`, normalized: Math.round((numeric / 7) * 1000) / 10 };
+    }
+    if (/GPA|绩点/i.test(match[1] || "") && numeric <= 10) {
+      return { raw: `${numeric}/10.0`, normalized: Math.round((numeric / 10) * 1000) / 10 };
+    }
     if (numeric >= 0 && numeric <= 100) return { raw: `${numeric}/100`, normalized: numeric };
   }
   return null;
@@ -1105,6 +1206,26 @@ function extractTranscriptRowsFromText(text) {
     rows.push(row);
     if (rows.length >= 80) break;
   }
+  const usPortalRowPattern =
+    /\b\d{4,7}\s+[A-Z]{2,6}\s+\d{3,5}\s+\d{2,4}\s+([A-Z][A-Za-z0-9.,'’&()+/\- ]{2,88}?)\s+([A-F][+-]?)\s+([0-9]{1,2}(?:\.\d{1,2})?)\s+[0-9]{1,2}(?:\.\d{1,2})?\s+[0-9]{1,2}(?:\.\d{1,2})?\s+[0-9]{1,3}(?:\.\d{1,2})?/g;
+  for (const match of source.matchAll(usPortalRowPattern)) {
+    const portalCourse = cleanText(match[1])
+      .replace(/\s+(?:GU\s+Online|Hollow\s+Tree|Online|Main\s+Campus)$/i, "")
+      .replace(/\s+\d{2,3}$/g, "");
+    const row = {
+      course: cleanCourseName(portalCourse),
+      credits: cleanText(match[3]),
+      grade: cleanText(match[2]),
+      term: "",
+      note: "英文成绩表自动整理，请核对课程、成绩和学分",
+    };
+    if (!looksLikeValidTranscriptRow(row)) continue;
+    const key = `${row.course}|${row.credits}|${row.grade}|${row.term}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push(row);
+    if (rows.length >= 80) break;
+  }
   return rows;
 }
 
@@ -1175,6 +1296,10 @@ function extractEnglishCourseRowsFromText(text) {
     /Clothing(?: Design| Engineering)?/gi,
     /Garment(?: Engineering| Technology)?/gi,
     /Business Analytics/gi,
+    /Business Ethics(?:\s*\d+)?/gi,
+    /American Civilization/gi,
+    /Pre-?Algebra/gi,
+    /Composition(?:\s*\d+)?/gi,
     /Econometrics/gi,
     /Accounting/gi,
     /Finance/gi,
@@ -1255,15 +1380,18 @@ function buildTranscriptSummary(parsedFiles, profile = {}) {
       return true;
     }),
   ].slice(0, MAX_EXTRACTED_TRANSCRIPT_ROWS);
-  const scoreInfo = extractScoreFromTranscript([transcriptText, profile.gpa].join(" "));
+  const scoreInfo =
+    extractScoreFromTranscript(cleanText(profile.gpa)) ||
+    extractScoreFromTranscript(transcriptText);
   const templateMajor = cleanText(parsedFiles.find((file) => file.templateMajor)?.templateMajor || "");
   const major = templateMajor || extractMajorFromText(transcriptText) || cleanText(profile.major);
   const signals = collectDomainSignals([transcriptText, profile.major, profile.targetField, profile.courses, profile.experience, profile.projects].join(" "));
   const methods = Array.from(new Set(parsedFiles.map((file) => file.method).filter(Boolean)));
   const sensitiveHidden = transcriptText.includes(SENSITIVE_TEXT_REPLACEMENT) || parsedFiles.some((file) => file.templateSensitiveHidden);
+  const usableCourseRowCount = Math.max(templateRows.length, profileRows.length, ocrRows.length);
   let confidence = "低";
-  if (templateRows.length >= 6 || transcriptText.length > 280 || profileRows.length >= 6) confidence = "高";
-  else if (transcriptText.length > 120 || profileRows.length >= 2) confidence = "中";
+  if (templateRows.length >= 6 || profileRows.length >= 6 || ocrRows.length >= 6) confidence = "高";
+  else if (usableCourseRowCount >= 2 || scoreInfo?.raw || major) confidence = "中";
 
   const summaryBits = [];
   if (parsedFiles.length) summaryBits.push(`已读取 ${parsedFiles.length} 份成绩单`);
@@ -1273,6 +1401,7 @@ function buildTranscriptSummary(parsedFiles, profile = {}) {
   if (scoreInfo?.raw) summaryBits.push(`已整理成绩 ${scoreInfo.raw}`);
   if (major) summaryBits.push(`已整理专业 ${major}`);
   if (signals.keywords.length) summaryBits.push(`课程关键词 ${signals.keywords.slice(0, 4).join("、")}`);
+  if (!usableCourseRowCount && (scoreInfo?.raw || major)) summaryBits.push("请在校对表补充 3-6 门核心课程以提高匹配依据");
   if (sensitiveHidden) summaryBits.push("政治敏感课程/人物信息已按合规规则隐藏");
   if (!summaryBits.length) summaryBits.push("请补充手动课程表或匹配度调查表，系统将结合现有资料继续匹配");
 
@@ -1292,6 +1421,7 @@ function buildTranscriptSummary(parsedFiles, profile = {}) {
     rowsFromTemplate: templateRows,
     rowsFromProfile: profileRows,
     rowsFromOcr: ocrRows,
+    usableCourseRowCount,
   };
 }
 
@@ -1343,7 +1473,18 @@ function buildTranscriptPreviewRows(transcriptSummary) {
     return scoreRow ? [scoreRow, ...rows] : rows;
   }
   if (transcriptSummary.extractedScoreText) {
-    return [{ course: "综合成绩 / GPA", grade: transcriptSummary.extractedScoreText, credits: "", term: "", note: "从成绩单文字中识别到综合成绩，请核对" }];
+    return [
+      { course: "综合成绩 / GPA", grade: transcriptSummary.extractedScoreText, credits: "", term: "", note: "从成绩单文字中识别到综合成绩，请核对" },
+      {
+        course: "请补充核心课程",
+        grade: "",
+        credits: "",
+        term: "",
+        note: transcriptSummary.extractedMajor
+          ? `已读取专业方向“${transcriptSummary.extractedMajor}”，请手动补充 3-6 门核心课程后确认`
+          : "请手动补充 3-6 门核心课程、成绩和学分后确认",
+      },
+    ];
   }
   return [{ course: "待校对课程", grade: "", credits: "", term: "", note: "请通过手动课程表补充关键课程、成绩和学分" }];
 }
@@ -1366,7 +1507,11 @@ async function createTranscriptPreview(body = {}) {
   const rows = buildTranscriptPreviewRows(transcriptSummary);
   const warnings = [];
   if (transcriptSummary.sensitiveHidden) warnings.push("政治敏感课程/人物信息已自动隐藏，推荐仍会继续。");
-  if (transcriptSummary.confidence === "低") warnings.push("当前课程信息较少，请核对课程、成绩和学分，或填写匹配度调查表。");
+  if (transcriptSummary.usableCourseRowCount < 2) {
+    warnings.push("已读取现有专业和成绩信息，请在校对表补充 3-6 门核心课程，或填写匹配度调查表后继续。");
+  } else if (transcriptSummary.confidence === "低") {
+    warnings.push("当前课程信息较少，请核对课程、成绩和学分，或填写匹配度调查表。");
+  }
   const summary = {
     confidence: transcriptSummary.confidence,
     extractedScoreText: transcriptSummary.extractedScoreText,
