@@ -85,6 +85,7 @@ const ADMIN_WEB_DIR = path.join(__dirname, "admin-web");
 const DOCUMENT_LOGO_PATH = path.join(__dirname, "assets", "document-logo.jpg");
 const DOCUMENT_TIMEZONE = "Asia/Shanghai";
 const DOCUMENT_TEMPLATE_VERSION = "liude-doc-template-20260730-de-en";
+const MATCHING_PDF_LAYOUT_VERSION = "landscape-table-v1";
 
 const sessions = new Map();
 let wechatAccessToken = { value: "", expiresAt: 0 };
@@ -3358,6 +3359,382 @@ function createWatermarkedPdf(title, content, watermark, generatedAtText = forma
   return Buffer.concat(output);
 }
 
+function normalizeMatchingPdfText(value, maxLength = 1800) {
+  const original = String(value || "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/\[([^\]]+)\]\(https?:\/\/[^)\s]+\)/gi, "$1")
+    .replace(/https?:\/\/\S+/gi, "")
+    .replace(/\*{1,3}/g, "")
+    .replace(/(^|\n)(\s*-\s*)#{1,6}\s*/g, "$1$2")
+    .replace(/(^|\n)\s*#{1,6}\s*/g, "$1")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  if (original.length <= maxLength) return normalizeLongText(original, maxLength);
+  const candidate = original.slice(0, Math.max(1, maxLength - 1));
+  const lastBoundary = Math.max(
+    candidate.lastIndexOf("。"),
+    candidate.lastIndexOf("；"),
+    candidate.lastIndexOf(". "),
+    candidate.lastIndexOf("; "),
+    candidate.lastIndexOf("\n")
+  );
+  const cutAt = lastBoundary >= Math.floor(maxLength * 0.58) ? lastBoundary + 1 : candidate.length;
+  return `${normalizeLongText(candidate.slice(0, cutAt).trimEnd(), maxLength - 1)}…`;
+}
+
+function normalizeMatchingPdfList(value, maxItems = 8, maxLength = 320) {
+  const source = Array.isArray(value) ? value : value ? [value] : [];
+  return source
+    .map((item) => normalizeMatchingPdfText(item, maxLength))
+    .filter(Boolean)
+    .slice(0, maxItems);
+}
+
+function normalizeMatchingPdfData(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const rawProfile = value.profile && typeof value.profile === "object" ? value.profile : {};
+  const recommendations = (Array.isArray(value.recommendations) ? value.recommendations : [])
+    .slice(0, 10)
+    .map((item, index) => {
+      const source = item && typeof item === "object" ? item : {};
+      const matchPercent = Number(source.matchPercent);
+      return {
+        rank: Number.isFinite(Number(source.rank)) ? Math.max(1, Math.round(Number(source.rank))) : index + 1,
+        university: normalizeMatchingPdfText(source.university, 180),
+        schoolName: normalizeMatchingPdfText(source.schoolName, 120),
+        city: normalizeMatchingPdfText(source.cityDisplay || source.city, 120),
+        tags: normalizeMatchingPdfList(source.tags, 6, 80),
+        program: normalizeMatchingPdfText(source.program, 260),
+        degree: normalizeMatchingPdfText(source.degree, 60),
+        projectOverview: normalizeMatchingPdfText(source.projectOverview, 1600),
+        programRequirements: normalizeMatchingPdfText(source.programRequirements, 1600),
+        courseEvaluation: normalizeMatchingPdfText(source.courseEvaluation || source.reason, 2200),
+        matchPercent: Number.isFinite(matchPercent) ? Math.max(0, Math.min(100, Math.round(matchPercent))) : null,
+        matchLevel: normalizeMatchingPdfText(source.matchLevel || source.evaluation, 80),
+        evidenceScore: Number.isFinite(Number(source.evidenceScore))
+          ? Math.max(0, Math.min(100, Math.round(Number(source.evidenceScore))))
+          : null,
+        improvementSuggestions: normalizeMatchingPdfText(source.improvementSuggestions, 1800),
+      };
+    })
+    .filter((item) => item.university || item.program);
+  if (!recommendations.length) return null;
+  return {
+    profile: {
+      name: normalizeMatchingPdfText(rawProfile.name, 80),
+      school: normalizeMatchingPdfText(rawProfile.school, 120),
+      major: normalizeMatchingPdfText(rawProfile.major, 120),
+      targetDegree: normalizeMatchingPdfText(rawProfile.targetDegree, 60),
+      targetField: normalizeMatchingPdfText(rawProfile.targetField, 120),
+      gpa: normalizeMatchingPdfText(rawProfile.gpa, 60),
+      language: normalizeMatchingPdfText(rawProfile.language, 100),
+    },
+    summary: normalizeMatchingPdfText(value.summary, 500),
+    recommendations,
+  };
+}
+
+function matchingPdfCellLines(value, width, fontSize) {
+  const maxUnits = Math.max(4, (width - 8) / fontSize);
+  return wrapPdfText(normalizeMatchingPdfText(value, 2600) || "-", maxUnits);
+}
+
+function matchingPdfCells(item) {
+  const school = [
+    item.schoolName && item.schoolName !== item.university ? item.schoolName : "",
+    item.university,
+    item.city ? `城市：${item.city}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const tags = item.tags.length ? item.tags.join("\n") : "普通大学";
+  const program = [item.program, item.degree].filter(Boolean).join("\n");
+  const rating = [
+    item.matchLevel || "初步候选",
+    item.matchPercent === null ? "" : `${item.matchPercent}%`,
+    item.evidenceScore === null ? "" : `证据 ${item.evidenceScore}/100`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return [
+    school,
+    tags,
+    program,
+    item.projectOverview || "根据已提交的专业、课程与目标方向整理，具体项目介绍请以院校官网为准。",
+    item.programRequirements || "请逐项核对学历背景、先修课程、语言、申请时间和材料要求。",
+    item.courseEvaluation || "课程信息已纳入初步匹配，正式申请前仍需人工复核。",
+    rating,
+    item.improvementSuggestions || "建议补充课程描述，并由顾问核对项目官网要求。",
+  ];
+}
+
+function createMatchingTablePdf(title, matchingData, watermark, generatedAtText = formatDocumentDateTime()) {
+  const pageWidth = 842;
+  const pageHeight = 595;
+  const marginX = 40;
+  const footerBottom = 34;
+  const headerHeight = 26;
+  const bodyFontSize = 6.8;
+  const bodyLineHeight = 8.6;
+  const cellPadding = 4;
+  const columns = [
+    { title: "学校", width: 66 },
+    { title: "学校标签", width: 58 },
+    { title: "专业名称", width: 86 },
+    { title: "项目介绍", width: 128 },
+    { title: "项目要求", width: 102 },
+    { title: "课程评估", width: 130 },
+    { title: "推荐评级", width: 60 },
+    { title: "补充信息 / 提升建议", width: 132 },
+  ];
+  const fixedColumns = new Set([0, 1, 2, 6]);
+  const objects = [null];
+  const addObject = (value) => {
+    objects.push(value);
+    return objects.length - 1;
+  };
+  const catalogId = addObject("");
+  const pagesId = addObject("");
+  const cidFontId = addObject(
+    "<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 4 >> >>"
+  );
+  const fontId = addObject(
+    `<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light /Encoding /UniGB-UCS2-H /DescendantFonts [${cidFontId} 0 R] >>`
+  );
+  const latinFontId = addObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
+  const opacityId = addObject("<< /Type /ExtGState /ca 0.055 /CA 0.055 >>");
+  let logoId = 0;
+  let logoDimensions = null;
+  try {
+    if (fs.existsSync(DOCUMENT_LOGO_PATH)) {
+      const logo = fs.readFileSync(DOCUMENT_LOGO_PATH);
+      logoDimensions = readJpegDimensions(logo);
+      if (logoDimensions?.width && logoDimensions?.height) {
+        logoId = addObject(
+          Buffer.concat([
+            Buffer.from(
+              `<< /Type /XObject /Subtype /Image /Width ${logoDimensions.width} /Height ${logoDimensions.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${logo.length} >>\nstream\n`,
+              "ascii"
+            ),
+            logo,
+            Buffer.from("\nendstream", "ascii"),
+          ])
+        );
+      }
+    }
+  } catch (error) {
+    logoId = 0;
+    logoDimensions = null;
+  }
+
+  const pages = [];
+  let state = null;
+  const beginPage = (firstPage) => {
+    const commands = ["q", "/GS1 gs"];
+    if (logoId && logoDimensions) {
+      const logoWidth = 260;
+      const logoHeight = Math.round((logoWidth * logoDimensions.height) / logoDimensions.width);
+      const logoX = Math.round((pageWidth - logoWidth) / 2);
+      const logoY = Math.round((pageHeight - logoHeight) / 2) - 10;
+      commands.push(`${logoWidth} 0 0 ${logoHeight} ${logoX} ${logoY} cm`, "/Im1 Do");
+    } else {
+      commands.push("0.88 0.48 -0.48 0.88 268 235 cm", "BT", ...pdfMixedTextOperators(watermark, 42), "ET");
+    }
+    commands.push("Q");
+    let tableTop;
+    if (firstPage) {
+      commands.push("0.07 0.30 0.56 rg", "BT", "1 0 0 1 40 555 Tm", ...pdfMixedTextOperators(title, 16), "ET");
+      commands.push(
+        "0.33 0.39 0.47 rg",
+        "BT",
+        "1 0 0 1 40 537 Tm",
+        ...pdfMixedTextOperators("基于您提交的信息、成绩与课程资料生成的院校专业候选表（AI 辅助）", 8),
+        "ET"
+      );
+      const profile = matchingData.profile || {};
+      const profileLine = [profile.name, profile.school, profile.major].filter(Boolean).join(" / ") || "申请人资料待补充";
+      const targetLine = [
+        profile.gpa ? `GPA: ${profile.gpa}` : "",
+        profile.language ? `语言: ${profile.language}` : "",
+        [profile.targetDegree, profile.targetField].filter(Boolean).join(" "),
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      const profileX = Math.max(520, Math.round(pageWidth - 40 - pdfLineUnits(profileLine) * 7));
+      const targetX = Math.max(520, Math.round(pageWidth - 40 - pdfLineUnits(targetLine) * 7));
+      commands.push("0.30 0.35 0.42 rg", "BT", `1 0 0 1 ${profileX} 555 Tm`, ...pdfMixedTextOperators(profileLine, 7), "ET");
+      commands.push("BT", `1 0 0 1 ${targetX} 544 Tm`, ...pdfMixedTextOperators(targetLine, 7), "ET");
+      commands.push("0.08 0.39 0.78 RG", "1.2 w", "40 528 m 802 528 l S");
+      tableTop = 516;
+    } else {
+      tableTop = 557;
+    }
+    commands.push("0.94 0.96 0.98 rg", `${marginX} ${tableTop - headerHeight} 762 ${headerHeight} re f`);
+    commands.push("0.67 0.75 0.84 RG", "0.45 w");
+    let x = marginX;
+    columns.forEach((column) => {
+      commands.push(`${x} ${tableTop} m ${x} ${tableTop - headerHeight} l S`);
+      commands.push(
+        "0.07 0.30 0.56 rg",
+        "BT",
+        `1 0 0 1 ${x + cellPadding} ${tableTop - 17} Tm`,
+        ...pdfMixedTextOperators(column.title, 7.4),
+        "ET"
+      );
+      x += column.width;
+    });
+    commands.push(`${x} ${tableTop} m ${x} ${tableTop - headerHeight} l S`);
+    commands.push(`${marginX} ${tableTop} m ${pageWidth - marginX} ${tableTop} l S`);
+    commands.push(`${marginX} ${tableTop - headerHeight} m ${pageWidth - marginX} ${tableTop - headerHeight} l S`);
+    return {
+      commands,
+      currentY: tableTop - headerHeight,
+      rowCount: 0,
+    };
+  };
+  const finishPage = () => {
+    if (!state) return;
+    pages.push(state.commands);
+    state = null;
+  };
+  const startContinuationPage = () => {
+    finishPage();
+    state = beginPage(false);
+  };
+  const drawRow = (lineGroups, rowHeight, alternate) => {
+    const top = state.currentY;
+    const bottom = top - rowHeight;
+    if (alternate) state.commands.push("0.985 0.991 0.997 rg", `${marginX} ${bottom} 762 ${rowHeight} re f`);
+    state.commands.push("0.78 0.83 0.89 RG", "0.35 w");
+    let x = marginX;
+    lineGroups.forEach((lines, columnIndex) => {
+      state.commands.push(`${x} ${top} m ${x} ${bottom} l S`);
+      const color =
+        columnIndex === 6
+          ? "0.02 0.45 0.43 rg"
+          : columnIndex === 1
+            ? "0.66 0.39 0.02 rg"
+            : "0.12 0.17 0.24 rg";
+      lines.forEach((line, lineIndex) => {
+        const y = top - cellPadding - bodyFontSize - lineIndex * bodyLineHeight;
+        if (y <= bottom + 2) return;
+        state.commands.push(
+          color,
+          "BT",
+          `1 0 0 1 ${x + cellPadding} ${y} Tm`,
+          ...pdfMixedTextOperators(line || " ", bodyFontSize),
+          "ET"
+        );
+      });
+      x += columns[columnIndex].width;
+    });
+    state.commands.push(`${x} ${top} m ${x} ${bottom} l S`);
+    state.commands.push(`${marginX} ${bottom} m ${pageWidth - marginX} ${bottom} l S`);
+    state.currentY = bottom;
+    state.rowCount += 1;
+  };
+
+  state = beginPage(true);
+  matchingData.recommendations.forEach((item, itemIndex) => {
+    const cellValues = matchingPdfCells(item);
+    const allLines = cellValues.map((value, index) => matchingPdfCellLines(value, columns[index].width, bodyFontSize));
+    const maxLines = Math.max(...allLines.map((lines) => lines.length), 1);
+    let offset = 0;
+    while (offset < maxLines) {
+      let availableLines = Math.floor((state.currentY - footerBottom - cellPadding * 2) / bodyLineHeight);
+      if (availableLines < 5) {
+        startContinuationPage();
+        availableLines = Math.floor((state.currentY - footerBottom - cellPadding * 2) / bodyLineHeight);
+      }
+      const remaining = maxLines - offset;
+      const take = Math.max(1, Math.min(remaining, availableLines));
+      let groups = allLines.map((lines, index) => {
+        if (offset > 0 && fixedColumns.has(index)) {
+          if (index === 0) {
+            return matchingPdfCellLines(`${cellValues[index]}\n（续）`, columns[index].width, bodyFontSize);
+          }
+          return lines;
+        }
+        return lines.slice(offset, offset + take);
+      });
+      let segmentLines = Math.max(...groups.map((lines) => lines.length), 1);
+      let rowHeight = Math.max(24, segmentLines * bodyLineHeight + cellPadding * 2);
+      if (rowHeight > state.currentY - footerBottom && state.rowCount > 0) {
+        startContinuationPage();
+        availableLines = Math.floor((state.currentY - footerBottom - cellPadding * 2) / bodyLineHeight);
+        const adjustedTake = Math.max(1, Math.min(remaining, availableLines));
+        groups = allLines.map((lines, index) => {
+          if (offset > 0 && fixedColumns.has(index)) {
+            if (index === 0) {
+              return matchingPdfCellLines(`${cellValues[index]}\n（续）`, columns[index].width, bodyFontSize);
+            }
+            return lines;
+          }
+          return lines.slice(offset, offset + adjustedTake);
+        });
+        segmentLines = Math.max(...groups.map((lines) => lines.length), 1);
+        rowHeight = Math.max(24, segmentLines * bodyLineHeight + cellPadding * 2);
+      }
+      drawRow(groups, Math.min(rowHeight, state.currentY - footerBottom), itemIndex % 2 === 1);
+      offset += take;
+      if (offset < maxLines) startContinuationPage();
+    }
+  });
+  finishPage();
+
+  const pageIds = [];
+  pages.forEach((commands, pageIndex) => {
+    const footerNotice =
+      "AI 辅助初步筛选：课程匹配、申请条件、截止日期与录取要求须以院校官网及顾问人工核验为准。";
+    commands.push("0.37 0.43 0.51 rg");
+    commands.push("BT", "1 0 0 1 40 17 Tm", ...pdfMixedTextOperators(footerNotice, 6.2), "ET");
+    const pageLabel = `Page ${pageIndex + 1} of ${pages.length}`;
+    const pageX = Math.round(pageWidth - 40 - pdfLineUnits(pageLabel) * 6.4);
+    commands.push("BT", `1 0 0 1 ${pageX} 17 Tm`, ...pdfMixedTextOperators(pageLabel, 6.4), "ET");
+    if (pageIndex === pages.length - 1) {
+      const generated = `生成时间：${generatedAtText} · 表格版式：${MATCHING_PDF_LAYOUT_VERSION}`;
+      commands.push("BT", "1 0 0 1 40 7 Tm", ...pdfMixedTextOperators(generated, 5.4), "ET");
+    }
+    const contentBuffer = Buffer.from(commands.join("\n"), "ascii");
+    const streamId = addObject(
+      Buffer.concat([
+        Buffer.from(`<< /Length ${contentBuffer.length} >>\nstream\n`, "ascii"),
+        contentBuffer,
+        Buffer.from("\nendstream", "ascii"),
+      ])
+    );
+    const xObjectResources = logoId ? ` /XObject << /Im1 ${logoId} 0 R >>` : "";
+    const pageId = addObject(
+      `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${fontId} 0 R /F2 ${latinFontId} 0 R >> /ExtGState << /GS1 ${opacityId} 0 R >>${xObjectResources} >> /Contents ${streamId} 0 R >>`
+    );
+    pageIds.push(pageId);
+  });
+  objects[catalogId] = `<< /Type /Catalog /Pages ${pagesId} 0 R >>`;
+  objects[pagesId] = `<< /Type /Pages /Count ${pageIds.length} /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] >>`;
+
+  const output = [Buffer.from("%PDF-1.4\n%\xE2\xE3\xCF\xD3\n", "binary")];
+  const offsets = [0];
+  let length = output[0].length;
+  for (let id = 1; id < objects.length; id += 1) {
+    offsets[id] = length;
+    const prefix = Buffer.from(`${id} 0 obj\n`, "ascii");
+    const body = Buffer.isBuffer(objects[id]) ? objects[id] : Buffer.from(String(objects[id]), "ascii");
+    const suffix = Buffer.from("\nendobj\n", "ascii");
+    output.push(prefix, body, suffix);
+    length += prefix.length + body.length + suffix.length;
+  }
+  const xrefOffset = length;
+  const xref = ["xref", `0 ${objects.length}`, "0000000000 65535 f "];
+  for (let id = 1; id < objects.length; id += 1) {
+    xref.push(`${String(offsets[id]).padStart(10, "0")} 00000 n `);
+  }
+  xref.push("trailer", `<< /Size ${objects.length} /Root ${catalogId} 0 R >>`, "startxref", String(xrefOffset), "%%EOF");
+  output.push(Buffer.from(`${xref.join("\n")}\n`, "ascii"));
+  return Buffer.concat(output);
+}
+
 function prepareDocumentExport(session, body) {
   const kind = ["questionnaire", "matching"].includes(body.kind) ? body.kind : "draft";
   const requestedLanguage = String(body.language || "zh").trim().toLowerCase();
@@ -3387,6 +3764,7 @@ function prepareDocumentExport(session, body) {
     language,
     title,
     content,
+    matchingData: kind === "matching" ? normalizeMatchingPdfData(body.matchingData) : null,
     preview,
     visibleContent,
     generatedAt: new Date(),
@@ -3620,7 +3998,7 @@ async function handleDocumentPdf(req, res) {
     const rawBody = await readBody(req);
     const body = JSON.parse(rawBody || "{}");
     const documentData = prepareDocumentExport(session, body);
-    if (!documentData.content) {
+    if (!documentData.content && !documentData.matchingData) {
       sendJson(res, 400, { error: "没有可导出的文书内容。" });
       return;
     }
@@ -3637,13 +4015,21 @@ async function handleDocumentPdf(req, res) {
             ? "留德小栈 付费前预览"
             : "留德小栈 水印版";
     const generatedAtText = formatDocumentDateTimeForLanguage(documentData.generatedAt, documentData.language);
-    const pdf = createWatermarkedPdf(
-      documentData.title,
-      documentData.visibleContent,
-      watermark,
-      generatedAtText,
-      documentData.language
-    );
+    const pdf =
+      documentData.kind === "matching" && documentData.matchingData
+        ? createMatchingTablePdf(
+            documentData.title || "院校选校与匹配汇总报告",
+            documentData.matchingData,
+            watermark,
+            generatedAtText
+          )
+        : createWatermarkedPdf(
+            documentData.title,
+            documentData.visibleContent,
+            watermark,
+            generatedAtText,
+            documentData.language
+          );
     const usageAction =
       documentData.kind === "questionnaire"
         ? "document.export.questionnaire.pdf"
@@ -3661,6 +4047,10 @@ async function handleDocumentPdf(req, res) {
       previewRatio: documentData.preview ? 0.2 : 1,
       watermarked: true,
       language: documentData.language,
+      layout:
+        documentData.kind === "matching" && documentData.matchingData
+          ? MATCHING_PDF_LAYOUT_VERSION
+          : "portrait-document-v1",
       generatedAt: documentData.generatedAt.toISOString(),
       generatedAtText,
       templateVersion: DOCUMENT_TEMPLATE_VERSION,
@@ -3830,6 +4220,7 @@ const server = http.createServer((req, res) => {
       documentWordExportEnabled: true,
       documentDownloadFree: MP_DOCUMENT_DOWNLOAD_FREE,
       documentTemplateVersion: DOCUMENT_TEMPLATE_VERSION,
+      matchingPdfLayoutVersion: MATCHING_PDF_LAYOUT_VERSION,
       documentLogoWatermarkEnabled: fs.existsSync(DOCUMENT_LOGO_PATH),
       documentOutputTimezone: DOCUMENT_TIMEZONE,
       documentLanguages: ["de", "en"],
@@ -4071,6 +4462,7 @@ module.exports.testHelpers = {
   buildCustomerMessageWebhookContent,
   buildFallbackRecommendation,
   createBrandedDocx,
+  createMatchingTablePdf,
   createWatermarkedPdf,
   clearSessions() {
     sessions.clear();

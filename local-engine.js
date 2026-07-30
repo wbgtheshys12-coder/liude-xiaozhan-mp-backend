@@ -235,6 +235,21 @@ function cleanText(text) {
     .trim();
 }
 
+function truncateCleanText(value, maxLength = 140) {
+  const text = cleanText(value);
+  if (text.length <= maxLength) return text;
+  const candidate = text.slice(0, Math.max(1, maxLength - 1));
+  const lastBoundary = Math.max(
+    candidate.lastIndexOf("。"),
+    candidate.lastIndexOf("；"),
+    candidate.lastIndexOf(". "),
+    candidate.lastIndexOf("; "),
+    candidate.lastIndexOf(" ")
+  );
+  const cutAt = lastBoundary >= Math.floor(maxLength * 0.62) ? lastBoundary : candidate.length;
+  return `${candidate.slice(0, cutAt).trimEnd()}…`;
+}
+
 function cleanPlainText(text) {
   return String(text || "").replace(/\u0000/g, " ").replace(/[|¦]+/g, " ").replace(/\s+/g, " ").trim();
 }
@@ -2389,7 +2404,10 @@ function buildStandaloneRecommendation(profile, transcriptSummary) {
             ...(audit?.risks || []),
             "正式递交前需核对课程匹配、语言要求、截止日期和 APS/uni-assist 要求。",
           ]).slice(0, 4),
-          requirementHighlights: [program.prerequisites, program.languageRequirements].filter(Boolean).map((item) => cleanText(item).slice(0, 140)).slice(0, 2),
+          requirementHighlights: [program.prerequisites, program.languageRequirements]
+            .filter(Boolean)
+            .map((item) => truncateCleanText(item, 140))
+            .slice(0, 2),
           sourceEvidence: audit?.evidence?.sourceUrls || [],
           facts: {
             duration: cleanText(program.duration),

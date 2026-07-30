@@ -111,6 +111,7 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
   assert.equal(health.payload.documentWordExportEnabled, true);
   assert.equal(health.payload.documentDownloadFree, true);
   assert.equal(health.payload.documentTemplateVersion, "liude-doc-template-20260730-de-en");
+  assert.equal(health.payload.matchingPdfLayoutVersion, "landscape-table-v1");
   assert.equal(health.payload.documentLogoWatermarkEnabled, true);
   assert.equal(health.payload.documentOutputTimezone, "Asia/Shanghai");
   assert.deepEqual(health.payload.documentLanguages, ["de", "en"]);
@@ -521,6 +522,67 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
   const firstPageText = await (await parsedPdf.getPage(1)).getTextContent();
   const latinText = firstPageText.items.map((item) => item.str || "").join(" ").replace(/\s+/g, " ");
   assert.match(latinText, /Motivation Letter für Universität/);
+
+  const matchingPdf = await requestJson("/api/mp/document/pdf", {
+    token: userToken,
+    body: {
+      kind: "matching",
+      language: "zh",
+      title: "院校选校与匹配汇总报告",
+      fileName: "matching-table.pdf",
+      content: "院校匹配报告结构化导出",
+      matchingData: {
+        profile: {
+          name: "测试学生",
+          school: "测试大学",
+          major: "机械工程",
+          targetDegree: "硕士",
+          targetField: "机械工程",
+          gpa: "3.3/4.0",
+          language: "IELTS 7.0",
+        },
+        summary: recommendation.payload.studentSummary,
+        recommendations: recommendation.payload.recommendations.map((item) => ({
+          rank: item.rank,
+          university: item.university,
+          schoolName: "",
+          cityDisplay: item.city,
+          tags: ["TU9", "工科"],
+          program: item.program,
+          degree: item.degree,
+          projectOverview: ["项目方向与学生目标专业相关。", ...(item.detail?.fitHighlights || [])]
+            .filter(Boolean)
+            .map((value) => `- ${value}`)
+            .join("\n"),
+          programRequirements: [
+            ...(item.detail?.requirementHighlights || []),
+            "请核对授课语言、申请时间和课程模块要求。",
+          ]
+            .map((value) => `- ${value}`)
+            .join("\n"),
+          courseEvaluation: item.reason,
+          matchPercent: item.matchPercent,
+          matchLevel: item.matchLevel,
+          evidenceScore: item.qualityAudit?.evidenceScore,
+          improvementSuggestions: (item.detail?.riskHighlights || []).map((value) => `- ${value}`).join("\n"),
+        })),
+      },
+    },
+  });
+  assert.equal(matchingPdf.response.status, 200);
+  assert.equal(matchingPdf.payload.layout, "landscape-table-v1");
+  const matchingPdfBuffer = Buffer.from(matchingPdf.payload.contentBase64, "base64");
+  const parsedMatchingPdf = await pdfJs.getDocument({ data: new Uint8Array(matchingPdfBuffer) }).promise;
+  assert.ok(parsedMatchingPdf.numPages >= 1);
+  const matchingFirstPage = await parsedMatchingPdf.getPage(1);
+  const matchingViewport = matchingFirstPage.getViewport({ scale: 1 });
+  assert.ok(matchingViewport.width > matchingViewport.height);
+  const matchingPageText = await matchingFirstPage.getTextContent();
+  const matchingPageString = matchingPageText.items.map((item) => item.str || "").join(" ");
+  assert.match(matchingPageString, /Technical Unive\s*rsity/);
+  assert.match(matchingPageString, /Page 1 of/);
+  assert.doesNotMatch(matchingPageString, /https?:\/\//i);
+  assert.doesNotMatch(matchingPageString, /#{2,}/);
 
   const wordDocument = await requestJson("/api/mp/document/word", {
     token: userToken,

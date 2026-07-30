@@ -82,7 +82,8 @@ test("mini program pages, bindings, JSON, layout guards and package size", miniP
   assert.match(read("pages/tools/tools.wxml"), /bindtap="exportWord"/);
   assert.match(read("utils/api.js"), /\/api\/mp\/document\/word/);
   assert.doesNotMatch(read("pages/tools/tools.js"), /buildWordHtml|buildQuestionnaireWordHtml|\.doc`/);
-  assert.match(read("pages/results/results.wxml"), /导出匹配报告 PDF/);
+  assert.match(read("pages/results/results.wxml"), /导出匹配汇总表 PDF/);
+  assert.match(read("pages/results/results.js"), /matchingData:\s*buildMatchingTableData/);
   assert.match(read("pages/advisor/advisor.wxml"), /填写匹配度调查表/);
   const advisorCopy = `${read("pages/advisor/advisor.wxml")}\n${read("pages/advisor/advisor.js")}`;
   assert.match(advisorCopy, /语言考试（可多选）/);
