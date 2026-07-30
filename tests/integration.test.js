@@ -82,7 +82,8 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
 
   const health = await requestJson("/health");
   assert.equal(health.response.status, 200);
-  assert.equal(health.payload.transcriptEngine, "pdf-form-safe-20260729");
+  assert.equal(health.payload.transcriptEngine, "pdf-ocr-embedded-fallback-20260730");
+  assert.equal(health.payload.transcriptEmbeddedImageFallback, true);
   assert.equal(health.payload.recommendationEngineVersion, "industrial-engineering-20260729");
   assert.equal(health.payload.recommendationReviewedTranscriptReuseEnabled, true);
   assert.equal(health.payload.recommendationFileReplayDisabled, true);
