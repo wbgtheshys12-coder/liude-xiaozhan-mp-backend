@@ -125,6 +125,8 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
   assert.equal(health.payload.courseAdminSynchronized, true);
   assert.equal(health.payload.courseDeleteEnabled, true);
   assert.equal(health.payload.courseVideoDeleteEnabled, true);
+  assert.equal(health.payload.courseBundledGermanVideoEnabled, true);
+  assert.equal(health.payload.courseBundledGermanVideoBytes, 6833845);
   assert.equal(health.payload.studentUploadDownloadEnabled, true);
   assert.equal(health.payload.documentPdfExportEnabled, true);
   assert.equal(health.payload.documentWordExportEnabled, true);
@@ -448,6 +450,15 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
   assert.equal(adminBoundCourse.videoSize, Buffer.byteLength("test-video-bytes"));
 
   const courses = await requestJson("/api/mp/courses", { token: userToken });
+  const bundledGermanCourse = courses.payload.records.find((item) => item.id === "course_recorded_german_sample");
+  assert.ok(bundledGermanCourse);
+  assert.equal(bundledGermanCourse.title, "德语网课：入门示范课");
+  assert.equal(bundledGermanCourse.videoStorage, "bundled");
+  assert.equal(bundledGermanCourse.hasVideo, true);
+  assert.match(bundledGermanCourse.videoUrl, /[?&]s=/);
+  const bundledVideoResponse = await fetch(bundledGermanCourse.videoUrl, { headers: { Range: "bytes=0-1023" } });
+  assert.equal(bundledVideoResponse.status, 206);
+  assert.equal((await bundledVideoResponse.arrayBuffer()).byteLength, 1024);
   const boundCourse = courses.payload.records.find((item) => item.title === "账号绑定测试课");
   assert.ok(boundCourse);
   assert.match(boundCourse.videoUrl, /[?&]u=/);
