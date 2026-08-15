@@ -31,6 +31,7 @@
           <button class="tab" data-tab="bookings" type="button">预约</button>
           <button class="tab" data-tab="uploads" type="button">学生资料</button>
           <button class="tab" data-tab="messages" type="button">客服消息</button>
+          <button class="tab" data-tab="payments" type="button">支付订单</button>
           <button class="tab" data-tab="stats" type="button">统计</button>
         </nav>
 
@@ -48,7 +49,7 @@
               <label>标签（逗号分隔）<input id="courseTags" placeholder="留德基础, 申请规划" /></label>
               <label>状态<select id="courseStatus"><option value="published">已发布</option><option value="draft">草稿</option></select></label>
               <label>录播视频地址<input id="courseVideoUrl" type="text" placeholder="可填写 https://...，或在下方上传" /></label>
-              <label>或上传本地视频（测试上限 35MB）<input id="courseVideoFile" type="file" accept="video/mp4,video/quicktime,video/x-m4v" /></label>
+              <label>或分片上传本地视频（单个上限 512MB）<input id="courseVideoFile" type="file" accept="video/mp4,video/quicktime,video/x-m4v" /></label>
               <div class="inline-actions"><button id="uploadVideoButton" class="secondary" type="button">上传本地视频</button><button id="removeVideoButton" class="danger-button" type="button">移除视频</button></div>
               <div id="courseVideoStatus" class="media-status empty">尚未配置视频。</div>
               <label>直播 HTTPS 入口<input id="courseLiveUrl" type="url" placeholder="https://..." /></label>
@@ -56,7 +57,7 @@
               <label>时长<input id="courseDuration" placeholder="例如：90 分钟" /></label>
               <label>限定学生 storageKey（逗号分隔；留空为全部登录用户）<textarea id="courseAllowedKeys"></textarea></label>
               <button class="primary" type="submit">保存课程</button>
-              <p class="fine-print">课程默认禁止下载和录制；微信无法绝对阻止系统录屏，正式视频库建议接腾讯云点播或对象存储。</p>
+              <p id="courseStorageNote" class="fine-print">正在检查课程存储状态…</p>
             </form>
             <div class="panel">
               <div class="section-head"><h2>课程列表</h2><button class="ghost refresh" data-resource="courses" type="button">刷新</button></div>
@@ -75,6 +76,10 @@
 
         <section id="messagesView" class="view hidden">
           <div class="panel"><div class="section-head"><h2>客服消息</h2><button class="ghost refresh" data-resource="messages" type="button">刷新</button></div><div id="messagesList" class="cards"></div></div>
+        </section>
+
+        <section id="paymentsView" class="view hidden">
+          <div class="panel"><div class="section-head"><h2>支付订单</h2><button class="ghost refresh" data-resource="payments" type="button">刷新</button></div><p class="fine-print">仅显示脱敏用户标识和订单状态；退款首版请在微信支付商户平台人工处理。</p><div id="paymentsList" class="cards"></div></div>
         </section>
 
         <section id="statsView" class="view hidden">

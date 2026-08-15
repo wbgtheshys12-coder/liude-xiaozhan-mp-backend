@@ -329,7 +329,9 @@ test("course video picker offers both phone album and WeChat files", miniProgram
   assert.equal(messageFilesOpened, true);
   assert.equal(file.name, "lesson.mp4");
   assert.equal(file.type, "video/mp4");
-  assert.equal(file.content, "data:video/mp4;base64,dmlkZW8=");
+  assert.equal(file.path, "wxfile://lesson.mp4");
+  assert.equal(file.size, 1024);
+  assert.equal(file.content, undefined, "course videos should stream in chunks instead of loading as Base64");
   delete require.cache[require.resolve(apiPath)];
   delete global.wx;
 });

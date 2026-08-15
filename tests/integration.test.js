@@ -56,6 +56,19 @@ async function requestJson(urlPath, options = {}) {
   return { response, payload };
 }
 
+async function requestBinary(urlPath, token, body) {
+  const response = await fetch(`${baseUrl()}${urlPath}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/octet-stream",
+    },
+    body,
+  });
+  const payload = await response.json().catch(() => ({}));
+  return { response, payload };
+}
+
 test("user, booking, transcript, recommendation, course, upload, Word and PDF flows", async () => {
   await waitForServer();
 
@@ -98,6 +111,11 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
   assert.equal(health.payload.customerMessageWebhookConfigured, false);
   assert.equal(health.payload.customerMessageWebhookCount, 0);
   assert.equal(health.payload.customerMessageWebhookPrivacyProtected, true);
+  assert.equal(health.payload.courseVideoChunkUploadEnabled, true);
+  assert.equal(health.payload.courseVideoChunkBytes, 4 * 1024 * 1024);
+  assert.equal(health.payload.courseVideoStoragePersistent, true);
+  assert.equal(health.payload.profileStructuredContactEnabled, true);
+  assert.equal(health.payload.paymentBankAccountExposedToClient, false);
   assert.deepEqual(health.payload.bookingTemplateFieldKeys, ["time1", "thing2", "thing3", "thing4", "thing5"]);
   assert.equal(health.payload.bookingTemplateFieldsValid, true);
   assert.equal(health.payload.courseMediaSigned, true);
@@ -111,9 +129,12 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
   assert.equal(health.payload.documentPdfExportEnabled, true);
   assert.equal(health.payload.documentWordExportEnabled, true);
   assert.equal(health.payload.documentDownloadFree, true);
-  assert.equal(health.payload.documentTemplateVersion, "liude-doc-template-20260730-de-en");
-  assert.equal(health.payload.matchingPdfLayoutVersion, "landscape-table-v1");
+  assert.equal(health.payload.documentTemplateVersion, "liude-doc-template-20260731-embedded-font-v2");
+  assert.equal(health.payload.matchingPdfLayoutVersion, "landscape-table-embedded-font-v2");
   assert.equal(health.payload.documentLogoWatermarkEnabled, true);
+  assert.equal(health.payload.documentPdfFontEmbedded, true);
+  assert.equal(health.payload.documentForeignLanguageGuardEnabled, true);
+  assert.equal(health.payload.documentDraftEngine, "privacy-safe-structured-language-v1");
   assert.equal(health.payload.documentOutputTimezone, "Asia/Shanghai");
   assert.deepEqual(health.payload.documentLanguages, ["de", "en"]);
   assert.equal(health.payload.documentGermanFormatCvEnabled, true);
@@ -367,12 +388,35 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
   });
   assert.equal(platformAdminFile.status, 200);
 
-  const courseVideoUpload = await requestJson("/api/mp/admin/course-video", {
+  const courseVideoBytes = Buffer.from("test-video-bytes");
+  const courseVideoInit = await requestJson("/api/mp/admin/course-video/init", {
     token: adminToken,
     body: {
       name: "test.mp4",
-      content: `data:video/mp4;base64,${Buffer.from("test-video-bytes").toString("base64")}`,
+      size: courseVideoBytes.length,
+      mimeType: "video/mp4",
     },
+  });
+  assert.equal(courseVideoInit.response.status, 200);
+  assert.equal(courseVideoInit.payload.storagePersistent, true);
+  const splitAt = 5;
+  const firstCourseVideoChunk = await requestBinary(
+    `/api/mp/admin/course-video/chunk?uploadId=${encodeURIComponent(courseVideoInit.payload.uploadId)}&offset=0`,
+    adminToken,
+    courseVideoBytes.subarray(0, splitAt)
+  );
+  assert.equal(firstCourseVideoChunk.response.status, 200);
+  assert.ok(firstCourseVideoChunk.payload.progress > 0 && firstCourseVideoChunk.payload.progress < 100);
+  const secondCourseVideoChunk = await requestBinary(
+    `/api/mp/admin/course-video/chunk?uploadId=${encodeURIComponent(courseVideoInit.payload.uploadId)}&offset=${splitAt}`,
+    adminToken,
+    courseVideoBytes.subarray(splitAt)
+  );
+  assert.equal(secondCourseVideoChunk.response.status, 200);
+  assert.equal(secondCourseVideoChunk.payload.progress, 100);
+  const courseVideoUpload = await requestJson("/api/mp/admin/course-video/complete", {
+    token: adminToken,
+    body: { uploadId: courseVideoInit.payload.uploadId },
   });
   assert.equal(courseVideoUpload.response.status, 200);
   assert.match(courseVideoUpload.payload.videoUrl, /^\/api\/mp\/course-video\//);
@@ -512,7 +556,8 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
   assert.equal(pdfPreview.response.status, 200);
   assert.equal(pdfPreview.payload.preview, false);
   assert.equal(pdfPreview.payload.language, "zh");
-  assert.equal(pdfPreview.payload.templateVersion, "liude-doc-template-20260730-de-en");
+  assert.equal(pdfPreview.payload.templateVersion, "liude-doc-template-20260731-embedded-font-v2");
+  assert.equal(pdfPreview.payload.pdfFontEmbedded, true);
   assert.match(pdfPreview.payload.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
   assert.match(pdfPreview.payload.generatedAtText, /^\d{4}年\d{1,2}月\d{1,2}日 \d{2}:\d{2}:\d{2}（北京时间）$/);
   const pdfBuffer = Buffer.from(pdfPreview.payload.contentBase64, "base64");
@@ -571,7 +616,7 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
     },
   });
   assert.equal(matchingPdf.response.status, 200);
-  assert.equal(matchingPdf.payload.layout, "landscape-table-v1");
+  assert.equal(matchingPdf.payload.layout, "landscape-table-embedded-font-v2");
   const matchingPdfBuffer = Buffer.from(matchingPdf.payload.contentBase64, "base64");
   const parsedMatchingPdf = await pdfJs.getDocument({ data: new Uint8Array(matchingPdfBuffer) }).promise;
   assert.ok(parsedMatchingPdf.numPages >= 1);
@@ -581,7 +626,7 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
   const matchingPageText = await matchingFirstPage.getTextContent();
   const matchingPageString = matchingPageText.items.map((item) => item.str || "").join(" ");
   assert.match(matchingPageString, /Technical Unive\s*rsity/);
-  assert.match(matchingPageString, /Page 1 of/);
+  assert.match(matchingPageString, /AI 辅助初步筛选/);
   assert.doesNotMatch(matchingPageString, /https?:\/\//i);
   assert.doesNotMatch(matchingPageString, /#{2,}/);
 
@@ -599,11 +644,46 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
   assert.equal(wordDocument.response.status, 200);
   assert.equal(wordDocument.payload.preview, false);
   assert.equal(wordDocument.payload.language, "zh");
-  assert.equal(wordDocument.payload.templateVersion, "liude-doc-template-20260730-de-en");
+  assert.equal(wordDocument.payload.templateVersion, "liude-doc-template-20260731-embedded-font-v2");
   assert.match(wordDocument.payload.fileName, /\.docx$/);
   const wordBuffer = Buffer.from(wordDocument.payload.contentBase64, "base64");
   assert.equal(wordBuffer.slice(0, 2).toString("ascii"), "PK");
   assert.ok(wordBuffer.length > 5000);
+
+  const germanDraftForm = {
+    name: "测试学生",
+    latinName: "TEST Applicant",
+    email: "test@example.com",
+    phone: "+86 138 0000 0000",
+    currentCity: "杭州",
+    schoolMajor: "北京建筑大学，工程造价，2020-2024，均分 86",
+    applicationLevel: "硕士",
+    targetProgram: "达姆施塔特工业大学，建筑与房地产管理",
+    schoolRequirements: "待核对官网要求",
+    germanyOrigin: "希望学习德国工程管理和数字建造",
+    germanyMajorUnderstanding: "德国重视工程实践、科研和产业合作",
+    germanEducationUnderstanding: "课程结构清晰，强调实践",
+    interestedDirections: "BIM、工程造价、韧性城市和数据分析",
+    relevantCourses: "工程经济学、工程管理、统计学、BIM",
+    projectsInternships: "海绵城市韧性研究，使用 ANP、熵权和云模型；BIM 工程量计算实习",
+    careerPlan: "毕业后从事数字建造和项目成本管理",
+  };
+  const germanDraft = await requestJson("/api/mp/material-draft", {
+    token: userToken,
+    body: {
+      toolKey: "motivation",
+      language: "de",
+      form: germanDraftForm,
+    },
+  });
+  assert.equal(germanDraft.response.status, 200);
+  assert.equal(germanDraft.payload.foreignLanguageReady, true);
+  assert.equal(germanDraft.payload.source, "privacy-safe-structured-language-v1");
+  assert.doesNotMatch(germanDraft.payload.draft, /[\u3400-\u9fff]/u);
+  assert.match(germanDraft.payload.draft, /1\. Einleitung/);
+  assert.match(germanDraft.payload.draft, /2\. Akademischer und beruflicher Hintergrund/);
+  assert.match(germanDraft.payload.draft, /6\. Zukunftspläne/);
+  assert.match(germanDraft.payload.draft, /ANP/);
 
   const germanPdf = await requestJson("/api/mp/document/pdf", {
     token: userToken,
@@ -613,12 +693,15 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
       language: "de",
       title: "Motivationsschreiben",
       fileName: "motivationsschreiben-de.pdf",
-      content: "Motivationsschreiben\n\nSehr geehrte Damen und Herren,\n\nStudienmotivation\nIch bewerbe mich für einen Masterstudiengang.\n\nAkademischer Hintergrund\nRelevante Module und Projekterfahrungen.\n\nMit freundlichen Grüßen",
+      content: "这是旧版混合语言内容，后端必须忽略并使用结构化表单重新生成。",
+      form: germanDraftForm,
     },
   });
   assert.equal(germanPdf.response.status, 200);
   assert.equal(germanPdf.payload.language, "de");
-  assert.equal(germanPdf.payload.templateVersion, "liude-doc-template-20260730-de-en");
+  assert.equal(germanPdf.payload.templateVersion, "liude-doc-template-20260731-embedded-font-v2");
+  assert.equal(germanPdf.payload.generationSource, "privacy-safe-structured-language-v1");
+  assert.equal(germanPdf.payload.pdfFontEmbedded, true);
   assert.match(germanPdf.payload.generatedAtText, /^\d{2}\.\d{2}\.\d{4}.*\d{2}:\d{2}:\d{2} \(China Standard Time\)$/);
   const germanPdfBuffer = Buffer.from(germanPdf.payload.contentBase64, "base64");
   assert.equal(germanPdfBuffer.slice(0, 5).toString("ascii"), "%PDF-");
@@ -627,6 +710,9 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
   const germanPageString = germanPageText.items.map((item) => item.str || "").join(" ");
   assert.match(germanPageString, /Motivationsschreiben/);
   assert.equal((germanPageString.match(/Motivationsschreiben/gi) || []).length, 1);
+  assert.doesNotMatch(germanPageString, /[\u3400-\u9fff]/u);
+  assert.match(germanPageString, /1\. Einleitung/);
+  assert.match(germanPdfBuffer.toString("latin1"), /\/FontFile[23]\b/);
 
   const englishCvWord = await requestJson("/api/mp/document/word", {
     token: userToken,
@@ -637,11 +723,26 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
       title: "Curriculum Vitae",
       fileName: "cv-en.docx",
       content: "Curriculum Vitae\n\nPERSONAL DETAILS\nTest Applicant\n\nEDUCATION\nBachelor of Engineering\n\nPRACTICAL EXPERIENCE\nEngineering internship\n\nLANGUAGE SKILLS\nEnglish C1\nGerman B2",
+      form: {
+        name: "测试学生",
+        latinName: "TEST Applicant",
+        email: "test@example.com",
+        phone: "+86 138 0000 0000",
+        currentCity: "杭州",
+        citizenship: "中国",
+        birthInfo: "2002-03-18，杭州",
+        education: "北京建筑大学，工程造价，2020-2024，均分 86，工程经济学，BIM",
+        tests: "IELTS 7.0，德语计划考试",
+        professionalExperience: "工程造价实习，BIM 工程量计算",
+        researchProjects: "海绵城市韧性项目，使用 ANP、熵权和云模型",
+        skills: "Excel、AutoCAD、Revit、BIM",
+      },
     },
   });
   assert.equal(englishCvWord.response.status, 200);
   assert.equal(englishCvWord.payload.language, "en");
-  assert.equal(englishCvWord.payload.templateVersion, "liude-doc-template-20260730-de-en");
+  assert.equal(englishCvWord.payload.templateVersion, "liude-doc-template-20260731-embedded-font-v2");
+  assert.equal(englishCvWord.payload.generationSource, "privacy-safe-structured-language-v1");
   const englishCvBuffer = Buffer.from(englishCvWord.payload.contentBase64, "base64");
   assert.equal(englishCvBuffer.slice(0, 2).toString("ascii"), "PK");
   assert.ok(englishCvBuffer.length > 5000);

@@ -3,7 +3,9 @@ const fs = require("fs");
 const http = require("http");
 const path = require("path");
 const docx = require("docx");
+const PDFDocument = require("pdfkit");
 const localEngine = require("./local-engine");
+const { createPaymentService } = require("./payment");
 
 const PORT = Number(process.env.PORT || 3108);
 const WECHAT_APPID = process.env.WECHAT_APPID || "";
@@ -32,7 +34,7 @@ const MP_BOOKING_WEBHOOK_URL = process.env.MP_BOOKING_WEBHOOK_URL || "";
 const MP_BOOKING_TEACHER_WEBHOOKS = parseJsonEnv("MP_BOOKING_TEACHER_WEBHOOKS_JSON", {});
 const MP_CUSTOMER_MESSAGE_WEBHOOK_URL = process.env.MP_CUSTOMER_MESSAGE_WEBHOOK_URL || "";
 const MP_DATA_DIR = process.env.MP_DATA_DIR || path.join(__dirname, "data");
-const ENTITLEMENTS_FILE = process.env.MP_ENTITLEMENTS_FILE || path.join(__dirname, "entitlements.json");
+const ENTITLEMENTS_FILE = process.env.MP_ENTITLEMENTS_FILE || path.join(MP_DATA_DIR, "entitlements.json");
 const MP_BOOKINGS_FILE = process.env.MP_BOOKINGS_FILE || path.join(MP_DATA_DIR, "bookings.jsonl");
 const MP_COURSES_FILE = process.env.MP_COURSES_FILE || path.join(MP_DATA_DIR, "courses.jsonl");
 const MP_UPLOADS_FILE = process.env.MP_UPLOADS_FILE || path.join(MP_DATA_DIR, "uploads.jsonl");
@@ -42,7 +44,15 @@ const MP_MESSAGES_FILE = process.env.MP_MESSAGES_FILE || path.join(MP_DATA_DIR, 
 const MP_STUDENT_UPLOAD_DIR = process.env.MP_STUDENT_UPLOAD_DIR || path.join(MP_DATA_DIR, "student-uploads");
 const MP_COURSE_VIDEO_DIR = process.env.MP_COURSE_VIDEO_DIR || path.join(MP_DATA_DIR, "course-videos");
 const MP_MAX_STORED_FILE_BYTES = Number(process.env.MP_MAX_STORED_FILE_BYTES || 12 * 1024 * 1024);
-const MP_MAX_COURSE_VIDEO_BYTES = Number(process.env.MP_MAX_COURSE_VIDEO_BYTES || 35 * 1024 * 1024);
+const MP_MAX_COURSE_VIDEO_BYTES = Number(process.env.MP_MAX_COURSE_VIDEO_BYTES || 512 * 1024 * 1024);
+const MP_COURSE_VIDEO_CHUNK_BYTES = Math.max(
+  512 * 1024,
+  Math.min(Number(process.env.MP_COURSE_VIDEO_CHUNK_BYTES || 4 * 1024 * 1024), 8 * 1024 * 1024)
+);
+const MP_COURSE_VIDEO_UPLOAD_TTL_MS = Math.max(
+  10 * 60 * 1000,
+  Math.min(Number(process.env.MP_COURSE_VIDEO_UPLOAD_TTL_MS || 6 * 60 * 60 * 1000), 24 * 60 * 60 * 1000)
+);
 const MP_MEDIA_URL_TTL_SECONDS = Math.max(300, Math.min(Number(process.env.MP_MEDIA_URL_TTL_SECONDS || 3600), 86400));
 const MP_MEDIA_SIGNING_SECRET =
   process.env.MP_MEDIA_SIGNING_SECRET ||
@@ -83,12 +93,20 @@ const MP_BOOKING_TIMEZONE_OFFSET_MINUTES = Number(process.env.MP_BOOKING_TIMEZON
 const MAX_REQUEST_BYTES = Number(process.env.MAX_REQUEST_BYTES || 40 * 1024 * 1024);
 const ADMIN_WEB_DIR = path.join(__dirname, "admin-web");
 const DOCUMENT_LOGO_PATH = path.join(__dirname, "assets", "document-logo.jpg");
+const DOCUMENT_PDF_FONT_PATH = path.join(__dirname, "assets", "NotoSansSC-VF.ttf");
 const DOCUMENT_TIMEZONE = "Asia/Shanghai";
-const DOCUMENT_TEMPLATE_VERSION = "liude-doc-template-20260730-de-en";
-const MATCHING_PDF_LAYOUT_VERSION = "landscape-table-v1";
+const DOCUMENT_TEMPLATE_VERSION = "liude-doc-template-20260731-embedded-font-v2";
+const MATCHING_PDF_LAYOUT_VERSION = "landscape-table-embedded-font-v2";
 
 const sessions = new Map();
+const courseVideoUploads = new Map();
 let wechatAccessToken = { value: "", expiresAt: 0 };
+const paymentService = createPaymentService({
+  appid: WECHAT_APPID,
+  dataDir: MP_DATA_DIR,
+  env: process.env,
+  persistentStorageConfigured: externalPersistentDataDirConfigured,
+});
 
 function splitCsv(value) {
   return String(value || "")
@@ -234,6 +252,39 @@ function readBody(req) {
   });
 }
 
+function readBuffer(req, maxBytes) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    let settled = false;
+    req.on("data", (chunk) => {
+      if (settled) return;
+      size += chunk.length;
+      if (size > maxBytes) {
+        settled = true;
+        reject(new Error("Payload too large"));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      if (!settled) resolve(Buffer.concat(chunks, size));
+    });
+    req.on("error", (error) => {
+      if (!settled) reject(error);
+    });
+  });
+}
+
+function externalPersistentDataDirConfigured() {
+  return path.resolve(MP_DATA_DIR) !== path.resolve(path.join(__dirname, "data"));
+}
+
+function getPaymentConfiguration() {
+  return paymentService.getConfiguration();
+}
+
 function isJsonParseError(error) {
   return error instanceof SyntaxError && /JSON/i.test(error.message || "");
 }
@@ -338,22 +389,28 @@ function requireSession(req, res) {
 }
 
 function readEntitlements() {
+  let fileTable = {};
+  if (fs.existsSync(ENTITLEMENTS_FILE)) {
+    try {
+      fileTable = JSON.parse(fs.readFileSync(ENTITLEMENTS_FILE, "utf8"));
+    } catch (error) {
+      console.warn("entitlements.json 读取失败:", error.message);
+    }
+  }
+
+  let envTable = {};
   const fromEnv = process.env.MP_USER_ENTITLEMENTS_JSON;
   if (fromEnv) {
     try {
-      return JSON.parse(fromEnv);
+      envTable = JSON.parse(fromEnv);
     } catch (error) {
       console.warn("MP_USER_ENTITLEMENTS_JSON 解析失败:", error.message);
     }
   }
-
-  if (!fs.existsSync(ENTITLEMENTS_FILE)) return {};
-  try {
-    return JSON.parse(fs.readFileSync(ENTITLEMENTS_FILE, "utf8"));
-  } catch (error) {
-    console.warn("entitlements.json 读取失败:", error.message);
-    return {};
-  }
+  const keys = new Set([...Object.keys(fileTable || {}), ...Object.keys(envTable || {})]);
+  return Object.fromEntries(
+    Array.from(keys).map((openid) => [openid, { ...(fileTable?.[openid] || {}), ...(envTable?.[openid] || {}) }])
+  );
 }
 
 function getUserEntitlements(openid) {
@@ -363,6 +420,38 @@ function getUserEntitlements(openid) {
     recommendationCount: Boolean(explicit.recommendationCount),
     materialAssistant: Boolean(explicit.materialAssistant),
   };
+}
+
+function writeEntitlementsFile(table) {
+  fs.mkdirSync(path.dirname(ENTITLEMENTS_FILE), { recursive: true });
+  const temporary = `${ENTITLEMENTS_FILE}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(temporary, `${JSON.stringify(table || {}, null, 2)}\n`, "utf8");
+  fs.renameSync(temporary, ENTITLEMENTS_FILE);
+}
+
+function grantUserEntitlement(openid, feature) {
+  if (!openid || !["materialAssistant", "recommendationCount"].includes(feature)) {
+    throw new Error("支付权益类型无效。");
+  }
+  let fileTable = {};
+  if (fs.existsSync(ENTITLEMENTS_FILE)) {
+    try {
+      fileTable = JSON.parse(fs.readFileSync(ENTITLEMENTS_FILE, "utf8"));
+    } catch (error) {
+      console.warn("写入权益前读取失败，将创建新的权益文件:", error.message);
+    }
+  }
+  fileTable[openid] = { ...(fileTable[openid] || {}), [feature]: true, updatedAt: new Date().toISOString() };
+  writeEntitlementsFile(fileTable);
+  sessions.forEach((session) => {
+    if (session?.openid === openid) session.entitlements = getUserEntitlements(openid);
+  });
+  return getUserEntitlements(openid);
+}
+
+function getEffectiveEntitlements(session) {
+  if (session?.mode === "demo") return { recommendationCount: true, materialAssistant: true };
+  return getUserEntitlements(session?.openid || "");
 }
 
 function maskOpenid(openid) {
@@ -689,7 +778,7 @@ function handleSession(req, res) {
       storageKey: createUserStorageKey(session.openid),
       ...roles,
     },
-    entitlements: session.entitlements || {},
+    entitlements: getEffectiveEntitlements(session),
     profile,
     profileComplete: isProfileComplete(profile),
     profileMissingFields: getProfileMissingFields(profile),
@@ -1267,11 +1356,24 @@ function getUserProfile(session) {
 
 function sanitizeProfile(profile = {}) {
   const rawLevel = normalizeBookingText(profile.applicationLevel || profile.targetDegree, 20);
+  const phone = normalizeBookingText(profile.phone, 32);
+  const email = normalizeBookingText(profile.email, 100).toLowerCase();
+  const legacyContact = normalizeBookingText(profile.contact, 100);
+  const preferredContact = ["phone", "email"].includes(String(profile.preferredContact || ""))
+    ? String(profile.preferredContact)
+    : phone
+      ? "phone"
+      : email
+        ? "email"
+        : "legacy";
   return {
     name: normalizeBookingText(profile.name, 40),
     school: normalizeBookingText(profile.school, 80),
     major: normalizeBookingText(profile.major, 80),
-    contact: normalizeBookingText(profile.contact, 80),
+    phone,
+    email,
+    preferredContact,
+    contact: phone || email || legacyContact,
     applicationLevel: ["本科", "硕士"].includes(rawLevel) ? rawLevel : "",
     companyAccount: normalizeBookingText(profile.companyAccount, 80),
     lockedAt: profile.lockedAt || "",
@@ -1281,6 +1383,7 @@ function sanitizeProfile(profile = {}) {
 }
 
 const PROFILE_REQUIRED_FIELDS = ["name", "contact", "school", "major", "applicationLevel"];
+const PROFILE_SAVE_FIELDS = ["name", "contact", "phone", "email", "preferredContact", "school", "major", "applicationLevel"];
 const PROFILE_FIELD_LABELS = {
   name: "姓名",
   contact: "联系方式",
@@ -1288,6 +1391,16 @@ const PROFILE_FIELD_LABELS = {
   major: "当前/本科专业",
   applicationLevel: "申请层次",
 };
+
+function isValidProfilePhone(value) {
+  if (!value) return true;
+  return /^\+?[0-9][0-9\s()-]{5,24}$/.test(String(value));
+}
+
+function isValidProfileEmail(value) {
+  if (!value) return true;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value));
+}
 
 function getProfileMissingFields(profile = {}) {
   const current = sanitizeProfile(profile);
@@ -2125,6 +2238,233 @@ async function handleAdminCourseVideoUpload(req, res) {
   }
 }
 
+function cleanupExpiredCourseVideoUploads() {
+  const cutoff = Date.now() - MP_COURSE_VIDEO_UPLOAD_TTL_MS;
+  courseVideoUploads.forEach((upload, uploadId) => {
+    if (Number(upload.updatedAt || upload.createdAt || 0) >= cutoff) return;
+    try {
+      if (upload.tempPath && fs.existsSync(upload.tempPath)) fs.unlinkSync(upload.tempPath);
+    } catch (error) {
+      console.warn("Unable to clean expired course upload", uploadId, error.message);
+    }
+    courseVideoUploads.delete(uploadId);
+  });
+}
+
+function getCourseVideoUpload(uploadId) {
+  const safeId = String(uploadId || "").trim();
+  if (!/^[a-zA-Z0-9_-]{12,120}$/.test(safeId)) return null;
+  return courseVideoUploads.get(safeId) || null;
+}
+
+function removeCourseVideoUpload(uploadId, removeFile = true) {
+  const upload = getCourseVideoUpload(uploadId);
+  if (!upload) return false;
+  if (removeFile) {
+    try {
+      if (fs.existsSync(upload.tempPath)) fs.unlinkSync(upload.tempPath);
+    } catch (error) {
+      console.warn("Unable to remove incomplete course upload", uploadId, error.message);
+    }
+  }
+  courseVideoUploads.delete(uploadId);
+  return true;
+}
+
+async function handleAdminCourseVideoInit(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return;
+  if (!isAdminSession(session)) {
+    sendJson(res, 403, { error: "当前微信号没有课程视频上传权限。" });
+    return;
+  }
+  try {
+    cleanupExpiredCourseVideoUploads();
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const name = safeFileName(body.name || "course-video.mp4", "course-video.mp4");
+    const nameExt = path.extname(name).toLowerCase();
+    const mimeType = normalizeBookingText(body.mimeType || body.type || contentTypeForExt(nameExt), 80);
+    const size = Number(body.size || 0);
+    const ext = fileExtensionFromMime(mimeType, name).toLowerCase();
+    if (!Number.isSafeInteger(size) || size <= 0) {
+      sendJson(res, 400, { error: "无法读取视频大小，请重新选择文件。" });
+      return;
+    }
+    if (!/^video\//i.test(mimeType) || ![".mp4", ".mov", ".m4v"].includes(ext)) {
+      sendJson(res, 400, { error: "课程视频仅支持 mp4、mov、m4v。" });
+      return;
+    }
+    if (size > MP_MAX_COURSE_VIDEO_BYTES) {
+      sendJson(res, 413, {
+        error: `单个视频不能超过 ${Math.round(MP_MAX_COURSE_VIDEO_BYTES / 1024 / 1024)}MB；更长的正式课程请使用云点播链接。`,
+      });
+      return;
+    }
+    fs.mkdirSync(MP_COURSE_VIDEO_DIR, { recursive: true });
+    const uploadId = createRecordId("course_upload");
+    const tempPath = path.join(MP_COURSE_VIDEO_DIR, `${uploadId}.part`);
+    fs.writeFileSync(tempPath, Buffer.alloc(0), { flag: "wx" });
+    const now = Date.now();
+    courseVideoUploads.set(uploadId, {
+      uploadId,
+      name,
+      mimeType,
+      ext,
+      size,
+      received: 0,
+      tempPath,
+      storageKey: getSessionStorageKey(session),
+      createdAt: now,
+      updatedAt: now,
+    });
+    sendJson(res, 200, {
+      ok: true,
+      uploadId,
+      size,
+      chunkSize: MP_COURSE_VIDEO_CHUNK_BYTES,
+      maxBytes: MP_MAX_COURSE_VIDEO_BYTES,
+      storagePersistent: externalPersistentDataDirConfigured(),
+    });
+  } catch (error) {
+    if (isJsonParseError(error)) {
+      sendBadJson(res);
+      return;
+    }
+    console.error("Course video upload init failed", error);
+    sendJson(res, 500, { error: "视频上传任务暂时未建立，请稍后重试。" });
+  }
+}
+
+async function handleAdminCourseVideoChunk(req, res, url) {
+  const session = requireSession(req, res);
+  if (!session) return;
+  if (!isAdminSession(session)) {
+    sendJson(res, 403, { error: "当前微信号没有课程视频上传权限。" });
+    return;
+  }
+  const uploadId = url.searchParams.get("uploadId") || "";
+  const upload = getCourseVideoUpload(uploadId);
+  if (!upload || upload.storageKey !== getSessionStorageKey(session)) {
+    sendJson(res, 404, { error: "上传任务已失效，请重新选择视频。" });
+    return;
+  }
+  try {
+    const offset = Number(url.searchParams.get("offset") || 0);
+    if (!Number.isSafeInteger(offset) || offset !== upload.received) {
+      sendJson(res, 409, { error: "上传分片顺序不一致，请重新上传。", expectedOffset: upload.received });
+      return;
+    }
+    const chunk = await readBuffer(req, MP_COURSE_VIDEO_CHUNK_BYTES);
+    if (!chunk.length) {
+      sendJson(res, 400, { error: "视频分片为空，请重试。" });
+      return;
+    }
+    if (upload.received + chunk.length > upload.size || upload.received + chunk.length > MP_MAX_COURSE_VIDEO_BYTES) {
+      removeCourseVideoUpload(uploadId);
+      sendJson(res, 413, { error: "上传内容超过声明的视频大小，请重新选择文件。" });
+      return;
+    }
+    fs.appendFileSync(upload.tempPath, chunk);
+    upload.received += chunk.length;
+    upload.updatedAt = Date.now();
+    sendJson(res, 200, {
+      ok: true,
+      uploadId,
+      received: upload.received,
+      size: upload.size,
+      progress: Math.min(100, Math.round((upload.received / upload.size) * 100)),
+    });
+  } catch (error) {
+    console.error("Course video chunk failed", error);
+    sendJson(res, error.message === "Payload too large" ? 413 : 500, {
+      error: error.message === "Payload too large" ? "单个上传分片过大，请重新上传。" : "视频分片上传中断，可重新尝试。",
+    });
+  }
+}
+
+async function handleAdminCourseVideoComplete(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return;
+  if (!isAdminSession(session)) {
+    sendJson(res, 403, { error: "当前微信号没有课程视频上传权限。" });
+    return;
+  }
+  try {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const upload = getCourseVideoUpload(body.uploadId);
+    if (!upload || upload.storageKey !== getSessionStorageKey(session)) {
+      sendJson(res, 404, { error: "上传任务已失效，请重新选择视频。" });
+      return;
+    }
+    const stat = fs.statSync(upload.tempPath);
+    if (upload.received !== upload.size || stat.size !== upload.size) {
+      sendJson(res, 409, {
+        error: "视频尚未完整上传，请等待进度达到 100%。",
+        received: upload.received,
+        size: upload.size,
+      });
+      return;
+    }
+    const fileName = `${createRecordId("course_video")}${upload.ext}`;
+    const filePath = path.join(MP_COURSE_VIDEO_DIR, fileName);
+    fs.renameSync(upload.tempPath, filePath);
+    courseVideoUploads.delete(upload.uploadId);
+    recordUsage(session, "admin.course.video.upload", {
+      name: upload.name,
+      size: upload.size,
+      mimeType: upload.mimeType,
+      chunked: true,
+    });
+    const storagePersistent = externalPersistentDataDirConfigured();
+    sendJson(res, 200, {
+      ok: true,
+      uploaded: true,
+      name: upload.name,
+      size: upload.size,
+      videoUrl: getCourseVideoPath(fileName),
+      videoStorage: "local",
+      videoExists: true,
+      uploadedAt: new Date().toISOString(),
+      storagePersistent,
+      storageNote: storagePersistent
+        ? "视频已保存到外部持久化目录。"
+        : "视频已保存到当前实例；重新部署可能清空文件，正式运营请配置持久化磁盘或云点播。",
+    });
+  } catch (error) {
+    if (isJsonParseError(error)) {
+      sendBadJson(res);
+      return;
+    }
+    console.error("Course video completion failed", error);
+    sendJson(res, 500, { error: "视频已上传但暂时未完成保存，请稍后重试。" });
+  }
+}
+
+async function handleAdminCourseVideoAbort(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return;
+  if (!isAdminSession(session)) {
+    sendJson(res, 403, { error: "当前微信号没有课程视频上传权限。" });
+    return;
+  }
+  try {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const upload = getCourseVideoUpload(body.uploadId);
+    if (upload && upload.storageKey !== getSessionStorageKey(session)) {
+      sendJson(res, 403, { error: "不能取消其他账号的上传任务。" });
+      return;
+    }
+    removeCourseVideoUpload(body.uploadId);
+    sendJson(res, 200, { ok: true, aborted: true });
+  } catch (error) {
+    if (isJsonParseError(error)) {
+      sendBadJson(res);
+      return;
+    }
+    sendJson(res, 500, { error: "上传任务暂时未取消，请稍后重试。" });
+  }
+}
+
 async function handleAdminCourseVideoDelete(req, res) {
   const session = requireSession(req, res);
   if (!session) return;
@@ -2219,6 +2559,10 @@ function handleAdminCourses(req, res) {
     ok: true,
     synchronized: true,
     synchronizationNote: "电脑后台与小程序课程管理使用同一后端和同一课程数据源。刷新后可看到另一端的最新修改。",
+    storagePersistent: externalPersistentDataDirConfigured(),
+    storageNote: externalPersistentDataDirConfigured()
+      ? "课程数据与本地视频已使用外部持久化目录。"
+      : "当前未配置外部持久化目录：重新部署可能清空本地上传的视频与业务数据。",
     records: readCourseRecords().map((course) => sanitizeCourse(course, session, true, req)),
   });
 }
@@ -2761,6 +3105,14 @@ async function handleSaveProfile(req, res) {
     const existing = getUserProfile(session);
     const existingProfile = sanitizeProfile(existing || {});
     const submittedProfile = sanitizeProfile(body);
+    if (!isValidProfilePhone(submittedProfile.phone)) {
+      sendJson(res, 400, { error: "手机号格式不正确，请填写可联系的手机号（可含国际区号）。" });
+      return;
+    }
+    if (!isValidProfileEmail(submittedProfile.email)) {
+      sendJson(res, 400, { error: "邮箱格式不正确，请检查后重新填写。" });
+      return;
+    }
     if (existing?.lockedAt && isProfileComplete(existingProfile)) {
       sendJson(res, 409, {
         ok: false,
@@ -2788,7 +3140,7 @@ async function handleSaveProfile(req, res) {
       }
     }
     const mergedProfile = {};
-    PROFILE_REQUIRED_FIELDS.forEach((field) => {
+    PROFILE_SAVE_FIELDS.forEach((field) => {
       mergedProfile[field] = existing?.lockedAt ? existingProfile[field] || submittedProfile[field] : submittedProfile[field];
     });
     const missingFields = getProfileMissingFields(mergedProfile);
@@ -2825,40 +3177,9 @@ async function handleSaveProfile(req, res) {
 async function handleBindCompanyAccount(req, res) {
   const session = requireSession(req, res);
   if (!session) return;
-  try {
-    const rawBody = await readBody(req);
-    const body = JSON.parse(rawBody || "{}");
-    const account = normalizeBookingText(body.companyAccount || body.account, 80);
-    if (!account) {
-      sendJson(res, 400, { error: "请填写公司账户或内部编号。" });
-      return;
-    }
-    const existing = getUserProfile(session);
-    if (existing?.companyAccount) {
-      sendJson(res, 409, {
-        ok: false,
-        error: "当前微信号已绑定公司账户，如需更换请联系管理员。",
-        profile: sanitizeProfile(existing),
-      });
-      return;
-    }
-    const profile = upsertProfile(session, {
-      companyAccount: account,
-      companyBoundAt: new Date().toISOString(),
-    });
-    recordUsage(session, "company.bind", { bound: true });
-    sendJson(res, 200, {
-      ok: true,
-      profile: sanitizeProfile(profile),
-      message: "公司账户已绑定到当前微信号。",
-    });
-  } catch (error) {
-    if (isJsonParseError(error)) {
-      sendBadJson(res);
-      return;
-    }
-    sendJson(res, 500, { error: "公司账户暂时未绑定，请稍后重试。" });
-  }
+  sendJson(res, 410, {
+    error: "该入口已下线。公司收款账户不会由学生填写，也不会展示在小程序中；收费上线后统一使用微信支付。",
+  });
 }
 
 function handleAdminExport(req, res) {
@@ -2872,7 +3193,7 @@ function handleAdminExport(req, res) {
   const uploads = readJsonlFile(MP_UPLOADS_FILE).map(sanitizeUploadForAdmin);
   const profiles = readJsonlFile(MP_PROFILES_FILE).map((profile) => ({
     storageKey: profile.storageKey,
-    openid: profile.openid,
+    openid: maskOpenid(profile.openid),
     ...sanitizeProfile(profile),
   }));
   const courses = readCourseRecords().map((course) => sanitizeCourse(course, session, true, req));
@@ -2881,6 +3202,7 @@ function handleAdminExport(req, res) {
     storageKey: record?.user?.storageKey || "",
     ...sanitizeCustomerMessage(record),
   }));
+  const paymentOrders = paymentService.listOrders();
   sendJson(res, 200, {
     ok: true,
     exportedAt: new Date().toISOString(),
@@ -2891,6 +3213,7 @@ function handleAdminExport(req, res) {
       courses: courses.length,
       usage: usage.length,
       messages: messages.length,
+      paymentOrders: paymentOrders.length,
     },
     bookings,
     uploads,
@@ -2898,6 +3221,7 @@ function handleAdminExport(req, res) {
     courses,
     usage,
     messages,
+    paymentOrders,
     privacyNote: "导出数据只保留脱敏 openid 和 storageKey，不包含微信 openid 原文。",
   });
 }
@@ -2907,7 +3231,7 @@ function requiresPaidRecommendationCount(session, body) {
   return (
     session.mode === "user" &&
     !MP_FREE_RECOMMENDATION_COUNTS.includes(requested) &&
-    !session.entitlements?.recommendationCount
+    !getEffectiveEntitlements(session).recommendationCount
   );
 }
 
@@ -3004,7 +3328,7 @@ function handleMaterialAccess(req, res) {
   const session = requireSession(req, res);
   if (!session) return;
 
-  if (MP_DOCUMENT_DOWNLOAD_FREE || session.mode === "demo" || session.entitlements?.materialAssistant) {
+  if (MP_DOCUMENT_DOWNLOAD_FREE || getEffectiveEntitlements(session).materialAssistant) {
     sendJson(res, 200, {
       allowed: true,
       freeDuringLaunch: MP_DOCUMENT_DOWNLOAD_FREE,
@@ -3020,7 +3344,7 @@ function handleMaterialAccess(req, res) {
     allowed: false,
     paymentRequired: true,
     feature: "materialAssistant",
-    error: "文书收费功能待开发，当前账号暂未开通。",
+    error: "当前账号尚未开通完整文书服务，可在“我的－账户与付费”查看收费状态。",
   });
 }
 
@@ -3028,11 +3352,11 @@ async function handleMaterialDraft(req, res) {
   const session = requireSession(req, res);
   if (!session) return;
 
-  if (!MP_DOCUMENT_DOWNLOAD_FREE && session.mode !== "demo" && !session.entitlements?.materialAssistant) {
+  if (!MP_DOCUMENT_DOWNLOAD_FREE && !getEffectiveEntitlements(session).materialAssistant) {
     sendJson(res, 402, {
       paymentRequired: true,
       feature: "materialAssistant",
-      error: "文书收费功能待开发，当前账号暂未开通。",
+      error: "当前账号尚未开通完整文书服务，可在“我的－账户与付费”查看收费状态。",
     });
     return;
   }
@@ -3245,7 +3569,7 @@ function readJpegDimensions(buffer) {
   return null;
 }
 
-function createWatermarkedPdf(title, content, watermark, generatedAtText = formatDocumentDateTime(), language = "zh") {
+function createLegacyWatermarkedPdf(title, content, watermark, generatedAtText = formatDocumentDateTime(), language = "zh") {
   const objects = [null];
   const addObject = (value) => {
     objects.push(value);
@@ -3470,7 +3794,7 @@ function matchingPdfCells(item) {
   ];
 }
 
-function createMatchingTablePdf(title, matchingData, watermark, generatedAtText = formatDocumentDateTime()) {
+function createLegacyMatchingTablePdf(title, matchingData, watermark, generatedAtText = formatDocumentDateTime()) {
   const pageWidth = 842;
   const pageHeight = 595;
   const marginX = 40;
@@ -3735,13 +4059,510 @@ function createMatchingTablePdf(title, matchingData, watermark, generatedAtText 
   return Buffer.concat(output);
 }
 
+function createPdfKitDocument(options = {}) {
+  if (!fs.existsSync(DOCUMENT_PDF_FONT_PATH)) {
+    const error = new Error("PDF 字体资源缺失，暂时无法安全导出。");
+    error.statusCode = 500;
+    throw error;
+  }
+  const document = new PDFDocument({
+    autoFirstPage: true,
+    bufferPages: true,
+    compress: true,
+    info: {
+      Title: options.title || "LIUDE XIAOZHAN",
+      Author: "LIUDE XIAOZHAN",
+      Subject: options.subject || "AI-assisted application preparation draft",
+      Creator: `LIUDE XIAOZHAN ${DOCUMENT_TEMPLATE_VERSION}`,
+    },
+    ...options,
+  });
+  document.registerFont("LiudeNoto", DOCUMENT_PDF_FONT_PATH);
+  document.font("LiudeNoto");
+  return document;
+}
+
+function collectPdfKitBuffer(document, render) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    document.on("data", (chunk) => chunks.push(chunk));
+    document.on("end", () => resolve(Buffer.concat(chunks)));
+    document.on("error", reject);
+    try {
+      render(document);
+      document.end();
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+function drawPdfKitWatermark(document, watermark) {
+  const page = document.page;
+  const savedX = document.x;
+  const savedY = document.y;
+  document.save();
+  try {
+    if (fs.existsSync(DOCUMENT_LOGO_PATH)) {
+      const width = page.layout === "landscape" ? 250 : 220;
+      document.opacity(0.05).image(DOCUMENT_LOGO_PATH, (page.width - width) / 2, (page.height - width) / 2 - 22, {
+        width,
+      });
+    } else {
+      document
+        .opacity(0.055)
+        .fillColor("#1f5da8")
+        .font("LiudeNoto")
+        .fontSize(page.layout === "landscape" ? 38 : 34)
+        .rotate(-34, { origin: [page.width / 2, page.height / 2] })
+        .text(watermark, 90, page.height / 2 - 20, { width: page.width - 180, align: "center" });
+    }
+  } finally {
+    document.restore();
+    document.opacity(1);
+    document.x = savedX;
+    document.y = savedY;
+  }
+}
+
+function bindPdfKitWatermark(document, watermark) {
+  drawPdfKitWatermark(document, watermark);
+  document.on("pageAdded", () => drawPdfKitWatermark(document, watermark));
+}
+
+function addPdfKitFooters(document, footerText, generatedAtText, layoutVersion = "portrait-document-embedded-font-v2") {
+  const range = document.bufferedPageRange();
+  for (let index = 0; index < range.count; index += 1) {
+    document.switchToPage(range.start + index);
+    const page = document.page;
+    const left = page.margins.left;
+    const right = page.width - page.margins.right;
+    // Keep the footer inside the 34-point area reserved by ensurePdfKitSpace.
+    // PDFKit otherwise treats it as flowing content and silently adds a page.
+    const footerY = page.height - page.margins.bottom - 17;
+    document.save();
+    document
+      .opacity(1)
+      .strokeColor("#c7d6e7")
+      .lineWidth(0.6)
+      .moveTo(left, footerY - 10)
+      .lineTo(right, footerY - 10)
+      .stroke();
+    document
+      .font("LiudeNoto")
+      .fontSize(6.2)
+      .fillColor("#64748b")
+      .text(footerText, left, footerY, {
+        width: right - left - 86,
+        height: 10,
+        lineBreak: false,
+        ellipsis: true,
+      });
+    document.text(`${index + 1} / ${range.count}`, right - 70, footerY, {
+      width: 70,
+      align: "right",
+      lineBreak: false,
+    });
+    document.restore();
+  }
+  // Retained in the signature for stable export call sites and PDF metadata.
+  void generatedAtText;
+  void layoutVersion;
+}
+
+function parseDocumentSections(content) {
+  const result = { preamble: [], sections: [] };
+  let current = null;
+  String(content || "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .forEach((rawLine) => {
+      const line = rawLine.trim();
+      if (line && isDocumentSectionHeading(line)) {
+        current = { heading: line.replace(/[：:]$/, ""), lines: [] };
+        result.sections.push(current);
+        return;
+      }
+      if (current) {
+        current.lines.push(line);
+      } else {
+        result.preamble.push(line);
+      }
+    });
+  return result;
+}
+
+function ensurePdfKitSpace(document, neededHeight, repeatHeading) {
+  const bottom = document.page.height - document.page.margins.bottom - 34;
+  if (document.y + neededHeight <= bottom) return false;
+  document.addPage();
+  document.font("LiudeNoto");
+  document.x = document.page.margins.left;
+  document.y = document.page.margins.top;
+  if (repeatHeading) repeatHeading();
+  return true;
+}
+
+function drawPdfKitSectionHeading(document, heading, width) {
+  ensurePdfKitSpace(document, 30);
+  const x = document.page.margins.left;
+  const y = document.y;
+  document.save();
+  document.roundedRect(x, y, width, 23, 2).fill("#dbe6f2");
+  document.font("LiudeNoto").fontSize(10.5).fillColor("#173e6b").text(heading, x + 8, y + 6, {
+    width: width - 16,
+    lineBreak: false,
+  });
+  document.restore();
+  document.y = y + 23;
+}
+
+function drawPdfKitTableRow(document, cells, widths, options = {}) {
+  const x = options.x ?? document.page.margins.left;
+  const startY = document.y;
+  const padding = options.padding ?? 6;
+  const fontSize = options.fontSize ?? 9;
+  const heights = cells.map((cell, index) =>
+    document.font("LiudeNoto").fontSize(fontSize).heightOfString(String(cell || "-"), {
+      width: widths[index] - padding * 2,
+      lineGap: options.lineGap ?? 1.5,
+    })
+  );
+  const rowHeight = Math.max(options.minHeight ?? 24, Math.max(...heights, 0) + padding * 2);
+  const totalWidth = widths.reduce((sum, width) => sum + width, 0);
+  document.save();
+  if (options.fill) document.rect(x, startY, totalWidth, rowHeight).fill(options.fill);
+  let currentX = x;
+  cells.forEach((cell, index) => {
+    document
+      .strokeColor(options.borderColor || "#9aa8b8")
+      .lineWidth(options.borderWidth || 0.55)
+      .rect(currentX, startY, widths[index], rowHeight)
+      .stroke();
+    document
+      .font("LiudeNoto")
+      .fontSize(fontSize)
+      .fillColor(options.textColor || "#26384d")
+      .text(String(cell || "-"), currentX + padding, startY + padding, {
+        width: widths[index] - padding * 2,
+        height: rowHeight - padding * 2,
+        lineGap: options.lineGap ?? 1.5,
+        ellipsis: true,
+      });
+    currentX += widths[index];
+  });
+  document.restore();
+  document.x = x;
+  document.y = startY + rowHeight;
+  return rowHeight;
+}
+
+function createCvTablePdf(title, content, watermark, generatedAtText, language) {
+  const footer = documentFooterText(language, generatedAtText);
+  const document = createPdfKitDocument({
+    size: "A4",
+    margins: { top: 44, right: 46, bottom: 58, left: 46 },
+    title,
+    subject: language === "de" ? "Strukturierter Lebenslauf" : "Structured curriculum vitae",
+  });
+  return collectPdfKitBuffer(document, (pdf) => {
+    bindPdfKitWatermark(pdf, watermark);
+    const usableWidth = pdf.page.width - pdf.page.margins.left - pdf.page.margins.right;
+    pdf
+      .font("LiudeNoto")
+      .fontSize(21)
+      .fillColor("#173e6b")
+      .text(title, pdf.page.margins.left, 48, { width: usableWidth, align: "center" });
+    pdf.moveDown(0.55);
+    const parsed = parseDocumentSections(content);
+    const preamble = parsed.preamble.filter(Boolean).filter((line) => !/^Erstellt am:|^Generated:/i.test(line));
+    if (preamble.length) {
+      pdf
+        .fontSize(7.4)
+        .fillColor("#5f6f82")
+        .text(preamble.join(" "), pdf.page.margins.left, pdf.y, {
+          width: usableWidth,
+          align: "left",
+          lineGap: 1,
+        });
+      pdf.moveDown(0.65);
+    }
+    parsed.sections.forEach((section) => {
+      const repeatHeading = () => drawPdfKitSectionHeading(pdf, `${section.heading} · ${language === "de" ? "Fortsetzung" : "continued"}`, usableWidth);
+      ensurePdfKitSpace(pdf, 52);
+      drawPdfKitSectionHeading(pdf, section.heading, usableWidth);
+      const lines = section.lines.filter(Boolean);
+      if (/PERSÖNLICHE DATEN|PERSONAL DETAILS/i.test(section.heading)) {
+        const entries = lines.map((line) => {
+          const separator = line.indexOf(":");
+          return separator > 0 ? [line.slice(0, separator), line.slice(separator + 1).trim()] : ["", line];
+        });
+        for (let index = 0; index < entries.length; index += 2) {
+          const pair = entries.slice(index, index + 2);
+          while (pair.length < 2) pair.push(["", ""]);
+          const cells = [pair[0][0], pair[0][1], pair[1][0], pair[1][1]];
+          const widths = [82, usableWidth / 2 - 82, 92, usableWidth / 2 - 92];
+          pdf.fontSize(8.4);
+          const estimated = Math.max(
+            ...cells.map((cell, cellIndex) => pdf.heightOfString(cell || "-", { width: widths[cellIndex] - 10, lineGap: 1 }))
+          ) + 10;
+          ensurePdfKitSpace(pdf, estimated, repeatHeading);
+          drawPdfKitTableRow(pdf, cells, widths, {
+            fontSize: 8.4,
+            padding: 5,
+            minHeight: 25,
+            fill: index % 4 === 0 ? "#f8fafc" : "",
+          });
+        }
+        return;
+      }
+      const rows = [];
+      let pending = [];
+      lines.forEach((line) => {
+        if (/^[•\-]/u.test(line) && pending.length) {
+          rows.push(pending.join("\n"));
+          pending = [line];
+        } else {
+          pending.push(line);
+        }
+      });
+      if (pending.length) rows.push(pending.join("\n"));
+      rows.forEach((row, index) => {
+        const period = row.match(/\b(?:19|20)\d{2}\s*[–—-]\s*(?:(?:19|20)\d{2}|present|now|heute|aktuell)\b/i);
+        const left = period ? period[0] : index === 0 ? (language === "de" ? "Angaben" : "Details") : "";
+        const right = period ? row.replace(period[0], "").replace(/^[\s·,;:-]+/, "") : row;
+        const widths = [105, usableWidth - 105];
+        pdf.fontSize(8.4);
+        const estimated =
+          Math.max(
+            pdf.heightOfString(left || "-", { width: widths[0] - 12, lineGap: 1.3 }),
+            pdf.heightOfString(right || "-", { width: widths[1] - 12, lineGap: 1.3 })
+          ) + 12;
+        ensurePdfKitSpace(pdf, Math.min(estimated, 390), repeatHeading);
+        drawPdfKitTableRow(pdf, [left, right], widths, {
+          fontSize: 8.4,
+          padding: 6,
+          minHeight: 28,
+          fill: index % 2 === 1 ? "#fbfdff" : "",
+          lineGap: 1.3,
+        });
+      });
+    });
+    addPdfKitFooters(pdf, footer, generatedAtText, "cv-table-embedded-font-v2");
+  });
+}
+
+function createWatermarkedPdf(title, content, watermark, generatedAtText = formatDocumentDateTime(), language = "zh", toolKey = "") {
+  if (toolKey === "cv" && ["de", "en"].includes(language)) {
+    return createCvTablePdf(title, content, watermark, generatedAtText, language);
+  }
+  const footer = documentFooterText(language, generatedAtText);
+  const document = createPdfKitDocument({
+    size: "A4",
+    margins: { top: 48, right: 52, bottom: 60, left: 52 },
+    title,
+    subject: language === "de" ? "Motivationsschreiben" : language === "en" ? "Motivation letter" : "申请材料",
+  });
+  return collectPdfKitBuffer(document, (pdf) => {
+    bindPdfKitWatermark(pdf, watermark);
+    const width = pdf.page.width - pdf.page.margins.left - pdf.page.margins.right;
+    pdf
+      .font("LiudeNoto")
+      .fontSize(19)
+      .fillColor("#173e6b")
+      .text(title, pdf.page.margins.left, 48, { width, align: "center" });
+    pdf
+      .strokeColor("#2b6cb0")
+      .lineWidth(1.25)
+      .moveTo(pdf.page.margins.left, pdf.y + 7)
+      .lineTo(pdf.page.width - pdf.page.margins.right, pdf.y + 7)
+      .stroke();
+    pdf.moveDown(1);
+    String(content || "")
+      .replace(/\r\n?/g, "\n")
+      .split("\n")
+      .forEach((rawLine) => {
+        const line = rawLine.trim();
+        if (!line) {
+          pdf.moveDown(0.35);
+          return;
+        }
+        if (isDocumentSectionHeading(line) || /^\d+\.\s+\S/u.test(line)) {
+          ensurePdfKitSpace(pdf, 38);
+          pdf
+            .font("LiudeNoto")
+            .fontSize(11.2)
+            .fillColor("#1f5da8")
+            .text(line.replace(/[：:]$/, ""), { width, lineGap: 1 });
+          pdf.moveDown(0.22);
+          return;
+        }
+        const isNotice = /^(Hinweis:|Note:|说明：)/u.test(line);
+        const isMeta =
+          /^(Erstellt am:|Generated:|Bewerber\/in:|Applicant:|Bewerbungsniveau:|Application level:|Zielstudiengang:|Target programme:|Studiengangsspezifische Prüfung:|Programme-specific review:)/i.test(
+            line
+          );
+        const isClosing = /^(Mit freundlichen Grüßen|Yours faithfully|Sincerely,?)$/i.test(line);
+        const fontSize = isNotice ? 7.6 : isMeta ? 8.4 : 10.2;
+        const color = isNotice ? "#5c6f82" : isMeta ? "#40566f" : "#223247";
+        ensurePdfKitSpace(pdf, pdf.heightOfString(line, { width, lineGap: 2.6 }) + 16);
+        pdf
+          .font("LiudeNoto")
+          .fontSize(fontSize)
+          .fillColor(color)
+          .text(line, {
+            width,
+            align: isClosing ? "left" : isNotice || isMeta ? "left" : "justify",
+            lineGap: isNotice ? 1.5 : 2.6,
+          });
+        pdf.moveDown(isNotice ? 0.55 : isMeta ? 0.16 : 0.42);
+      });
+    addPdfKitFooters(pdf, footer, generatedAtText);
+  });
+}
+
+function createMatchingTablePdf(title, matchingData, watermark, generatedAtText = formatDocumentDateTime()) {
+  const columns = [
+    { title: "学校", width: 66 },
+    { title: "标签", width: 56 },
+    { title: "专业名称", width: 84 },
+    { title: "项目介绍", width: 126 },
+    { title: "项目要求", width: 104 },
+    { title: "课程评估", width: 130 },
+    { title: "推荐评级", width: 60 },
+    { title: "补充信息 / 提升建议", width: 136 },
+  ];
+  const document = createPdfKitDocument({
+    size: "A4",
+    layout: "landscape",
+    margins: { top: 38, right: 40, bottom: 46, left: 40 },
+    title,
+    subject: "院校专业匹配报告（AI 辅助）",
+  });
+  return collectPdfKitBuffer(document, (pdf) => {
+    bindPdfKitWatermark(pdf, watermark);
+    const tableWidth = columns.reduce((sum, column) => sum + column.width, 0);
+    const left = pdf.page.margins.left;
+    let currentY = pdf.page.margins.top;
+    const drawHeader = (firstPage) => {
+      pdf.font("LiudeNoto");
+      if (firstPage) {
+        pdf.fontSize(15).fillColor("#123f70").text(title, left, currentY, { width: 480, lineBreak: false });
+        const profile = matchingData.profile || {};
+        const profileLine = [profile.name, profile.school, profile.major].filter(Boolean).join(" / ") || "申请人资料待补充";
+        const targetLine = [
+          profile.gpa ? `GPA ${profile.gpa}` : "",
+          profile.language ? `语言 ${profile.language}` : "",
+          [profile.targetDegree, profile.targetField].filter(Boolean).join(" "),
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        pdf.fontSize(6.8).fillColor("#4d5c6d").text(profileLine, 520, currentY, { width: 280, align: "right" });
+        pdf.text(targetLine, 520, currentY + 11, { width: 280, align: "right" });
+        currentY += 37;
+        pdf
+          .fontSize(7.4)
+          .fillColor("#536579")
+          .text("基于已提交的专业、课程、成绩和目标方向生成；正式申请前须核对院校官网。", left, currentY, {
+            width: tableWidth,
+          });
+        currentY += 19;
+      }
+      const height = 25;
+      let x = left;
+      columns.forEach((column) => {
+        pdf.rect(x, currentY, column.width, height).fillAndStroke("#dbe6f2", "#9badc1");
+        pdf.font("LiudeNoto").fontSize(7.2).fillColor("#153e6b").text(column.title, x + 4, currentY + 7, {
+          width: column.width - 8,
+          height: height - 8,
+          align: "center",
+        });
+        x += column.width;
+      });
+      currentY += height;
+    };
+    const addTablePage = () => {
+      pdf.addPage();
+      pdf.font("LiudeNoto");
+      currentY = pdf.page.margins.top;
+      drawHeader(false);
+    };
+    const drawRow = (groups, alternate) => {
+      const fontSize = 6.6;
+      const lineHeight = 8.2;
+      const padding = 4;
+      const rowLines = Math.max(...groups.map((lines) => lines.length), 1);
+      const rowHeight = Math.max(24, rowLines * lineHeight + padding * 2);
+      let x = left;
+      groups.forEach((lines, index) => {
+        const fill = alternate ? "#f8fbfe" : "#ffffff";
+        pdf.rect(x, currentY, columns[index].width, rowHeight).fillAndStroke(fill, "#becad7");
+        const color = index === 6 ? "#087a70" : index === 1 ? "#9a5b08" : "#26384d";
+        pdf.font("LiudeNoto").fontSize(fontSize).fillColor(color).text(lines.join("\n") || "-", x + padding, currentY + padding, {
+          width: columns[index].width - padding * 2,
+          height: rowHeight - padding * 2,
+          lineGap: 1.6,
+          ellipsis: true,
+        });
+        x += columns[index].width;
+      });
+      currentY += rowHeight;
+    };
+    drawHeader(true);
+    matchingData.recommendations.forEach((item, itemIndex) => {
+      const cellValues = matchingPdfCells(item);
+      const allLines = cellValues.map((value, index) => matchingPdfCellLines(value, columns[index].width, 6.6));
+      const maxLines = Math.max(...allLines.map((lines) => lines.length), 1);
+      let offset = 0;
+      while (offset < maxLines) {
+        const bottom = pdf.page.height - pdf.page.margins.bottom - 24;
+        let availableLines = Math.floor((bottom - currentY - 8) / 8.2);
+        if (availableLines < 4) {
+          addTablePage();
+          availableLines = Math.floor((pdf.page.height - pdf.page.margins.bottom - 24 - currentY - 8) / 8.2);
+        }
+        const take = Math.max(1, Math.min(maxLines - offset, availableLines));
+        const groups = allLines.map((lines, index) => {
+          if (offset > 0 && [0, 1, 2, 6].includes(index)) {
+            return index === 0 ? matchingPdfCellLines(`${cellValues[index]}\n（续）`, columns[index].width, 6.6) : lines.slice(0, Math.min(lines.length, take));
+          }
+          return lines.slice(offset, offset + take);
+        });
+        drawRow(groups, itemIndex % 2 === 1);
+        offset += take;
+        if (offset < maxLines) addTablePage();
+      }
+    });
+    addPdfKitFooters(
+      pdf,
+      "AI 辅助初步筛选：课程匹配、申请条件、截止日期与录取要求须以院校官网及顾问人工核验为准。",
+      generatedAtText,
+      MATCHING_PDF_LAYOUT_VERSION
+    );
+  });
+}
+
 function prepareDocumentExport(session, body) {
   const kind = ["questionnaire", "matching"].includes(body.kind) ? body.kind : "draft";
+  const toolKey = body.toolKey === "cv" ? "cv" : body.toolKey === "motivation" ? "motivation" : "";
   const requestedLanguage = String(body.language || "zh").trim().toLowerCase();
   const language = ["de", "en"].includes(requestedLanguage) ? requestedLanguage : "zh";
   const defaultTitle = kind === "questionnaire" ? "申请材料调查表" : kind === "matching" ? "院校专业匹配报告" : "申请文书";
   const title = normalizeBookingText(body.title || defaultTitle, 80);
-  const rawContent = normalizeLongText(body.content || "", 30000);
+  const canonicalDraft =
+    kind === "draft" && toolKey && ["de", "en"].includes(language) && body.form && typeof body.form === "object"
+      ? localEngine.createMaterialDraft({ toolKey, language, form: body.form })
+      : null;
+  const rawContent = normalizeLongText(canonicalDraft?.draft || body.content || "", 30000);
+  if (kind === "draft" && ["de", "en"].includes(language) && /[\u3400-\u9fff]/u.test(rawContent)) {
+    const error = new Error(
+      language === "de"
+        ? "德语文书中仍含中文内容，系统已停止导出以避免生成乱码。请返回文书工具重新生成。"
+        : "英语文书中仍含中文内容，系统已停止导出以避免生成乱码。请返回文书工具重新生成。"
+    );
+    error.statusCode = 400;
+    throw error;
+  }
   const contentLines = rawContent.replace(/\r\n?/g, "\n").split("\n");
   const titleKey = title.toLocaleLowerCase().replace(/[\s\-–—_:：]+/g, "");
   const firstLineKey = String(contentLines[0] || "").trim().toLocaleLowerCase().replace(/[\s\-–—_:：]+/g, "");
@@ -3749,7 +4570,7 @@ function prepareDocumentExport(session, body) {
     titleKey && firstLineKey === titleKey
       ? contentLines.slice(1).join("\n").replace(/^\n+/, "")
       : rawContent;
-  const fullAccess = MP_DOCUMENT_DOWNLOAD_FREE || session.mode === "demo" || Boolean(session.entitlements?.materialAssistant);
+  const fullAccess = MP_DOCUMENT_DOWNLOAD_FREE || Boolean(getEffectiveEntitlements(session).materialAssistant);
   const preview = kind === "draft" && !fullAccess;
   const previewLength = Math.max(Math.ceil(content.length / 5), Math.min(content.length, 180));
   const previewEnding =
@@ -3761,19 +4582,23 @@ function prepareDocumentExport(session, body) {
   const visibleContent = preview ? `${content.slice(0, previewLength)}\n\n${previewEnding}` : content;
   return {
     kind,
+    toolKey,
     language,
     title,
     content,
     matchingData: kind === "matching" ? normalizeMatchingPdfData(body.matchingData) : null,
     preview,
     visibleContent,
+    generationSource: canonicalDraft?.source || "submitted-content",
     generatedAt: new Date(),
   };
 }
 
 function isDocumentSectionHeading(line) {
   const value = String(line || "").trim();
-  if (!value || value.length > 26) return false;
+  if (!value) return false;
+  if (/^\d+\.\s+\S/u.test(value) && value.length <= 72) return true;
+  if (value.length > 26) return false;
   if (
     /^(动机申请信中文初稿|留德申请个人简历中文信息稿|课程描述初稿|个人与学习背景|为什么选择德国|为什么选择该专业|毕业后的计划|个人信息|教育背景|语言与标准考试|工作\/实习经历|研究\/项目\/毕业论文|发表论文|奖励与荣誉|课外活动\/社会实践|技能、证书与兴趣|MOTIVATION LETTER|MOTIVATIONSSCHREIBEN|CURRICULUM VITAE|LEBENSLAUF|PERSONAL DETAILS|PERSÖNLICHE DATEN|EDUCATION|AUSBILDUNG|EXCHANGE \/ SUMMER SCHOOL|AUSLANDS- \/ SOMMERSCHULERFAHRUNG|LANGUAGES AND STANDARDISED TESTS|SPRACHKENNTNISSE UND STANDARDISIERTE TESTS|PROFESSIONAL EXPERIENCE|BERUFS- UND PRAKTIKUMSERFAHRUNG|RESEARCH, PROJECTS AND THESIS|FORSCHUNG, PROJEKTE UND ABSCHLUSSARBEIT|PUBLICATIONS|PUBLIKATIONEN|HONOURS AND AWARDS|AUSZEICHNUNGEN|EXTRACURRICULAR ACTIVITIES|AUSSERUNIVERSITÄRES ENGAGEMENT|SKILLS, CERTIFICATES AND INTERESTS|KENNTNISSE, ZERTIFIKATE UND INTERESSEN)$/.test(
       value
@@ -3787,7 +4612,7 @@ function isDocumentSectionHeading(line) {
 function createDocxBodyParagraph(line) {
   const value = String(line || "").trim();
   if (!value) {
-    return new docx.Paragraph({ spacing: { after: 80 } });
+    return new docx.Paragraph({ spacing: { after: 40 } });
   }
   if (isDocumentSectionHeading(value)) {
     return new docx.Paragraph({
@@ -3796,12 +4621,12 @@ function createDocxBodyParagraph(line) {
           text: value.replace(/[：:]$/, ""),
           bold: true,
           color: "1F5DA8",
-          size: 24,
+          size: 22,
           font: { ascii: "Arial", hAnsi: "Arial", eastAsia: "Microsoft YaHei" },
         }),
       ],
       keepNext: true,
-      spacing: { before: 180, after: 70, line: 320 },
+      spacing: { before: 100, after: 40, line: 280 },
       border: {
         bottom: { style: docx.BorderStyle.SINGLE, color: "C9DDF5", size: 6, space: 4 },
       },
@@ -3822,12 +4647,12 @@ function createDocxBodyParagraph(line) {
         text: value,
         bold: value.includes("付费前预览到此结束"),
         color: isNotice ? "52667F" : isGeneratedAt ? "65758A" : "25364A",
-        size: isNotice || isGeneratedAt ? 19 : 21,
+        size: isNotice || isGeneratedAt ? 18 : 20,
         font: { ascii: "Arial", hAnsi: "Arial", eastAsia: "Microsoft YaHei" },
       }),
     ],
     alignment: docx.AlignmentType.JUSTIFIED,
-    spacing: { after: isNotice ? 120 : 90, line: 360 },
+    spacing: { after: isNotice ? 80 : 50, line: 300 },
     shading: isNotice ? { fill: "F2F7FD", color: "auto" } : undefined,
     border: isNotice
       ? { left: { style: docx.BorderStyle.SINGLE, color: "2C6CB4", size: 14, space: 8 } }
@@ -3885,11 +4710,11 @@ async function createBrandedDocx(title, content, generatedAtText = formatDocumen
         document: {
           run: {
             font: { ascii: "Arial", hAnsi: "Arial", eastAsia: "Microsoft YaHei" },
-            size: 21,
+            size: 20,
             color: "25364A",
           },
           paragraph: {
-            spacing: { line: 360, after: 90 },
+            spacing: { line: 300, after: 50 },
             widowControl: true,
           },
         },
@@ -3905,10 +4730,10 @@ async function createBrandedDocx(title, content, generatedAtText = formatDocumen
               orientation: docx.PageOrientation.PORTRAIT,
             },
             margin: {
-              top: docx.convertMillimetersToTwip(22),
-              right: docx.convertMillimetersToTwip(22),
-              bottom: docx.convertMillimetersToTwip(26),
-              left: docx.convertMillimetersToTwip(22),
+              top: docx.convertMillimetersToTwip(18),
+              right: docx.convertMillimetersToTwip(18),
+              bottom: docx.convertMillimetersToTwip(22),
+              left: docx.convertMillimetersToTwip(18),
               header: docx.convertMillimetersToTwip(7),
               footer: docx.convertMillimetersToTwip(8),
             },
@@ -3965,7 +4790,7 @@ async function createBrandedDocx(title, content, generatedAtText = formatDocumen
         children: [
           new docx.Paragraph({
             alignment: docx.AlignmentType.CENTER,
-            spacing: { before: 120, after: 260, line: 420 },
+            spacing: { before: 80, after: 160, line: 360 },
             border: {
               top: { style: docx.BorderStyle.DOUBLE, color: brandBlue, size: 12, space: 8 },
               bottom: { style: docx.BorderStyle.DOUBLE, color: brandBlue, size: 12, space: 8 },
@@ -3975,7 +4800,7 @@ async function createBrandedDocx(title, content, generatedAtText = formatDocumen
                 text: title,
                 bold: true,
                 color: brandBlue,
-                size: 34,
+                size: 30,
                 font: { ascii: "Arial", hAnsi: "Arial", eastAsia: "Microsoft YaHei" },
               }),
             ],
@@ -3984,6 +4809,204 @@ async function createBrandedDocx(title, content, generatedAtText = formatDocumen
             .replace(/\r\n?/g, "\n")
             .split("\n")
             .map(createDocxBodyParagraph),
+        ],
+      },
+    ],
+  });
+  return docx.Packer.toBuffer(document);
+}
+
+function createCvDocxParagraph(value, options = {}) {
+  const rawValue = String(value || "-");
+  const isBullet = /^[•\-]\s*/u.test(rawValue);
+  return new docx.Paragraph({
+    spacing: { before: 20, after: 30, line: 260 },
+    alignment: options.align || docx.AlignmentType.LEFT,
+    bullet: isBullet ? { level: 0 } : undefined,
+    children: [
+      new docx.TextRun({
+        text: isBullet ? rawValue.replace(/^[•\-]\s*/u, "") : rawValue,
+        bold: Boolean(options.bold),
+        color: options.color || "25364A",
+        size: options.size || 18,
+        font: { ascii: "Arial", hAnsi: "Arial", eastAsia: "Microsoft YaHei" },
+      }),
+    ],
+  });
+}
+
+function createCvDocxCell(children, options = {}) {
+  return new docx.TableCell({
+    columnSpan: options.columnSpan,
+    width: options.width ? { size: options.width, type: docx.WidthType.DXA } : undefined,
+    verticalAlign: docx.VerticalAlign.CENTER,
+    shading: options.fill ? { fill: options.fill, type: docx.ShadingType.CLEAR, color: "auto" } : undefined,
+    margins: { top: 70, bottom: 70, left: 90, right: 90 },
+    borders: {
+      top: { style: docx.BorderStyle.SINGLE, color: "8394A8", size: 5 },
+      bottom: { style: docx.BorderStyle.SINGLE, color: "8394A8", size: 5 },
+      left: { style: docx.BorderStyle.SINGLE, color: "8394A8", size: 5 },
+      right: { style: docx.BorderStyle.SINGLE, color: "8394A8", size: 5 },
+    },
+    children: Array.isArray(children) ? children : [children],
+  });
+}
+
+async function createCvTableDocx(title, content, generatedAtText, language) {
+  const brandBlue = "1F5DA8";
+  const parsed = parseDocumentSections(content);
+  const rows = [];
+  parsed.sections.forEach((section) => {
+    rows.push(
+      new docx.TableRow({
+        children: [
+          createCvDocxCell(createCvDocxParagraph(section.heading, { bold: true, color: "173E6B", size: 20 }), {
+            columnSpan: 4,
+            fill: "DCE6F1",
+            width: 9960,
+          }),
+        ],
+      })
+    );
+    const lines = section.lines.filter(Boolean);
+    if (/PERSÖNLICHE DATEN|PERSONAL DETAILS/i.test(section.heading)) {
+      const entries = lines.map((line) => {
+        const separator = line.indexOf(":");
+        return separator > 0 ? [line.slice(0, separator), line.slice(separator + 1).trim()] : ["", line];
+      });
+      for (let index = 0; index < entries.length; index += 2) {
+        const pair = entries.slice(index, index + 2);
+        while (pair.length < 2) pair.push(["", ""]);
+        rows.push(
+          new docx.TableRow({
+            children: [
+              createCvDocxCell(createCvDocxParagraph(pair[0][0], { bold: true, size: 17 }), {
+                fill: "F4F7FA",
+                width: 1800,
+              }),
+              createCvDocxCell(createCvDocxParagraph(pair[0][1], { size: 17 }), { width: 3180 }),
+              createCvDocxCell(createCvDocxParagraph(pair[1][0], { bold: true, size: 17 }), {
+                fill: "F4F7FA",
+                width: 1800,
+              }),
+              createCvDocxCell(createCvDocxParagraph(pair[1][1], { size: 17 }), { width: 3180 }),
+            ],
+          })
+        );
+      }
+      return;
+    }
+    const sectionParagraphs = lines.map((line) =>
+      createCvDocxParagraph(line, {
+        bold: !/^[•\-]/u.test(line) && lines.length > 1 && line.length < 90,
+        size: 17,
+      })
+    );
+    rows.push(
+      new docx.TableRow({
+        children: [
+          createCvDocxCell(createCvDocxParagraph(language === "de" ? "Angaben" : "Details", { bold: true, size: 17 }), {
+            fill: "F4F7FA",
+            width: 1800,
+          }),
+          createCvDocxCell(sectionParagraphs.length ? sectionParagraphs : [createCvDocxParagraph("-")], {
+            columnSpan: 3,
+            width: 8160,
+          }),
+        ],
+      })
+    );
+  });
+  const preamble = parsed.preamble.filter(Boolean).filter((line) => !/^Erstellt am:|^Generated:/i.test(line));
+  const document = new docx.Document({
+    creator: "LIUDE XIAOZHAN",
+    lastModifiedBy: "LIUDE XIAOZHAN",
+    title,
+    subject: language === "de" ? "Strukturierter Lebenslauf" : "Structured curriculum vitae",
+    description: language === "de" ? "KI-gestützter, prüfbarer Lebenslaufentwurf" : "AI-assisted, reviewable CV draft",
+    features: { updateFields: true },
+    styles: {
+      default: {
+        document: {
+          run: { font: { ascii: "Arial", hAnsi: "Arial", eastAsia: "Microsoft YaHei" }, size: 18, color: "25364A" },
+          paragraph: { spacing: { line: 260, after: 30 }, widowControl: true },
+        },
+      },
+    },
+    sections: [
+      {
+        properties: {
+          page: {
+            size: {
+              width: docx.convertMillimetersToTwip(210),
+              height: docx.convertMillimetersToTwip(297),
+              orientation: docx.PageOrientation.PORTRAIT,
+            },
+            margin: {
+              top: docx.convertMillimetersToTwip(16),
+              right: docx.convertMillimetersToTwip(16),
+              bottom: docx.convertMillimetersToTwip(24),
+              left: docx.convertMillimetersToTwip(16),
+              header: docx.convertMillimetersToTwip(7),
+              footer: docx.convertMillimetersToTwip(8),
+            },
+          },
+        },
+        headers: {
+          default: new docx.Header({
+            children: [
+              new docx.Paragraph({
+                alignment: docx.AlignmentType.RIGHT,
+                children: [new docx.TextRun({ text: "LIUDE XIAOZHAN", bold: true, color: brandBlue, size: 16, font: "Arial" })],
+              }),
+            ],
+          }),
+        },
+        footers: {
+          default: new docx.Footer({
+            children: [
+              new docx.Paragraph({
+                border: { top: { style: docx.BorderStyle.SINGLE, color: "9CBCE0", size: 6, space: 5 } },
+                children: [
+                  new docx.TextRun({
+                    text: documentFooterText(language, generatedAtText),
+                    color: "65758A",
+                    size: 14,
+                    font: "Arial",
+                  }),
+                ],
+              }),
+              new docx.Paragraph({
+                alignment: docx.AlignmentType.CENTER,
+                children: [
+                  new docx.TextRun({
+                    children:
+                      language === "de"
+                        ? ["LIUDE XIAOZHAN · Seite ", docx.PageNumber.CURRENT, " / ", docx.PageNumber.TOTAL_PAGES]
+                        : ["LIUDE XIAOZHAN · Page ", docx.PageNumber.CURRENT, " / ", docx.PageNumber.TOTAL_PAGES],
+                    color: brandBlue,
+                    size: 14,
+                    font: "Arial",
+                  }),
+                ],
+              }),
+            ],
+          }),
+        },
+        children: [
+          new docx.Paragraph({
+            alignment: docx.AlignmentType.CENTER,
+            spacing: { before: 80, after: 120 },
+            children: [new docx.TextRun({ text: title, bold: true, color: brandBlue, size: 34, font: "Arial" })],
+          }),
+          ...preamble.map((line) => createCvDocxParagraph(line, { color: "5F6F82", size: 15 })),
+          new docx.Table({
+            width: { size: 9960, type: docx.WidthType.DXA },
+            indent: { size: 120, type: docx.WidthType.DXA },
+            layout: docx.TableLayoutType.FIXED,
+            columnWidths: [1800, 3180, 1800, 3180],
+            rows,
+          }),
         ],
       },
     ],
@@ -4017,18 +5040,19 @@ async function handleDocumentPdf(req, res) {
     const generatedAtText = formatDocumentDateTimeForLanguage(documentData.generatedAt, documentData.language);
     const pdf =
       documentData.kind === "matching" && documentData.matchingData
-        ? createMatchingTablePdf(
+        ? await createMatchingTablePdf(
             documentData.title || "院校选校与匹配汇总报告",
             documentData.matchingData,
             watermark,
             generatedAtText
           )
-        : createWatermarkedPdf(
+        : await createWatermarkedPdf(
             documentData.title,
             documentData.visibleContent,
             watermark,
             generatedAtText,
-            documentData.language
+            documentData.language,
+            documentData.toolKey
           );
     const usageAction =
       documentData.kind === "questionnaire"
@@ -4054,13 +5078,16 @@ async function handleDocumentPdf(req, res) {
       generatedAt: documentData.generatedAt.toISOString(),
       generatedAtText,
       templateVersion: DOCUMENT_TEMPLATE_VERSION,
+      generationSource: documentData.generationSource,
+      pdfFontEmbedded: true,
     });
   } catch (error) {
     if (isJsonParseError(error)) {
       sendBadJson(res);
       return;
     }
-    sendJson(res, 500, { error: "PDF 暂时未生成，请稍后重试。" });
+    console.error("PDF export failed", error);
+    sendJson(res, error.statusCode || 500, { error: error.statusCode ? error.message : "PDF 暂时未生成，请稍后重试。" });
   }
 }
 
@@ -4076,7 +5103,10 @@ async function handleDocumentWord(req, res) {
       return;
     }
     const generatedAtText = formatDocumentDateTimeForLanguage(documentData.generatedAt, documentData.language);
-    const word = await createBrandedDocx(documentData.title, documentData.visibleContent, generatedAtText, documentData.language);
+    const word =
+      documentData.toolKey === "cv" && ["de", "en"].includes(documentData.language)
+        ? await createCvTableDocx(documentData.title, documentData.visibleContent, generatedAtText, documentData.language)
+        : await createBrandedDocx(documentData.title, documentData.visibleContent, generatedAtText, documentData.language);
     const usageAction =
       documentData.kind === "questionnaire"
         ? "document.export.questionnaire.word"
@@ -4095,6 +5125,7 @@ async function handleDocumentWord(req, res) {
       generatedAt: documentData.generatedAt.toISOString(),
       generatedAtText,
       templateVersion: DOCUMENT_TEMPLATE_VERSION,
+      generationSource: documentData.generationSource,
     });
   } catch (error) {
     if (isJsonParseError(error)) {
@@ -4102,18 +5133,120 @@ async function handleDocumentWord(req, res) {
       return;
     }
     console.error("DOCX export failed", error);
-    sendJson(res, 500, { error: "Word 暂时未生成，请稍后重试。" });
+    sendJson(res, error.statusCode || 500, { error: error.statusCode ? error.message : "Word 暂时未生成，请稍后重试。" });
   }
 }
 
-function handlePaymentPlaceholder(req, res) {
+function handlePaymentStatus(req, res) {
   const session = requireSession(req, res);
   if (!session) return;
-  sendJson(res, 501, {
-    error: "收费功能待开发。当前上线初期，德语/英语结构稿和水印 PDF 暂时免费；人工翻译、逐校改写和专业审校可联系文书老师。",
-    paymentReady: false,
-    status: "待开发",
+  const payment = getPaymentConfiguration();
+  const copy = payment.freeTrial
+    ? {
+        title: "免费内测中",
+        message: "当前文书与匹配报告下载暂时免费；正式收费前会明确展示价格并由微信支付确认。",
+      }
+    : payment.ready
+      ? {
+          title: "微信支付已开放",
+          message: "请选择服务后通过微信支付完成付款；支付成功后权益会自动绑定到当前微信账号。",
+        }
+      : payment.configurationComplete
+        ? {
+            title: "支付资料已齐，待正式开启",
+            message: "支付接入资料和技术检查已通过；管理员开启前不会向用户发起付款。",
+          }
+        : {
+            title: "微信支付接入准备中",
+            message: "收费资料尚未全部完成。正式开放前不会要求用户直接向公司银行账户转账。",
+          };
+  sendJson(res, 200, {
+    ok: true,
+    paymentReady: payment.ready,
+    merchantConfigured: payment.merchantConfigured,
+    configurationComplete: payment.configurationComplete,
+    integrationPrepared: payment.integrationPrepared,
+    status: payment.status,
+    documentDownloadFree: MP_DOCUMENT_DOWNLOAD_FREE,
+    title: copy.title,
+    message: copy.message,
+    checklist: payment.checks.map(({ key, label, complete, sensitive }) => ({ key, label, complete, sensitive })),
+    missingKeys: payment.missingKeys,
+    products: payment.products,
+    entitlements: getEffectiveEntitlements(session),
   });
+}
+
+async function handlePaymentCreate(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return;
+  if (session.mode === "demo") {
+    sendJson(res, 400, { error: "演示账号不会发起真实付款。" });
+    return;
+  }
+  try {
+    const rawBody = await readBody(req);
+    const body = JSON.parse(rawBody || "{}");
+    const result = await paymentService.createOrder({
+      openid: session.openid,
+      productId: body.productId || body.feature,
+      clientRequestId: body.clientRequestId,
+    });
+    recordUsage(session, "payment.create", { productId: result.order.productId, amountFen: result.order.amountFen });
+    sendJson(res, 200, { ok: true, ...result });
+  } catch (error) {
+    if (isJsonParseError(error)) {
+      sendBadJson(res);
+      return;
+    }
+    const payment = getPaymentConfiguration();
+    console.warn("payment create failed:", error.wechatRequestId || "", error.message);
+    sendJson(res, error.statusCode || 500, {
+      error: error.statusCode ? error.message : "微信支付订单暂时未创建，请稍后重试。",
+      paymentReady: payment.ready,
+      configurationComplete: payment.configurationComplete,
+      status: payment.status,
+    });
+  }
+}
+
+function handlePaymentOrder(req, res, url) {
+  const session = requireSession(req, res);
+  if (!session) return;
+  const outTradeNo = normalizeBookingText(url.searchParams.get("outTradeNo") || "", 40);
+  if (!outTradeNo) {
+    sendJson(res, 400, { error: "缺少商户订单号。" });
+    return;
+  }
+  const order = paymentService.getOrder(session.openid, outTradeNo);
+  if (!order) {
+    sendJson(res, 404, { error: "未找到当前账号的支付订单。" });
+    return;
+  }
+  sendJson(res, 200, { ok: true, order, entitlements: getEffectiveEntitlements(session) });
+}
+
+async function handlePaymentNotification(req, res) {
+  try {
+    const rawBody = await readBody(req);
+    const result = await paymentService.handleNotification(req.headers, rawBody, ({ openid, feature }) => {
+      grantUserEntitlement(openid, feature);
+    });
+    sendJson(res, 200, { code: "SUCCESS", message: "成功", processed: result.processed });
+  } catch (error) {
+    console.error("payment notification failed:", error.message);
+    sendJson(res, error.statusCode || 500, { code: "FAIL", message: error.statusCode === 401 ? "签名验证失败" : "处理失败，请重试" });
+  }
+}
+
+function handleAdminPaymentOrders(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return;
+  if (!isAdminSession(session)) {
+    sendJson(res, 403, { error: "当前微信号没有支付订单查看权限。" });
+    return;
+  }
+  sendJson(res, 200, { ok: true, records: paymentService.listOrders() });
 }
 
 function sendAdminWebAsset(res, pathname) {
@@ -4150,7 +5283,7 @@ function sendAdminWebAsset(res, pathname) {
   fs.createReadStream(filePath).pipe(res);
 }
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
   if (req.method === "OPTIONS") {
@@ -4165,6 +5298,7 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "GET" && url.pathname === "/health") {
     const templateDiagnostics = getBookingTemplateDiagnostics();
+    const paymentConfiguration = getPaymentConfiguration();
     sendJson(res, 200, {
       ok: true,
       service: "liude-xiaozhan-miniprogram-backend",
@@ -4204,6 +5338,10 @@ const server = http.createServer((req, res) => {
       courseAdminSynchronized: true,
       courseDeleteEnabled: true,
       courseVideoDeleteEnabled: true,
+      courseVideoChunkUploadEnabled: true,
+      courseVideoMaxBytes: MP_MAX_COURSE_VIDEO_BYTES,
+      courseVideoChunkBytes: MP_COURSE_VIDEO_CHUNK_BYTES,
+      courseVideoStoragePersistent: externalPersistentDataDirConfigured(),
       adminWebEnabled: Boolean(MP_ADMIN_WEB_TOKEN && fs.existsSync(path.join(ADMIN_WEB_DIR, "index.html"))),
       courseMediaSigned: true,
       courseMediaSigningStable: Boolean(process.env.MP_MEDIA_SIGNING_SECRET || WECHAT_SECRET),
@@ -4223,14 +5361,28 @@ const server = http.createServer((req, res) => {
       documentTemplateVersion: DOCUMENT_TEMPLATE_VERSION,
       matchingPdfLayoutVersion: MATCHING_PDF_LAYOUT_VERSION,
       documentLogoWatermarkEnabled: fs.existsSync(DOCUMENT_LOGO_PATH),
+      documentPdfFontEmbedded: fs.existsSync(DOCUMENT_PDF_FONT_PATH),
+      documentForeignLanguageGuardEnabled: true,
+      documentDraftEngine: "privacy-safe-structured-language-v1",
       documentOutputTimezone: DOCUMENT_TIMEZONE,
       documentLanguages: ["de", "en"],
       documentGermanFormatCvEnabled: true,
       documentProfessionalReview: "人工咨询",
       courseDescriptionPublicEnabled: false,
-      paymentStatus: "待开发",
+      paymentStatus: paymentConfiguration.status,
+      paymentReady: paymentConfiguration.ready,
+      paymentMerchantConfigured: paymentConfiguration.merchantConfigured,
+      paymentConfigurationComplete: paymentConfiguration.configurationComplete,
+      paymentIntegrationPrepared: paymentConfiguration.integrationPrepared,
+      paymentMissingKeys: paymentConfiguration.missingKeys,
+      paymentProductCount: paymentConfiguration.products.length,
+      paymentOrderPersistenceConfigured: externalPersistentDataDirConfigured(),
+      paymentBankAccountExposedToClient: false,
       profileLockEnabled: true,
-      externalPersistentDataDirConfigured: path.resolve(MP_DATA_DIR) !== path.resolve(path.join(__dirname, "data")),
+      profileStructuredContactEnabled: true,
+      contactVerificationConfigured: false,
+      externalPersistentDataDirConfigured: externalPersistentDataDirConfigured(),
+      studentDataPersistenceRisk: !externalPersistentDataDirConfigured(),
     });
     return;
   }
@@ -4368,6 +5520,26 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/mp/admin/course-video/init") {
+    handleAdminCourseVideoInit(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/mp/admin/course-video/chunk") {
+    handleAdminCourseVideoChunk(req, res, url);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/mp/admin/course-video/complete") {
+    handleAdminCourseVideoComplete(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/mp/admin/course-video/abort") {
+    handleAdminCourseVideoAbort(req, res);
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/mp/admin/course-video/delete") {
     handleAdminCourseVideoDelete(req, res);
     return;
@@ -4444,7 +5616,27 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === "POST" && url.pathname === "/api/mp/payment/create") {
-    handlePaymentPlaceholder(req, res);
+    await handlePaymentCreate(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/mp/payment/status") {
+    handlePaymentStatus(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/mp/payment/order") {
+    handlePaymentOrder(req, res, url);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/mp/payment/notify") {
+    await handlePaymentNotification(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/mp/admin/payment-orders") {
+    handleAdminPaymentOrders(req, res);
     return;
   }
 
@@ -4463,6 +5655,7 @@ module.exports.testHelpers = {
   buildCustomerMessageWebhookContent,
   buildFallbackRecommendation,
   createBrandedDocx,
+  createCvTableDocx,
   createMatchingTablePdf,
   createWatermarkedPdf,
   clearSessions() {
