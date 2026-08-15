@@ -2597,7 +2597,602 @@ async function createRecommendation(profile = {}) {
   return buildStandaloneRecommendation(profile, transcriptSummary);
 }
 
+function containsCjkText(value) {
+  return /[\u3400-\u9fff]/u.test(String(value || ""));
+}
+
+function cleanDraftValue(value, maxLength = 8000) {
+  return String(value || "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, " ")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function foreignDirectValue(value, fallback = "", maxLength = 600) {
+  const text = cleanDraftValue(value, maxLength);
+  return text && !containsCjkText(text) ? text : fallback;
+}
+
+function corpusHas(corpus, patterns) {
+  return patterns.some((pattern) => (pattern instanceof RegExp ? pattern.test(corpus) : corpus.includes(pattern)));
+}
+
+const FOREIGN_DRAFT_DOMAINS = [
+  {
+    key: "construction",
+    patterns: [/工程造价/u, /土木/u, /建筑/u, /工程管理/u, /房地产/u, /城市/u, /\bBIM\b/i, /construction/i, /civil/i],
+    en: {
+      field: "construction management and the built environment",
+      target: "Construction and Real Estate Management",
+      courses: "engineering economics, construction management, cost planning, statistics, building technology and digital construction",
+      focus: "digital construction, life-cycle cost management, resilient urban development and data-supported project decisions",
+      career: "digital construction and project-cost management",
+    },
+    de: {
+      field: "Bau- und Immobilienmanagement",
+      target: "Bau- und Immobilienmanagement",
+      courses: "Bauökonomie, Baubetriebslehre, Kostenplanung, Statistik, Bautechnik und digitales Bauen",
+      focus: "digitales Bauen, Lebenszykluskosten, resiliente Stadtentwicklung und datenbasierte Projektentscheidungen",
+      career: "digitales Bauen und Projektkostenmanagement",
+    },
+  },
+  {
+    key: "computer",
+    patterns: [/计算机/u, /软件/u, /人工智能/u, /数据科学/u, /算法/u, /\bAI\b/i, /computer/i, /software/i, /data science/i],
+    en: {
+      field: "computer science and data-driven systems",
+      target: "Computer Science and Data Science",
+      courses: "programming, algorithms, databases, software engineering, mathematics and statistics",
+      focus: "reliable software systems, machine learning, data analysis and responsible digital innovation",
+      career: "software engineering and data-driven product development",
+    },
+    de: {
+      field: "Informatik und datengetriebene Systeme",
+      target: "Informatik und Data Science",
+      courses: "Programmierung, Algorithmen, Datenbanken, Softwaretechnik, Mathematik und Statistik",
+      focus: "zuverlässige Softwaresysteme, maschinelles Lernen, Datenanalyse und verantwortungsvolle digitale Innovation",
+      career: "Softwareentwicklung und datenbasierte Produktentwicklung",
+    },
+  },
+  {
+    key: "mechanical",
+    patterns: [/机械/u, /车辆/u, /汽车/u, /机电/u, /制造/u, /mechanical/i, /automotive/i, /manufacturing/i],
+    en: {
+      field: "mechanical and automotive engineering",
+      target: "Mechanical and Automotive Engineering",
+      courses: "engineering mechanics, design, manufacturing, control systems, mathematics and materials science",
+      focus: "digital product development, sustainable mobility, production systems and engineering simulation",
+      career: "engineering development and advanced manufacturing",
+    },
+    de: {
+      field: "Maschinenbau und Fahrzeugtechnik",
+      target: "Maschinenbau und Fahrzeugtechnik",
+      courses: "Technische Mechanik, Konstruktion, Fertigung, Regelungstechnik, Mathematik und Werkstoffkunde",
+      focus: "digitale Produktentwicklung, nachhaltige Mobilität, Produktionssysteme und technische Simulation",
+      career: "technische Entwicklung und moderne Fertigung",
+    },
+  },
+  {
+    key: "electrical",
+    patterns: [/电气/u, /电子/u, /自动化/u, /通信/u, /控制/u, /electrical/i, /electronic/i, /automation/i],
+    en: {
+      field: "electrical engineering and automation",
+      target: "Electrical Engineering and Automation",
+      courses: "circuit theory, electronics, control systems, signal processing, programming and mathematics",
+      focus: "intelligent control, embedded systems, sustainable energy and connected industrial systems",
+      career: "automation and intelligent electrical systems",
+    },
+    de: {
+      field: "Elektrotechnik und Automatisierung",
+      target: "Elektrotechnik und Automatisierung",
+      courses: "Schaltungstechnik, Elektronik, Regelungstechnik, Signalverarbeitung, Programmierung und Mathematik",
+      focus: "intelligente Regelung, eingebettete Systeme, nachhaltige Energie und vernetzte Industriesysteme",
+      career: "Automatisierung und intelligente elektrische Systeme",
+    },
+  },
+  {
+    key: "business",
+    patterns: [/经济/u, /金融/u, /商务/u, /管理/u, /市场/u, /会计/u, /business/i, /finance/i, /economics/i, /management/i],
+    en: {
+      field: "business, economics and management",
+      target: "Business and Management",
+      courses: "economics, accounting, finance, marketing, statistics and strategic management",
+      focus: "international management, evidence-based decisions, sustainable business and digital transformation",
+      career: "international management and business transformation",
+    },
+    de: {
+      field: "Wirtschafts- und Managementwissenschaften",
+      target: "Business und Management",
+      courses: "Volkswirtschaftslehre, Rechnungswesen, Finanzierung, Marketing, Statistik und strategisches Management",
+      focus: "internationales Management, evidenzbasierte Entscheidungen, nachhaltiges Wirtschaften und digitale Transformation",
+      career: "internationales Management und Unternehmenstransformation",
+    },
+  },
+  {
+    key: "design",
+    patterns: [/服装/u, /纺织/u, /时尚/u, /设计/u, /艺术/u, /design/i, /fashion/i, /textile/i],
+    en: {
+      field: "design, textiles and creative industries",
+      target: "Design and Textile Innovation",
+      courses: "design methodology, materials, visual communication, product development and project management",
+      focus: "sustainable materials, user-centred design, digital production and international creative practice",
+      career: "design development and sustainable creative industries",
+    },
+    de: {
+      field: "Design, Textilien und Kreativwirtschaft",
+      target: "Design und Textilinnovation",
+      courses: "Entwurfsmethodik, Materialkunde, visuelle Kommunikation, Produktentwicklung und Projektmanagement",
+      focus: "nachhaltige Materialien, nutzerzentriertes Design, digitale Produktion und internationale Gestaltungspraxis",
+      career: "Designentwicklung und nachhaltige Kreativwirtschaft",
+    },
+  },
+];
+
+const FOREIGN_UNIVERSITY_NAMES = [
+  {
+    patterns: [/北京建筑大学/u, /beijing university of civil engineering and architecture/i],
+    name: "Beijing University of Civil Engineering and Architecture",
+  },
+  { patterns: [/同济大学/u, /tongji university/i], name: "Tongji University" },
+  { patterns: [/浙江大学/u, /zhejiang university/i], name: "Zhejiang University" },
+  { patterns: [/上海交通大学/u, /shanghai jiao tong university/i], name: "Shanghai Jiao Tong University" },
+  { patterns: [/清华大学/u, /tsinghua university/i], name: "Tsinghua University" },
+  { patterns: [/北京大学/u, /peking university/i], name: "Peking University" },
+];
+
+function resolveForeignDomain(form = {}) {
+  const corpus = Object.values(form).map((value) => cleanDraftValue(value, 5000)).join("\n");
+  return (
+    FOREIGN_DRAFT_DOMAINS.find((domain) => corpusHas(corpus, domain.patterns)) || {
+      key: "general",
+      en: {
+        field: "the applicant's academic discipline",
+        target: "the selected academic programme",
+        courses: "the relevant core, methodological and interdisciplinary courses",
+        focus: "advanced subject knowledge, research methodology and practice-oriented problem solving",
+        career: "the chosen professional field",
+      },
+      de: {
+        field: "dem bisherigen Studienfach",
+        target: "dem gewählten Studiengang",
+        courses: "den relevanten Kern-, Methoden- und interdisziplinären Modulen",
+        focus: "vertieften Fachkenntnissen, Forschungsmethoden und praxisorientierter Problemlösung",
+        career: "dem angestrebten Berufsfeld",
+      },
+    }
+  );
+}
+
+function resolveForeignUniversity(value, language) {
+  const text = cleanDraftValue(value, 2000);
+  const known = FOREIGN_UNIVERSITY_NAMES.find((item) => corpusHas(text, item.patterns));
+  if (known) return known.name;
+  const direct = foreignDirectValue(text, "", 240);
+  if (direct && /university|hochschule|universität|institute|college/i.test(direct)) return direct;
+  return language === "de" ? "einer anerkannten Hochschule in China" : "a recognised university in China";
+}
+
+function extractAcademicScore(value, language) {
+  const text = cleanDraftValue(value, 2000);
+  const gpa = text.match(/\bGPA\s*[:：]?\s*(\d(?:\.\d{1,2})?)(?:\s*\/\s*(\d(?:\.\d{1,2})?))?/i);
+  if (gpa) return `GPA ${gpa[1]}${gpa[2] ? `/${gpa[2]}` : ""}`;
+  const average = text.match(/(?:均分|平均分|average(?:\s+grade)?)\s*[:：]?\s*(\d{2}(?:\.\d{1,2})?)/i);
+  if (average) return language === "de" ? `Durchschnittsnote ${average[1]}/100` : `average grade ${average[1]}/100`;
+  return "";
+}
+
+function extractAcademicPeriod(value) {
+  const text = cleanDraftValue(value, 3000);
+  const match = text.match(/\b((?:19|20)\d{2})\s*(?:[-–—~至到\/]\s*)?((?:19|20)\d{2})\b/);
+  return match ? `${match[1]}–${match[2]}` : "";
+}
+
+function resolveApplicationLevel(value, language) {
+  const text = cleanDraftValue(value, 300);
+  if (/本科|bachelor/i.test(text)) return language === "de" ? "Bachelorbewerbung" : "Bachelor's application";
+  return language === "de" ? "Masterbewerbung" : "Master's application";
+}
+
+function resolveTargetProgramme(form, domain, language) {
+  const direct = foreignDirectValue(form.targetProgram, "", 360);
+  if (direct) return direct;
+  const degree = resolveApplicationLevel(form.applicationLevel, language);
+  if (language === "de") {
+    return `${domain.de.target} (${degree})`;
+  }
+  return `${domain.en.target} (${degree})`;
+}
+
+function resolveLatinApplicantName(form = {}) {
+  return (
+    foreignDirectValue(form.latinName, "", 120) ||
+    foreignDirectValue(form.englishName, "", 120) ||
+    foreignDirectValue(form.name, "", 120) ||
+    "Applicant"
+  );
+}
+
+function resolveCity(value, language) {
+  const text = cleanDraftValue(value, 300);
+  const cityMap = [
+    [/杭州/u, "Hangzhou"],
+    [/北京/u, "Beijing"],
+    [/上海/u, "Shanghai"],
+    [/广州/u, "Guangzhou"],
+    [/深圳/u, "Shenzhen"],
+    [/南京/u, "Nanjing"],
+    [/成都/u, "Chengdu"],
+    [/武汉/u, "Wuhan"],
+    [/西安/u, "Xi'an"],
+  ];
+  const known = cityMap.find(([pattern]) => pattern.test(text));
+  if (known) return known[1];
+  return foreignDirectValue(text, language === "de" ? "China" : "China", 120);
+}
+
+function resolveCitizenship(value, language) {
+  const text = cleanDraftValue(value, 300);
+  if (/中国|china|chinese/i.test(text)) return language === "de" ? "chinesisch" : "Chinese";
+  return foreignDirectValue(text, language === "de" ? "nicht angegeben" : "not stated", 120);
+}
+
+function resolveBirthInfo(value, language) {
+  const text = cleanDraftValue(value, 500);
+  const date = text.match(/\b((?:19|20)\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})/);
+  const city = resolveCity(text, language);
+  if (!date) return city;
+  const formatted = language === "de"
+    ? `${String(date[3]).padStart(2, "0")}.${String(date[2]).padStart(2, "0")}.${date[1]}`
+    : `${date[1]}-${String(date[2]).padStart(2, "0")}-${String(date[3]).padStart(2, "0")}`;
+  return `${formatted}, ${city}`;
+}
+
+function extractCredentialSummary(value, language) {
+  const text = cleanDraftValue(value, 2000);
+  const tokens = [];
+  [
+    /\bIELTS(?:\s*(?:Academic)?\s*[:：]?\s*\d(?:\.\d)?)?/gi,
+    /\bTOEFL(?:\s*(?:iBT)?\s*[:：]?\s*\d{2,3})?/gi,
+    /\bTestDaF(?:\s*[:：]?\s*(?:TDN\s*)?\d)?/gi,
+    /\bDSH(?:\s*[- ]?\d)?/gi,
+    /\bGRE(?:\s*[:：]?\s*\d{3})?/gi,
+    /\bGMAT(?:\s*[:：]?\s*\d{3})?/gi,
+    /\bGerman\s+[ABC][12]\b/gi,
+    /\bEnglish\s+[ABC][12]\b/gi,
+    /\bDeutsch\s+[ABC][12]\b/gi,
+  ].forEach((pattern) => {
+    const matches = text.match(pattern) || [];
+    tokens.push(...matches);
+  });
+  if (tokens.length) return uniqueStrings(tokens).join(" · ");
+  const direct = foreignDirectValue(text, "", 420);
+  if (direct) return direct;
+  return language === "de"
+    ? "Sprachprüfung geplant; Ergebnis und Prüfungsdatum vor der Einreichung ergänzen."
+    : "Language test planned; add the result and test date before submission.";
+}
+
+function extractSoftware(value) {
+  const text = cleanDraftValue(value, 4000);
+  const candidates = [
+    "AutoCAD",
+    "Revit",
+    "BIM",
+    "Excel",
+    "Power BI",
+    "Python",
+    "Java",
+    "C++",
+    "MATLAB",
+    "R",
+    "SPSS",
+    "Adobe Photoshop",
+    "Adobe Illustrator",
+    "SolidWorks",
+    "CATIA",
+    "Stata",
+    "ArcGIS",
+  ];
+  return candidates.filter((item) => new RegExp(`\\b${item.replace(/[+]/g, "\\+")}\\b`, "i").test(text));
+}
+
+function buildForeignProjectStatements(form, domain, language) {
+  const corpus = [form.projectsInternships, form.researchProjects, form.professionalExperience, form.education]
+    .map((value) => cleanDraftValue(value, 6000))
+    .join("\n");
+  const statements = [];
+  if (corpusHas(corpus, [/海绵城市/u, /sponge city/i, /\bANP\b/i, /熵权/u, /云模型/u])) {
+    statements.push(
+      language === "de"
+        ? "In einem Forschungsprojekt zur Resilienz von Schwammstädten entwickelte und gewichtete ich ein Indikatorensystem; dabei setzte ich unter anderem ANP, Entropiegewichtung und Cloud-Modelle ein."
+        : "In a research project on sponge-city resilience, I developed and weighted an indicator system using methods including ANP, entropy weighting and cloud models."
+    );
+  }
+  if (corpusHas(corpus, [/\bDEMATEL\b/i, /\bAISM\b/i, /\bABM\b/i, /韧性/u, /resilien/i])) {
+    statements.push(
+      language === "de"
+        ? "Ein weiteres Projekt untersuchte Einflussbeziehungen und Entwicklungspfade resilienter Quartiere mit DEMATEL, AISM und agentenbasierter Modellierung."
+        : "A further project examined influence relationships and development paths for resilient communities using DEMATEL, AISM and agent-based modelling."
+    );
+  }
+  if (corpusHas(corpus, [/\bBIM\b/i, /造价/u, /计量/u, /工程量/u, /cost/i])) {
+    statements.push(
+      language === "de"
+        ? "In Projekt- und Praktikumsaufgaben verband ich BIM-gestützte Mengenermittlung mit Kostenplanung und der Prüfung technischer Unterlagen."
+        : "In project and internship assignments, I combined BIM-based quantity take-off with cost planning and the review of technical documentation."
+    );
+  }
+  if (corpusHas(corpus, [/亲生命/u, /biophilic/i, /毕业论文/u, /thesis/i])) {
+    statements.push(
+      language === "de"
+        ? "Meine Abschlussarbeit vertiefte die Verbindung zwischen nutzerorientierter Planung, Immobilienentwicklung und nachhaltiger Gestaltung."
+        : "My thesis explored the connection between user-centred planning, real-estate development and sustainable design."
+    );
+  }
+  if (!statements.length) {
+    statements.push(
+      language === "de"
+        ? `Die eingereichten Angaben dokumentieren Projekt-, Praktikums- oder Forschungserfahrung im Bereich ${domain.de.field}. Aufgaben, Zeitraum und Ergebnisse werden vor der Einreichung nochmals anhand der Nachweise präzisiert.`
+        : `The submitted information documents project, internship or research experience in ${domain.en.field}. Responsibilities, dates and results will be verified against supporting records before submission.`
+    );
+  }
+  return statements;
+}
+
+function buildForeignExperienceStatements(form, domain, language) {
+  const corpus = [form.professionalExperience, form.projectsInternships].map((value) => cleanDraftValue(value, 5000)).join("\n");
+  if (corpusHas(corpus, [/\bBIM\b/i, /造价/u, /工程量/u, /cost/i])) {
+    return language === "de"
+      ? "Praktische Erfahrung in Mengenermittlung, Kostenprüfung und digitaler Projektkoordination; technische Unterlagen wurden strukturiert ausgewertet und Ergebnisse nachvollziehbar dokumentiert."
+      : "Practical experience in quantity take-off, cost review and digital project coordination, including structured analysis of technical documents and traceable reporting of results.";
+  }
+  return language === "de"
+    ? `Praxis- und Projekterfahrung mit Bezug zu ${domain.de.field}; konkrete Zeiträume, Organisationen und quantifizierbare Ergebnisse sind vor der Einreichung zu prüfen.`
+    : `Practical and project experience related to ${domain.en.field}; exact dates, organisations and measurable outcomes must be verified before submission.`;
+}
+
+function buildForeignSkills(form, domain, language) {
+  const software = extractSoftware([form.skills, form.projectsInternships, form.researchProjects, form.professionalExperience].join("\n"));
+  const softwareText = software.length ? software.join(", ") : language === "de" ? "gängige Office- und Fachsoftware" : "standard office and discipline-specific software";
+  return language === "de"
+    ? `${softwareText}; strukturierte Datenanalyse, technische Dokumentation, Teamarbeit und selbstständige Projektorganisation.`
+    : `${softwareText}; structured data analysis, technical documentation, teamwork and independent project organisation.`;
+}
+
+function buildForeignMotivationDraft(form, language, generatedAt) {
+  const domain = resolveForeignDomain(form);
+  const copy = language === "de" ? domain.de : domain.en;
+  const name = resolveLatinApplicantName(form);
+  const university = resolveForeignUniversity(form.schoolMajor, language);
+  const period = extractAcademicPeriod(form.schoolMajor);
+  const score = extractAcademicScore(form.schoolMajor, language);
+  const target = resolveTargetProgramme(form, domain, language);
+  const level = resolveApplicationLevel(form.applicationLevel, language);
+  const city = resolveCity(form.currentCity, language);
+  const email = foreignDirectValue(form.email, language === "de" ? "bitte ergänzen" : "please add", 160);
+  const phone = foreignDirectValue(form.phone, language === "de" ? "bitte ergänzen" : "please add", 80);
+  const projects = buildForeignProjectStatements(form, domain, language);
+  const requirements = foreignDirectValue(
+    form.schoolRequirements,
+    language === "de"
+      ? "Die offiziellen Vorgaben zu Umfang, Fragestellung und einzureichenden Nachweisen werden für jeden Zielstudiengang gesondert geprüft."
+      : "Official requirements concerning length, prompts and supporting documents will be checked separately for each target programme.",
+    900
+  );
+  if (language === "de") {
+    return [
+      "MOTIVATIONSSCHREIBEN",
+      `Erstellt am: ${generatedAt}`,
+      "Hinweis: Dieser lokal und KI-gestützt strukturierte Entwurf dient der Bewerbungsvorbereitung. Alle Fakten, Eigennamen und offiziellen Studiengangsanforderungen sind vor der Einreichung zu prüfen.",
+      "",
+      name,
+      city,
+      `Telefon: ${phone}`,
+      `E-Mail: ${email}`,
+      "",
+      `Bewerbungsniveau: ${level}`,
+      `Zielstudiengang: ${target}`,
+      `Studiengangsspezifische Prüfung: ${requirements}`,
+      "",
+      "Sehr geehrte Damen und Herren,",
+      "",
+      "1. Einleitung",
+      `durch mein Studium im Bereich ${copy.field} an ${university}${period ? ` im Zeitraum ${period}` : ""}${
+        score ? ` mit ${score}` : ""
+      } habe ich eine fundierte fachliche und methodische Grundlage erworben. Mit der Bewerbung für ${target} möchte ich diese Kenntnisse gezielt vertiefen und stärker mit internationalen, digitalen und praxisorientierten Ansätzen verbinden.`,
+      "",
+      "2. Akademischer und beruflicher Hintergrund",
+      `Mein bisheriges Studium umfasst insbesondere ${copy.courses}. Diese Grundlagen helfen mir, fachliche Anforderungen systematisch zu analysieren, Daten nachvollziehbar auszuwerten und Entscheidungen transparent zu begründen.`,
+      "",
+      ...projects,
+      "",
+      "3. Warum ich in Deutschland studieren möchte",
+      `Deutschland überzeugt mich durch die enge Verbindung von wissenschaftlicher Ausbildung, anwendungsbezogener Forschung und verantwortungsvoller Berufspraxis. Besonders relevant sind für mich ${copy.focus}. Die klare Modulstruktur und der Austausch mit Lehrenden, Unternehmen und internationalen Studierenden bieten dafür ein geeignetes Lernumfeld.`,
+      "",
+      "4. Warum dieser Studiengang",
+      `Der Studiengang ${target} entspricht meinem Ziel, fachliche Grundlagen mit ${copy.focus} zu verbinden. Vor der Einreichung werde ich die Modulwahl, Forschungsgruppen und studiengangsspezifischen Anforderungen nochmals anhand der offiziellen Hochschulquellen präzisieren.`,
+      "",
+      "5. Meine Stärken für den Studiengang",
+      `Ich bringe analytisches Denken, eine strukturierte Arbeitsweise und Erfahrung in der Verbindung von Theorie und Praxis mit. Aus meinen bisherigen Studien- und Projektaufgaben bin ich es gewohnt, komplexe Anforderungen zu gliedern, Methoden begründet auszuwählen und Ergebnisse nachvollziehbar zu dokumentieren.`,
+      "",
+      "6. Zukunftspläne",
+      `Im Zielstudiengang möchte ich mein Profil in ${copy.focus} weiterentwickeln. Nach dem Abschluss strebe ich eine verantwortungsvolle Tätigkeit im Bereich ${copy.career} an und möchte internationale Methoden in anspruchsvollen Projekten anwenden.`,
+      "",
+      "Mit freundlichen Grüßen",
+      name,
+    ].join("\n");
+  }
+  return [
+    "MOTIVATION LETTER",
+    `Generated: ${generatedAt}`,
+    "Note: This locally generated, AI-assisted structured draft is intended for application preparation. Verify every fact, proper name and official programme requirement before submission.",
+    "",
+    name,
+    city,
+    `Phone: ${phone}`,
+    `Email: ${email}`,
+    "",
+    `Application level: ${level}`,
+    `Target programme: ${target}`,
+    `Programme-specific review: ${requirements}`,
+    "",
+    "Dear Admissions Committee,",
+    "",
+    "1. Introduction",
+    `My studies in ${copy.field} at ${university}${period ? ` from ${period}` : ""}${
+      score ? ` with an ${score}` : ""
+    } have given me a sound academic and methodological foundation. By applying for ${target}, I want to deepen this knowledge and connect it more closely with international, digital and practice-oriented approaches.`,
+    "",
+    "2. Academic and Professional Background",
+    `My academic preparation includes ${copy.courses}. These foundations have trained me to analyse technical requirements systematically, evaluate data transparently and explain decisions in a traceable manner.`,
+    "",
+    ...projects,
+    "",
+    "3. Why I Want to Study in Germany",
+    `Germany appeals to me because of the close link between academic education, applied research and responsible professional practice. I am particularly interested in ${copy.focus}. A clear module structure and collaboration with lecturers, industry partners and international students provide an appropriate environment for this development.`,
+    "",
+    "4. Why This Programme",
+    `The ${target} programme matches my goal of connecting a solid disciplinary foundation with ${copy.focus}. Before submission, I will refine the module choices, relevant research groups and programme-specific requirements using the university's official sources.`,
+    "",
+    "5. My Strengths for This Programme",
+    "I bring analytical thinking, a structured approach to work and experience in connecting theory with practice. Through previous academic and project assignments, I have learned to break down complex requirements, select methods with clear justification and document results in a traceable manner.",
+    "",
+    "6. Future Plans",
+    `Within the target programme, I intend to develop a stronger profile in ${copy.focus}. After graduation, I plan to pursue a responsible role in ${copy.career} and apply international methods to demanding projects.`,
+    "",
+    "Yours faithfully,",
+    name,
+  ].join("\n");
+}
+
+function buildForeignCvDraft(form, language, generatedAt) {
+  const domain = resolveForeignDomain(form);
+  const copy = language === "de" ? domain.de : domain.en;
+  const name = resolveLatinApplicantName(form);
+  const university = resolveForeignUniversity(form.education, language);
+  const period = extractAcademicPeriod(form.education);
+  const score = extractAcademicScore(form.education, language);
+  const city = resolveCity(form.currentCity, language);
+  const citizenship = resolveCitizenship(form.citizenship, language);
+  const birthInfo = resolveBirthInfo(form.birthInfo, language);
+  const projects = buildForeignProjectStatements(form, domain, language).map((item) => `• ${item}`);
+  const credentials = extractCredentialSummary(form.tests, language);
+  const experience = buildForeignExperienceStatements(form, domain, language);
+  const skills = buildForeignSkills(form, domain, language);
+  const exchange = foreignDirectValue(form.exchange, "", 700);
+  const publications = foreignDirectValue(form.publications, "", 700);
+  const honours = foreignDirectValue(form.honors, "", 700);
+  const activities = foreignDirectValue(form.activities, "", 700);
+  if (language === "de") {
+    return [
+      "LEBENSLAUF",
+      `Erstellt am: ${generatedAt}`,
+      "Hinweis: Dieser lokal und KI-gestützt strukturierte Lebenslauf ist ein prüfbarer Entwurf. Daten, Eigennamen, Zeiträume und Nachweise sind vor der Einreichung abzugleichen.",
+      "",
+      "PERSÖNLICHE DATEN",
+      `Name: ${name}`,
+      `E-Mail: ${foreignDirectValue(form.email, "bitte ergänzen", 160)}`,
+      `Telefon: ${foreignDirectValue(form.phone, "bitte ergänzen", 80)}`,
+      `Wohnort: ${city}`,
+      `Staatsangehörigkeit: ${citizenship}`,
+      `Geburtsdatum und -ort: ${birthInfo}`,
+      "",
+      "AUSBILDUNG",
+      `${period ? `${period} · ` : ""}${university}`,
+      `Studienbereich: ${copy.field}${score ? ` · ${score}` : ""}`,
+      `Fachliche Schwerpunkte: ${copy.courses}.`,
+      "",
+      ...(exchange ? ["AUSLANDS- / SOMMERSCHULERFAHRUNG", exchange, ""] : []),
+      "SPRACHKENNTNISSE UND STANDARDISIERTE TESTS",
+      credentials,
+      "",
+      "BERUFS- UND PRAKTIKUMSERFAHRUNG",
+      `• ${experience}`,
+      "",
+      "FORSCHUNG, PROJEKTE UND ABSCHLUSSARBEIT",
+      ...projects,
+      "",
+      ...(publications ? ["PUBLIKATIONEN", publications, ""] : []),
+      ...(honours ? ["AUSZEICHNUNGEN", honours, ""] : []),
+      ...(activities ? ["AUSSERUNIVERSITÄRES ENGAGEMENT", activities, ""] : []),
+      "KENNTNISSE, ZERTIFIKATE UND INTERESSEN",
+      skills,
+    ].join("\n");
+  }
+  return [
+    "CURRICULUM VITAE",
+    `Generated: ${generatedAt}`,
+    "Note: This locally generated, AI-assisted structured CV is a reviewable draft. Check all dates, proper names and supporting records before submission.",
+    "",
+    "PERSONAL DETAILS",
+    `Name: ${name}`,
+    `Email: ${foreignDirectValue(form.email, "please add", 160)}`,
+    `Phone: ${foreignDirectValue(form.phone, "please add", 80)}`,
+    `Current city: ${city}`,
+    `Citizenship: ${citizenship}`,
+    `Date and place of birth: ${birthInfo}`,
+    "",
+    "EDUCATION",
+    `${period ? `${period} · ` : ""}${university}`,
+    `Field of study: ${copy.field}${score ? ` · ${score}` : ""}`,
+    `Academic focus: ${copy.courses}.`,
+    "",
+    ...(exchange ? ["EXCHANGE / SUMMER SCHOOL", exchange, ""] : []),
+    "LANGUAGES AND STANDARDISED TESTS",
+    credentials,
+    "",
+    "PROFESSIONAL EXPERIENCE",
+    `• ${experience}`,
+    "",
+    "RESEARCH, PROJECTS AND THESIS",
+    ...projects,
+    "",
+    ...(publications ? ["PUBLICATIONS", publications, ""] : []),
+    ...(honours ? ["HONOURS AND AWARDS", honours, ""] : []),
+    ...(activities ? ["EXTRACURRICULAR ACTIVITIES", activities, ""] : []),
+    "SKILLS, CERTIFICATES AND INTERESTS",
+    skills,
+  ].join("\n");
+}
+
+function createForeignApplicationDraft(body = {}) {
+  const toolKey = body.toolKey === "cv" ? "cv" : "motivation";
+  const language = body.language === "en" ? "en" : "de";
+  const form = body.form && typeof body.form === "object" && !Array.isArray(body.form) ? body.form : {};
+  const now = new Date();
+  const generatedAt =
+    language === "de"
+      ? new Intl.DateTimeFormat("de-DE", { dateStyle: "short", timeStyle: "medium", timeZone: "Asia/Shanghai" }).format(now)
+      : new Intl.DateTimeFormat("en-GB", { dateStyle: "short", timeStyle: "medium", timeZone: "Asia/Shanghai" }).format(now);
+  const draft =
+    toolKey === "cv"
+      ? buildForeignCvDraft(form, language, generatedAt)
+      : buildForeignMotivationDraft(form, language, generatedAt);
+  return {
+    ok: true,
+    draft,
+    language,
+    toolKey,
+    foreignLanguageReady: !containsCjkText(draft),
+    source: "privacy-safe-structured-language-v1",
+    warnings:
+      resolveLatinApplicantName(form) === "Applicant"
+        ? [
+            language === "de"
+              ? "Bitte ergänzen Sie den lateinisch geschriebenen Namen genau wie im Reisepass."
+              : "Add the applicant's Latin-script name exactly as shown in the passport.",
+          ]
+        : [],
+  };
+}
+
 function createMaterialDraft(body = {}) {
+  if (["motivation", "cv"].includes(body.toolKey) && ["de", "en"].includes(body.language)) {
+    return createForeignApplicationDraft(body);
+  }
   const material = body.material || {};
   const profile = body.workspace?.profile || {};
   const context = body.workspace?.context || {};

@@ -74,6 +74,7 @@
   async function loadCourses() {
     const payload = await api("/api/mp/admin/courses");
     state.courses = payload.records || [];
+    $("courseStorageNote").textContent = `${payload.storageNote || "课程管理与小程序使用同一数据源。"} 上传时会显示真实进度；正式长课建议使用云点播。`;
     $("coursesList").innerHTML = state.courses.length ? state.courses.map(courseHtml).join("") : '<p class="meta">暂无课程。</p>';
   }
 
@@ -111,6 +112,12 @@
     $("statsList").innerHTML = `<div class="stats-grid">${Object.entries(labels).map(([key, label]) => `<div class="stat"><strong>${escapeHtml(summary[key] || 0)}</strong><span>${label}</span></div>`).join("")}</div>`;
   }
 
+  async function loadPayments() {
+    const payload = await api("/api/mp/admin/payment-orders");
+    const statusLabels = { PAID: "已支付", PENDING: "待确认", CREATED: "创建中", CREATE_FAILED: "创建失败" };
+    $("paymentsList").innerHTML = (payload.records || []).map((item) => `<article class="card"><div class="card-head"><h3>${escapeHtml(item.productTitle || item.productId || "支付订单")}</h3><span class="badge">${escapeHtml(statusLabels[item.status] || item.status || "未知")}</span></div><p class="meta">金额：${escapeHtml(item.priceText || "-")} · 用户标识：${escapeHtml(item.storageKey || "-")}</p><p class="meta">商户订单号：${escapeHtml(item.outTradeNo || "-")}</p><p class="meta">创建：${escapeHtml(item.createdAt || "-")}${item.paidAt ? ` · 支付：${escapeHtml(item.paidAt)}` : ""}</p></article>`).join("") || '<p class="meta">暂无支付订单。</p>';
+  }
+
   async function loadResource(resource) {
     setMessage("正在读取数据…", true);
     try {
@@ -118,6 +125,7 @@
       if (resource === "bookings") await loadBookings();
       if (resource === "uploads") await loadUploads();
       if (resource === "messages") await loadMessages();
+      if (resource === "payments") await loadPayments();
       if (resource === "stats") await loadStats();
       setMessage("数据已更新。", true);
     } catch (error) {
@@ -152,27 +160,58 @@
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function fileToDataUrl(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = () => reject(new Error("视频读取失败。"));
-      reader.readAsDataURL(file);
+  async function apiBinary(path, data) {
+    const response = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream", Authorization: `Bearer ${state.token}` },
+      body: data,
     });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || `上传失败：${response.status}`);
+    return payload;
   }
 
   async function uploadVideo() {
     const file = $("courseVideoFile").files[0];
     if (!file) throw new Error("请先选择本地视频。" );
-    if (file.size > 35 * 1024 * 1024) throw new Error("测试视频不能超过 35MB。" );
-    setMessage("正在上传视频，请勿关闭页面…", true);
+    if (file.size > 512 * 1024 * 1024) throw new Error("单个视频不能超过 512MB；正式长课请使用云点播链接。" );
+    if (!/\.(mp4|mov|m4v)$/i.test(file.name)) throw new Error("课程视频仅支持 MP4、MOV、M4V。" );
+    setMessage("正在建立分片上传任务…", true);
     setVideoStatus({ uploading: true });
-    const content = await fileToDataUrl(file);
-    const payload = await api("/api/mp/admin/course-video", { method: "POST", body: JSON.stringify({ name: file.name, content }) });
-    $("courseVideoUrl").value = payload.videoUrl || "";
-    setVideoStatus({ ...payload, justUploaded: true });
-    $("courseVideoFile").value = "";
-    setMessage("视频已上传并填入课程地址。请继续保存课程。", true);
+    let uploadId = "";
+    try {
+      const init = await api("/api/mp/admin/course-video/init", {
+        method: "POST",
+        body: JSON.stringify({ name: file.name, size: file.size, mimeType: file.type || "video/mp4" }),
+      });
+      uploadId = init.uploadId;
+      const chunkSize = Number(init.chunkSize || 4 * 1024 * 1024);
+      let offset = 0;
+      while (offset < file.size) {
+        const chunk = await file.slice(offset, Math.min(file.size, offset + chunkSize)).arrayBuffer();
+        const chunkResult = await apiBinary(`/api/mp/admin/course-video/chunk?uploadId=${encodeURIComponent(uploadId)}&offset=${offset}`, chunk);
+        offset = Number(chunkResult.received || offset + chunk.byteLength);
+        const progress = Math.min(100, Math.round((offset / file.size) * 100));
+        setMessage(`正在上传视频 ${progress}%（${formatBytes(offset)} / ${formatBytes(file.size)}）`, true);
+        setVideoStatus({ uploading: true });
+      }
+      const payload = await api("/api/mp/admin/course-video/complete", {
+        method: "POST",
+        body: JSON.stringify({ uploadId }),
+      });
+      $("courseVideoUrl").value = payload.videoUrl || "";
+      setVideoStatus({ ...payload, justUploaded: true });
+      $("courseVideoFile").value = "";
+      setMessage(payload.storagePersistent === false
+        ? "视频已上传。请保存课程；当前未配置持久化存储，重新部署后文件可能丢失。"
+        : "视频已上传并填入课程地址。请继续保存课程。", true);
+    } catch (error) {
+      if (uploadId) {
+        api("/api/mp/admin/course-video/abort", { method: "POST", body: JSON.stringify({ uploadId }) }).catch(() => {});
+      }
+      setVideoStatus({ videoUrl: $("courseVideoUrl").value });
+      throw error;
+    }
   }
 
   async function removeVideo() {
