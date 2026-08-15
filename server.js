@@ -43,6 +43,8 @@ const MP_USAGE_FILE = process.env.MP_USAGE_FILE || path.join(MP_DATA_DIR, "usage
 const MP_MESSAGES_FILE = process.env.MP_MESSAGES_FILE || path.join(MP_DATA_DIR, "messages.jsonl");
 const MP_STUDENT_UPLOAD_DIR = process.env.MP_STUDENT_UPLOAD_DIR || path.join(MP_DATA_DIR, "student-uploads");
 const MP_COURSE_VIDEO_DIR = process.env.MP_COURSE_VIDEO_DIR || path.join(MP_DATA_DIR, "course-videos");
+const BUNDLED_COURSE_VIDEO_DIR = path.join(__dirname, "assets", "course-videos");
+const BUNDLED_GERMAN_COURSE_VIDEO_FILE = "german-course.mp4";
 const MP_MAX_STORED_FILE_BYTES = Number(process.env.MP_MAX_STORED_FILE_BYTES || 12 * 1024 * 1024);
 const MP_MAX_COURSE_VIDEO_BYTES = Number(process.env.MP_MAX_COURSE_VIDEO_BYTES || 512 * 1024 * 1024);
 const MP_COURSE_VIDEO_CHUNK_BYTES = Math.max(
@@ -1133,19 +1135,33 @@ function getLocalCourseVideoFile(videoUrl) {
   }
 }
 
+function resolveCourseVideoFile(fileName) {
+  const safeName = safeFileName(fileName, "");
+  if (!safeName) return { fileName: "", filePath: "", exists: false, size: 0, bundled: false };
+  const roots = [
+    { root: MP_COURSE_VIDEO_DIR, bundled: false },
+    { root: BUNDLED_COURSE_VIDEO_DIR, bundled: true },
+  ];
+  for (const candidate of roots) {
+    const root = path.resolve(candidate.root);
+    const filePath = path.resolve(candidate.root, safeName);
+    const insideRoot = filePath.startsWith(`${root}${path.sep}`);
+    if (!insideRoot || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) continue;
+    return {
+      fileName: safeName,
+      filePath,
+      exists: true,
+      size: fs.statSync(filePath).size,
+      bundled: candidate.bundled,
+    };
+  }
+  return { fileName: safeName, filePath: "", exists: false, size: 0, bundled: false };
+}
+
 function getCourseVideoFileInfo(videoUrl) {
   const fileName = getLocalCourseVideoFile(videoUrl);
   if (!fileName) return { fileName: "", filePath: "", exists: false, size: 0 };
-  const videoRoot = path.resolve(MP_COURSE_VIDEO_DIR);
-  const filePath = path.resolve(MP_COURSE_VIDEO_DIR, fileName);
-  const insideVideoRoot = filePath.startsWith(`${videoRoot}${path.sep}`);
-  const exists = insideVideoRoot && fs.existsSync(filePath) && fs.statSync(filePath).isFile();
-  return {
-    fileName,
-    filePath: insideVideoRoot ? filePath : "",
-    exists,
-    size: exists ? fs.statSync(filePath).size : 0,
-  };
+  return resolveCourseVideoFile(fileName);
 }
 
 function isAllowedCourseUrl(value, allowLocalVideo = false) {
@@ -1198,12 +1214,12 @@ function sendCourseVideo(req, res, fileName, url) {
     sendJson(res, 403, { error: "课程播放链接已过期或不属于当前微信账号，请返回课程页重新打开。" });
     return;
   }
-  const filePath = path.resolve(MP_COURSE_VIDEO_DIR, safeName);
-  const videoRoot = path.resolve(MP_COURSE_VIDEO_DIR);
-  if (!(filePath === videoRoot || filePath.startsWith(`${videoRoot}${path.sep}`)) || !fs.existsSync(filePath)) {
+  const videoInfo = resolveCourseVideoFile(safeName);
+  if (!videoInfo.exists || !videoInfo.filePath) {
     sendJson(res, 404, { error: "视频不存在。" });
     return;
   }
+  const filePath = videoInfo.filePath;
   const ext = path.extname(safeName);
   const stat = fs.statSync(filePath);
   const range = String(req.headers.range || "");
@@ -1268,6 +1284,21 @@ const DEFAULT_COURSES = [
     noRecord: true,
     createdAt: "2026-07-05T00:00:00.000Z",
   },
+  {
+    id: "course_recorded_german_sample",
+    type: "recorded",
+    title: "德语网课：入门示范课",
+    summary: "德语录播课程示范视频，课程权限绑定当前微信账号，仅支持在线播放。",
+    tags: ["录播课", "德语课程"],
+    status: "published",
+    videoUrl: getCourseVideoPath(BUNDLED_GERMAN_COURSE_VIDEO_FILE),
+    liveUrl: "",
+    startAt: "",
+    duration: "视频课程",
+    noDownload: true,
+    noRecord: true,
+    createdAt: "2026-08-15T00:00:00.000Z",
+  },
 ];
 
 function readCourseRecords() {
@@ -1295,7 +1326,7 @@ function deleteCourseVideoFileIfUnused(fileName) {
   const stillUsed = readCourseRecords().some((course) => getLocalCourseVideoFile(course.videoUrl) === fileName);
   if (stillUsed) return false;
   const info = getCourseVideoFileInfo(getCourseVideoPath(fileName));
-  if (!info.exists || !info.filePath) return false;
+  if (!info.exists || !info.filePath || info.bundled) return false;
   fs.unlinkSync(info.filePath);
   return true;
 }
@@ -1324,7 +1355,7 @@ function sanitizeCourse(course, session, admin = false, req = null) {
     videoUrl: hasVideo ? videoUrl : "",
     hasVideo,
     videoConfigured: Boolean(rawVideoUrl),
-    videoStorage: localVideo.fileName ? "local" : rawVideoUrl ? "external" : "none",
+    videoStorage: localVideo.fileName ? (localVideo.bundled ? "bundled" : "local") : rawVideoUrl ? "external" : "none",
     videoExists: localVideo.fileName ? localVideo.exists : Boolean(rawVideoUrl),
     liveUrl: course.liveUrl || "",
     noDownload: course.noDownload !== false,
@@ -5342,6 +5373,12 @@ const server = http.createServer(async (req, res) => {
       courseVideoMaxBytes: MP_MAX_COURSE_VIDEO_BYTES,
       courseVideoChunkBytes: MP_COURSE_VIDEO_CHUNK_BYTES,
       courseVideoStoragePersistent: externalPersistentDataDirConfigured(),
+      courseBundledGermanVideoEnabled: getCourseVideoFileInfo(
+        getCourseVideoPath(BUNDLED_GERMAN_COURSE_VIDEO_FILE)
+      ).exists,
+      courseBundledGermanVideoBytes: getCourseVideoFileInfo(
+        getCourseVideoPath(BUNDLED_GERMAN_COURSE_VIDEO_FILE)
+      ).size,
       adminWebEnabled: Boolean(MP_ADMIN_WEB_TOKEN && fs.existsSync(path.join(ADMIN_WEB_DIR, "index.html"))),
       courseMediaSigned: true,
       courseMediaSigningStable: Boolean(process.env.MP_MEDIA_SIGNING_SECRET || WECHAT_SECRET),
