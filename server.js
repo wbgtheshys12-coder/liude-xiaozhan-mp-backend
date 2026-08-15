@@ -5354,6 +5354,7 @@ const server = http.createServer(async (req, res) => {
       ),
       bookingNotifyAllTeachers: true,
       bookingSubscriptionMode: MP_BOOKING_SUBSCRIPTION_MODE,
+      bookingMiniprogramState: MP_BOOKING_MINIPROGRAM_STATE,
       bookingWebhookCount: getBookingWebhookUrls().length,
       bookingCancellationNotificationConfigured: getBookingWebhookUrls().length > 0,
       bookingTeacherOpenidCount: getAllTeacherOpenids().length,
