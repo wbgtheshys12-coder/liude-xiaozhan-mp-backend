@@ -127,6 +127,11 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
   assert.equal(health.payload.courseVideoDeleteEnabled, true);
   assert.equal(health.payload.courseBundledGermanVideoEnabled, true);
   assert.equal(health.payload.courseBundledGermanVideoBytes, 6833845);
+  assert.equal(health.payload.companyDatabaseEnabled, false);
+  assert.equal(health.payload.companyDatabaseIntegrationReserved, true);
+  assert.equal(health.payload.studentUploadDatabaseEnabled, false);
+  assert.equal(health.payload.studentUploadTeacherReviewEnabled, true);
+  assert.equal(health.payload.studentUploadStorageMode, "persistent-filesystem");
   assert.equal(health.payload.studentUploadDownloadEnabled, true);
   assert.equal(health.payload.documentPdfExportEnabled, true);
   assert.equal(health.payload.documentWordExportEnabled, true);
