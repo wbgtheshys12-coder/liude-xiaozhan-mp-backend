@@ -19,7 +19,7 @@ services:
       - key: MP_ALLOW_DEV_LOGIN
         value: "false"
       - key: MP_OPEN_LOGIN
-        value: "false"
+        value: "true"
       - key: MP_LOG_DENIED_OPENID
         value: "false"
       - key: MP_USER_ENTITLEMENTS_JSON
@@ -55,7 +55,7 @@ services:
       - key: MP_BOOKING_TEACHER_WEBHOOKS_JSON
         sync: false
       - key: MP_BOOKING_MINIPROGRAM_STATE
-        value: "trial"
+        value: "formal"
       - key: MP_BOOKING_SUBSCRIPTION_MODE
         value: "one-time"
       - key: MP_DATA_DIR

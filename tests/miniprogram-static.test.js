@@ -55,6 +55,8 @@ test("mini program pages, bindings, JSON, layout guards and package size", miniP
   assert.equal(app.pages.includes("pages/live/live"), true);
   assert.equal(JSON.parse(read("project.config.json")).appid, "wxd03d251346000689");
   assert.match(read("utils/env.js"), /https:\/\/liude-xiaozhan-mp-backend\.onrender\.com/);
+  const removedPersonalNamePattern = new RegExp(["张", "泽", "坤"].join(""));
+  assert.doesNotMatch(`${read("pages/about/about.js")}\n${read("pages/about/about.wxml")}`, removedPersonalNamePattern);
   assert.equal(app.pages.includes("pages/onboarding/onboarding"), true);
   assert.match(read("pages/onboarding/onboarding.wxml"), /首次登录 · 一次设置/);
   assert.match(read("pages/onboarding/onboarding.wxml"), /联系方式/);
@@ -203,6 +205,12 @@ test("mini program pages, bindings, JSON, layout guards and package size", miniP
     assert.ok(school.tuition?.label && school.tuition?.detail && /^https:\/\//.test(school.tuition?.sourceUrl), `${school.id} 学费信息不完整`);
     assert.equal(fs.existsSync(path.join(miniRoot, String(school.logo || "").replace(/^\//, ""))), true, `${school.id} Logo 缺失`);
   });
+});
+
+test("production deployment defaults allow public login and formal Mini Program links", () => {
+  const renderConfig = fs.readFileSync(path.resolve(__dirname, "..", "render.yaml"), "utf8");
+  assert.match(renderConfig, /key:\s*MP_OPEN_LOGIN\s*\r?\n\s*value:\s*"true"/);
+  assert.match(renderConfig, /key:\s*MP_BOOKING_MINIPROGRAM_STATE\s*\r?\n\s*value:\s*"formal"/);
 });
 
 test("student profile cache stays isolated by WeChat account", miniProgramTestOptions, () => {

@@ -114,6 +114,7 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
   assert.equal(health.payload.courseVideoChunkUploadEnabled, true);
   assert.equal(health.payload.courseVideoChunkBytes, 4 * 1024 * 1024);
   assert.equal(health.payload.courseVideoStoragePersistent, true);
+  assert.equal(health.payload.openLogin, true);
   assert.equal(health.payload.profileStructuredContactEnabled, true);
   assert.equal(health.payload.paymentBankAccountExposedToClient, false);
   assert.deepEqual(health.payload.bookingTemplateFieldKeys, ["time1", "thing2", "thing3", "thing4", "thing5"]);
