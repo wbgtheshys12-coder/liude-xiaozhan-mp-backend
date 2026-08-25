@@ -65,6 +65,9 @@ test("mini program pages, bindings, JSON, layout guards and package size", miniP
   assert.match(read("utils/profile.js"), /hasAccountScope/);
   assert.match(read("utils/profile.js"), /session\.user\?\.storageKey/);
   assert.match(read("pages/booking/booking.wxml"), /已绑定学生资料/);
+  assert.match(read("pages/booking/booking.wxml"), /客服微信：/);
+  assert.match(read("pages/booking/booking.wxml"), /liudexiaozhan|serviceWechat/);
+  assert.match(read("pages/booking/booking.js"), /陆老师仅周日开放预约/);
   assert.doesNotMatch(read("pages/booking/booking.wxml"), /bindinput="update(?:StudentName|Contact|Major)"/);
   assert.match(read("pages/tools/tools.wxml"), /\* 必填/);
   const documentToolSource = `${read("pages/tools/tools.js")}\n${read("pages/tools/tools.wxml")}`;
@@ -74,6 +77,8 @@ test("mini program pages, bindings, JSON, layout guards and package size", miniP
   assert.match(documentToolSource, /德语或英语/);
   assert.match(documentToolSource, /德语 \/ 英语初稿免费/);
   assert.match(documentToolSource, /AI 辅助/);
+  assert.match(documentToolSource, /动机信填写建议/);
+  assert.match(documentToolSource, /不能未经检查直接作为最终申请文书提交/);
   assert.match(documentToolSource, /学校要求/);
   assert.match(documentToolSource, /请勿填写身份证号、护照号/);
   assert.match(documentToolSource, /生成动机信初稿/);

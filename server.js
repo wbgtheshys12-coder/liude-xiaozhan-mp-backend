@@ -6,6 +6,7 @@ const docx = require("docx");
 const PDFDocument = require("pdfkit");
 const localEngine = require("./local-engine");
 const { createPaymentService } = require("./payment");
+const { createCosStorage } = require("./cos-storage");
 
 const PORT = Number(process.env.PORT || 3108);
 const WECHAT_APPID = process.env.WECHAT_APPID || "";
@@ -43,6 +44,11 @@ const MP_USAGE_FILE = process.env.MP_USAGE_FILE || path.join(MP_DATA_DIR, "usage
 const MP_MESSAGES_FILE = process.env.MP_MESSAGES_FILE || path.join(MP_DATA_DIR, "messages.jsonl");
 const MP_STUDENT_UPLOAD_DIR = process.env.MP_STUDENT_UPLOAD_DIR || path.join(MP_DATA_DIR, "student-uploads");
 const MP_COURSE_VIDEO_DIR = process.env.MP_COURSE_VIDEO_DIR || path.join(MP_DATA_DIR, "course-videos");
+const cosStorage = createCosStorage(process.env);
+const MP_COS_METADATA_SYNC_INTERVAL_MS = Math.max(
+  15 * 1000,
+  Math.min(Number(process.env.MP_COS_METADATA_SYNC_INTERVAL_MS || 60 * 1000), 10 * 60 * 1000)
+);
 const BUNDLED_COURSE_VIDEO_DIR = path.join(__dirname, "assets", "course-videos");
 const BUNDLED_GERMAN_COURSE_VIDEO_FILE = "german-course.mp4";
 const MP_MAX_STORED_FILE_BYTES = Number(process.env.MP_MAX_STORED_FILE_BYTES || 12 * 1024 * 1024);
@@ -91,6 +97,7 @@ const DEFAULT_BOOKING_TIMES = [
 const MP_BOOKING_TIMES = normalizeTimeList(
   splitCsv(process.env.MP_BOOKING_TIMES || DEFAULT_BOOKING_TIMES.join(","))
 );
+const LU_ADVISOR_KEY = "a2";
 const MP_BOOKING_TIMEZONE_OFFSET_MINUTES = Number(process.env.MP_BOOKING_TIMEZONE_OFFSET_MINUTES || 8 * 60);
 const MAX_REQUEST_BYTES = Number(process.env.MAX_REQUEST_BYTES || 40 * 1024 * 1024);
 const ADMIN_WEB_DIR = path.join(__dirname, "admin-web");
@@ -102,12 +109,13 @@ const MATCHING_PDF_LAYOUT_VERSION = "landscape-table-embedded-font-v2";
 
 const sessions = new Map();
 const courseVideoUploads = new Map();
+const cosMetadataBackupTimers = new Map();
 let wechatAccessToken = { value: "", expiresAt: 0 };
 const paymentService = createPaymentService({
   appid: WECHAT_APPID,
   dataDir: MP_DATA_DIR,
   env: process.env,
-  persistentStorageConfigured: externalPersistentDataDirConfigured,
+  persistentStorageConfigured,
 });
 
 function splitCsv(value) {
@@ -228,6 +236,24 @@ function getBookingCurrentMinutes(date = new Date()) {
   return local.getUTCHours() * 60 + local.getUTCMinutes();
 }
 
+function isAdvisorBookingDateAllowed(advisorKey, date) {
+  if (advisorKey !== LU_ADVISOR_KEY) return true;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(date || ""));
+  if (!match) return false;
+  const parsed = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return !Number.isNaN(parsed.getTime()) && parsed.getUTCDay() === 0;
+}
+
+function getAdvisorAvailabilityMessage(advisorKey, date) {
+  if (advisorKey === LU_ADVISOR_KEY && !isAdvisorBookingDateAllowed(advisorKey, date)) {
+    return "陆老师仅周日开放预约，请选择周日；具体沟通安排以老师微信确认为准。";
+  }
+  if (advisorKey === LU_ADVISOR_KEY) {
+    return "陆老师仅周日开放预约，具体沟通安排以老师微信确认为准。";
+  }
+  return "";
+}
+
 function sendJson(res, statusCode, payload, extraHeaders = {}) {
   res.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
@@ -281,6 +307,80 @@ function readBuffer(req, maxBytes) {
 
 function externalPersistentDataDirConfigured() {
   return path.resolve(MP_DATA_DIR) !== path.resolve(path.join(__dirname, "data"));
+}
+
+function persistentStorageConfigured() {
+  return externalPersistentDataDirConfigured() || cosStorage.active;
+}
+
+function metadataFilePaths() {
+  return Array.from(
+    new Set([
+      ENTITLEMENTS_FILE,
+      MP_BOOKINGS_FILE,
+      MP_COURSES_FILE,
+      MP_UPLOADS_FILE,
+      MP_PROFILES_FILE,
+      MP_USAGE_FILE,
+      MP_MESSAGES_FILE,
+      paymentService?.ordersFile,
+    ].filter(Boolean))
+  );
+}
+
+function cosMetadataKey(filePath) {
+  const dataRoot = path.resolve(MP_DATA_DIR);
+  const resolved = path.resolve(filePath);
+  if (!(resolved === dataRoot || resolved.startsWith(`${dataRoot}${path.sep}`))) return "";
+  const relative = path.relative(dataRoot, resolved).replace(/\\/g, "/");
+  if (!relative || relative.split("/").includes("..") || !/\.(?:json|jsonl)$/i.test(relative)) return "";
+  return `system-backups/current/${relative}`;
+}
+
+function scheduleCosMetadataBackup(filePath, delayMs = 350) {
+  if (!cosStorage.active) return;
+  const key = cosMetadataKey(filePath);
+  if (!key) return;
+  const previous = cosMetadataBackupTimers.get(filePath);
+  if (previous) clearTimeout(previous);
+  const timer = setTimeout(async () => {
+    cosMetadataBackupTimers.delete(filePath);
+    try {
+      if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) return;
+      await cosStorage.putFile(key, filePath, /\.jsonl$/i.test(filePath) ? "application/x-ndjson" : "application/json");
+    } catch (error) {
+      console.warn(`COS 元数据备份失败 (${path.basename(filePath)}):`, error.message);
+    }
+  }, delayMs);
+  if (typeof timer.unref === "function") timer.unref();
+  cosMetadataBackupTimers.set(filePath, timer);
+}
+
+async function initializeCosPersistence() {
+  if (!cosStorage.enabled) return;
+  if (!cosStorage.configured) {
+    console.warn("MP_COS_ENABLED=true，但腾讯云 COS 环境变量不完整；继续使用本地存储。");
+    return;
+  }
+  for (const filePath of metadataFilePaths()) {
+    const key = cosMetadataKey(filePath);
+    if (!key) continue;
+    try {
+      const remote = await cosStorage.head(key);
+      if (remote.exists) {
+        await cosStorage.restoreFile(key, filePath);
+      } else if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+        await cosStorage.putFile(key, filePath, /\.jsonl$/i.test(filePath) ? "application/x-ndjson" : "application/json");
+      }
+    } catch (error) {
+      console.warn(`COS 元数据初始化失败 (${path.basename(filePath)}):`, error.message);
+    }
+  }
+  const interval = setInterval(() => {
+    metadataFilePaths().forEach((filePath) => scheduleCosMetadataBackup(filePath, 0));
+  }, MP_COS_METADATA_SYNC_INTERVAL_MS);
+  if (typeof interval.unref === "function") interval.unref();
+  console.log(`Tencent COS persistence enabled: ${cosStorage.bucket} (${cosStorage.region})`);
 }
 
 function getPaymentConfiguration() {
@@ -429,6 +529,7 @@ function writeEntitlementsFile(table) {
   const temporary = `${ENTITLEMENTS_FILE}.${process.pid}.${Date.now()}.tmp`;
   fs.writeFileSync(temporary, `${JSON.stringify(table || {}, null, 2)}\n`, "utf8");
   fs.renameSync(temporary, ENTITLEMENTS_FILE);
+  scheduleCosMetadataBackup(ENTITLEMENTS_FILE);
 }
 
 function grantUserEntitlement(openid, feature) {
@@ -923,6 +1024,12 @@ function normalizeBooking(body, session) {
     error.statusCode = 400;
     throw error;
   }
+  if (!isAdvisorBookingDateAllowed(advisorKey, date)) {
+    const error = new Error(getAdvisorAvailabilityMessage(advisorKey, date));
+    error.statusCode = 400;
+    error.advisorUnavailable = true;
+    throw error;
+  }
   const dateTime = formatWechatBookingDateTime(date, time);
   const id = `bk_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
   const bookingText = [
@@ -966,6 +1073,7 @@ function appendBookingRecord(booking) {
   try {
     fs.mkdirSync(path.dirname(MP_BOOKINGS_FILE), { recursive: true });
     fs.appendFileSync(MP_BOOKINGS_FILE, `${JSON.stringify(booking)}\n`, "utf8");
+    scheduleCosMetadataBackup(MP_BOOKINGS_FILE);
     return true;
   } catch (error) {
     console.warn("预约记录写入失败:", error.message);
@@ -1000,6 +1108,7 @@ function writeBookingRecords(records) {
     fs.mkdirSync(path.dirname(MP_BOOKINGS_FILE), { recursive: true });
     const content = (records || []).map((booking) => JSON.stringify(booking)).join("\n");
     fs.writeFileSync(MP_BOOKINGS_FILE, content ? `${content}\n` : "", "utf8");
+    scheduleCosMetadataBackup(MP_BOOKINGS_FILE);
     return true;
   } catch (error) {
     console.warn("预约记录更新失败:", error.message);
@@ -1034,6 +1143,7 @@ function writeJsonlFile(filePath, records) {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     const content = (records || []).map((record) => JSON.stringify(record)).join("\n");
     fs.writeFileSync(filePath, content ? `${content}\n` : "", "utf8");
+    scheduleCosMetadataBackup(filePath);
     return true;
   } catch (error) {
     console.warn(`${path.basename(filePath)} 写入失败:`, error.message);
@@ -1045,6 +1155,7 @@ function appendJsonlRecord(filePath, record) {
   try {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.appendFileSync(filePath, `${JSON.stringify(record)}\n`, "utf8");
+    scheduleCosMetadataBackup(filePath);
     return true;
   } catch (error) {
     console.warn(`${path.basename(filePath)} 追加失败:`, error.message);
@@ -1161,7 +1272,14 @@ function resolveCourseVideoFile(fileName) {
 function getCourseVideoFileInfo(videoUrl) {
   const fileName = getLocalCourseVideoFile(videoUrl);
   if (!fileName) return { fileName: "", filePath: "", exists: false, size: 0 };
-  return resolveCourseVideoFile(fileName);
+  const local = resolveCourseVideoFile(fileName);
+  if (local.exists || !cosStorage.active) return local;
+  return { ...local, exists: true, cloud: true };
+}
+
+function courseVideoCosKey(fileName) {
+  const safeName = safeFileName(fileName, "");
+  return safeName ? `course-videos/${safeName}` : "";
 }
 
 function isAllowedCourseUrl(value, allowLocalVideo = false) {
@@ -1204,7 +1322,7 @@ function validCourseVideoSignature(fileName, url) {
   return receivedBuffer.length === expectedBuffer.length && crypto.timingSafeEqual(receivedBuffer, expectedBuffer);
 }
 
-function sendCourseVideo(req, res, fileName, url) {
+async function sendCourseVideo(req, res, fileName, url) {
   const safeName = safeFileName(fileName, "");
   if (!safeName) {
     sendJson(res, 404, { error: "视频不存在。" });
@@ -1215,12 +1333,57 @@ function sendCourseVideo(req, res, fileName, url) {
     return;
   }
   const videoInfo = resolveCourseVideoFile(safeName);
+  const ext = path.extname(safeName);
   if (!videoInfo.exists || !videoInfo.filePath) {
+    const objectKey = courseVideoCosKey(safeName);
+    if (cosStorage.active && objectKey) {
+      try {
+        const remote = await cosStorage.head(objectKey);
+        if (!remote.exists || !remote.size) {
+          sendJson(res, 404, { error: "视频不存在。" });
+          return;
+        }
+        const range = String(req.headers.range || "");
+        const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+        if (match) {
+          const start = match[1] ? Number(match[1]) : 0;
+          const end = match[2] ? Math.min(Number(match[2]), remote.size - 1) : remote.size - 1;
+          if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start || start >= remote.size) {
+            res.writeHead(416, { "Content-Range": `bytes */${remote.size}` });
+            res.end();
+            return;
+          }
+          res.writeHead(206, {
+            "Content-Type": contentTypeForExt(ext),
+            "Content-Length": end - start + 1,
+            "Content-Range": `bytes ${start}-${end}/${remote.size}`,
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "private, no-store",
+            "Access-Control-Allow-Origin": "*",
+          });
+          await cosStorage.streamTo(objectKey, res, `bytes=${start}-${end}`);
+          return;
+        }
+        res.writeHead(200, {
+          "Content-Type": contentTypeForExt(ext),
+          "Content-Length": remote.size,
+          "Accept-Ranges": "bytes",
+          "Cache-Control": "private, no-store",
+          "Access-Control-Allow-Origin": "*",
+        });
+        await cosStorage.streamTo(objectKey, res);
+        return;
+      } catch (error) {
+        console.error("COS course video stream failed", error);
+        if (!res.headersSent) sendJson(res, 503, { error: "课程视频云端读取暂时不可用，请稍后重试。" });
+        else if (!res.writableEnded) res.destroy(error);
+        return;
+      }
+    }
     sendJson(res, 404, { error: "视频不存在。" });
     return;
   }
   const filePath = videoInfo.filePath;
-  const ext = path.extname(safeName);
   const stat = fs.statSync(filePath);
   const range = String(req.headers.range || "");
   const match = /^bytes=(\d*)-(\d*)$/.exec(range);
@@ -1321,14 +1484,22 @@ function writeCourseRecord(course) {
   writeJsonlFile(MP_COURSES_FILE, records);
 }
 
-function deleteCourseVideoFileIfUnused(fileName) {
+async function deleteCourseVideoFileIfUnused(fileName) {
   if (!fileName) return false;
   const stillUsed = readCourseRecords().some((course) => getLocalCourseVideoFile(course.videoUrl) === fileName);
   if (stillUsed) return false;
   const info = getCourseVideoFileInfo(getCourseVideoPath(fileName));
-  if (!info.exists || !info.filePath || info.bundled) return false;
-  fs.unlinkSync(info.filePath);
-  return true;
+  if (info.bundled) return false;
+  let removed = false;
+  if (info.filePath && fs.existsSync(info.filePath)) {
+    fs.unlinkSync(info.filePath);
+    removed = true;
+  }
+  const objectKey = courseVideoCosKey(fileName);
+  if (cosStorage.active && objectKey) {
+    removed = (await cosStorage.remove(objectKey)) || removed;
+  }
+  return removed;
 }
 
 function sanitizeCourse(course, session, admin = false, req = null) {
@@ -1487,10 +1658,15 @@ function getPastBookingTimes(date) {
 function getBookingSlotState(advisorKey, date) {
   const bookedTimes = getBookedBookingTimes(advisorKey, date);
   const pastTimes = getPastBookingTimes(date);
+  const advisorUnavailable = !isAdvisorBookingDateAllowed(advisorKey, date);
+  const closedTimes = advisorUnavailable ? MP_BOOKING_TIMES.slice() : [];
   return {
     bookedTimes,
     pastTimes,
-    unavailableTimes: normalizeTimeList([...bookedTimes, ...pastTimes]),
+    closedTimes,
+    advisorUnavailable,
+    availabilityMessage: getAdvisorAvailabilityMessage(advisorKey, date),
+    unavailableTimes: normalizeTimeList([...bookedTimes, ...pastTimes, ...closedTimes]),
   };
 }
 
@@ -1896,6 +2072,7 @@ async function handleBooking(req, res) {
       error: error.statusCode === 400 ? error.message : "预约提交暂时未完成，请稍后重试。",
       requiresOnboarding: Boolean(error.missingFields?.length),
       missingFields: error.missingFields || [],
+      advisorUnavailable: Boolean(error.advisorUnavailable),
       channels: [],
     });
   }
@@ -2244,6 +2421,20 @@ async function handleAdminCourseVideoUpload(req, res) {
     const fileName = `${createRecordId("course_video")}${ext.toLowerCase()}`;
     const filePath = path.join(MP_COURSE_VIDEO_DIR, fileName);
     fs.writeFileSync(filePath, parsed.buffer);
+    if (cosStorage.active) {
+      try {
+        await cosStorage.putBuffer(courseVideoCosKey(fileName), parsed.buffer, parsed.mimeType);
+      } catch (error) {
+        try {
+          fs.unlinkSync(filePath);
+        } catch (cleanupError) {
+          // The failed upload is not exposed through a course record.
+        }
+        console.error("COS course video upload failed", error);
+        sendJson(res, 503, { error: "视频云端保存暂时未完成，请稍后重试。" });
+        return;
+      }
+    }
     recordUsage(session, "admin.course.video.upload", {
       name: safeFileName(body.name || fileName),
       size: parsed.buffer.length,
@@ -2255,10 +2446,13 @@ async function handleAdminCourseVideoUpload(req, res) {
       name: safeFileName(body.name || fileName),
       size: parsed.buffer.length,
       videoUrl: getCourseVideoPath(fileName),
-      videoStorage: "local",
+      videoStorage: cosStorage.active ? "tencent-cos" : "local",
       videoExists: true,
       uploadedAt: new Date().toISOString(),
-      storageNote: "测试视频已保存到当前后端实例。本地/Render 免费盘不适合作为长期视频库，正式运营建议迁移到腾讯云点播或对象存储。",
+      storagePersistent: persistentStorageConfigured(),
+      storageNote: cosStorage.active
+        ? "视频已保存到公司腾讯云私有 COS，并通过后端鉴权播放。"
+        : "视频已保存到当前后端实例；重新部署可能清空文件，请配置腾讯云 COS。",
     });
   } catch (error) {
     if (isJsonParseError(error)) {
@@ -2354,7 +2548,7 @@ async function handleAdminCourseVideoInit(req, res) {
       size,
       chunkSize: MP_COURSE_VIDEO_CHUNK_BYTES,
       maxBytes: MP_MAX_COURSE_VIDEO_BYTES,
-      storagePersistent: externalPersistentDataDirConfigured(),
+      storagePersistent: persistentStorageConfigured(),
     });
   } catch (error) {
     if (isJsonParseError(error)) {
@@ -2438,6 +2632,15 @@ async function handleAdminCourseVideoComplete(req, res) {
     }
     const fileName = `${createRecordId("course_video")}${upload.ext}`;
     const filePath = path.join(MP_COURSE_VIDEO_DIR, fileName);
+    if (cosStorage.active) {
+      try {
+        await cosStorage.putFile(courseVideoCosKey(fileName), upload.tempPath, upload.mimeType);
+      } catch (error) {
+        console.error("COS chunked course video upload failed", error);
+        sendJson(res, 503, { error: "视频已接收，但云端保存暂时未完成，请点击重试。" });
+        return;
+      }
+    }
     fs.renameSync(upload.tempPath, filePath);
     courseVideoUploads.delete(upload.uploadId);
     recordUsage(session, "admin.course.video.upload", {
@@ -2446,20 +2649,22 @@ async function handleAdminCourseVideoComplete(req, res) {
       mimeType: upload.mimeType,
       chunked: true,
     });
-    const storagePersistent = externalPersistentDataDirConfigured();
+    const storagePersistent = persistentStorageConfigured();
     sendJson(res, 200, {
       ok: true,
       uploaded: true,
       name: upload.name,
       size: upload.size,
       videoUrl: getCourseVideoPath(fileName),
-      videoStorage: "local",
+      videoStorage: cosStorage.active ? "tencent-cos" : "local",
       videoExists: true,
       uploadedAt: new Date().toISOString(),
       storagePersistent,
-      storageNote: storagePersistent
-        ? "视频已保存到外部持久化目录。"
-        : "视频已保存到当前实例；重新部署可能清空文件，正式运营请配置持久化磁盘或云点播。",
+      storageNote: cosStorage.active
+        ? "视频已保存到公司腾讯云私有 COS，并通过后端鉴权播放。"
+        : storagePersistent
+          ? "视频已保存到外部持久化目录。"
+          : "视频已保存到当前实例；重新部署可能清空文件，请配置腾讯云 COS。",
     });
   } catch (error) {
     if (isJsonParseError(error)) {
@@ -2527,7 +2732,7 @@ async function handleAdminCourseVideoDelete(req, res) {
       }
     }
 
-    const fileDeleted = fileName ? deleteCourseVideoFileIfUnused(fileName) : false;
+    const fileDeleted = fileName ? await deleteCourseVideoFileIfUnused(fileName) : false;
     recordUsage(session, "admin.course.video.delete", { courseId, courseDetached, fileDeleted });
     sendJson(res, 200, {
       ok: true,
@@ -2567,7 +2772,7 @@ async function handleAdminCourseDelete(req, res) {
     }
     const fileName = getLocalCourseVideoFile(course.videoUrl);
     writeCourseRecord({ id, deleted: true, deletedAt: new Date().toISOString() });
-    const fileDeleted = body.deleteVideo !== false && fileName ? deleteCourseVideoFileIfUnused(fileName) : false;
+    const fileDeleted = body.deleteVideo !== false && fileName ? await deleteCourseVideoFileIfUnused(fileName) : false;
     recordUsage(session, "admin.course.delete", { id, fileDeleted });
     sendJson(res, 200, { ok: true, deletedId: id, fileDeleted });
   } catch (error) {
@@ -2590,10 +2795,12 @@ function handleAdminCourses(req, res) {
     ok: true,
     synchronized: true,
     synchronizationNote: "电脑后台与小程序课程管理使用同一后端和同一课程数据源。刷新后可看到另一端的最新修改。",
-    storagePersistent: externalPersistentDataDirConfigured(),
-    storageNote: externalPersistentDataDirConfigured()
-      ? "课程数据与本地视频已使用外部持久化目录。"
-      : "当前未配置外部持久化目录：重新部署可能清空本地上传的视频与业务数据。",
+    storagePersistent: persistentStorageConfigured(),
+    storageNote: cosStorage.active
+      ? "课程数据与视频已使用公司腾讯云私有 COS 持久化。"
+      : externalPersistentDataDirConfigured()
+        ? "课程数据与本地视频已使用外部持久化目录。"
+        : "当前未配置持久化存储：重新部署可能清空本地上传的视频与业务数据。",
     records: readCourseRecords().map((course) => sanitizeCourse(course, session, true, req)),
   });
 }
@@ -2623,7 +2830,23 @@ async function handleMaterialUpload(req, res) {
     const storedName = `${id}${ext}`;
     const userDir = path.join(MP_STUDENT_UPLOAD_DIR, storageKey);
     fs.mkdirSync(userDir, { recursive: true });
-    fs.writeFileSync(path.join(userDir, storedName), parsed.buffer);
+    const localFilePath = path.join(userDir, storedName);
+    fs.writeFileSync(localFilePath, parsed.buffer);
+    const objectKey = `student-materials/${storageKey}/${storedName}`;
+    if (cosStorage.active) {
+      try {
+        await cosStorage.putBuffer(objectKey, parsed.buffer, parsed.mimeType);
+      } catch (error) {
+        try {
+          fs.unlinkSync(localFilePath);
+        } catch (cleanupError) {
+          // The failed upload is not added to metadata, so the temporary local copy remains unreachable.
+        }
+        console.error("COS material upload failed", error);
+        sendJson(res, 503, { error: "资料云端保存暂时未完成，请稍后重试。" });
+        return;
+      }
+    }
 
     const record = {
       id,
@@ -2635,6 +2858,8 @@ async function handleMaterialUpload(req, res) {
       size: parsed.buffer.length,
       storedName,
       relativePath: path.join(storageKey, storedName).replace(/\\/g, "/"),
+      objectKey: cosStorage.active ? objectKey : "",
+      storageProvider: cosStorage.active ? "tencent-cos" : "local",
       studentName: normalizeBookingText(body.studentName || "", 40),
       user: {
         openid: maskOpenid(session.openid),
@@ -2679,7 +2904,8 @@ function sanitizeUploadForAdmin(record) {
     studentName: record.studentName || "",
     createdAt: record.createdAt,
     user: record.user || {},
-    contentStored: Boolean(record.relativePath),
+    contentStored: Boolean(record.objectKey || record.relativePath),
+    storageProvider: record.storageProvider || (record.objectKey ? "tencent-cos" : "local"),
   };
 }
 
@@ -2693,7 +2919,7 @@ function sanitizeUploadForUser(record) {
     mimeType: record.mimeType,
     size: record.size,
     createdAt: record.createdAt,
-    contentStored: Boolean(record.relativePath),
+    contentStored: Boolean(record.objectKey || record.relativePath),
   };
 }
 
@@ -2710,7 +2936,15 @@ function resolveStoredUploadPath(record) {
   return filePath;
 }
 
-function sendStoredUpload(req, res, id, adminRequired = false) {
+function storedUploadObjectKey(record) {
+  const explicit = String(record?.objectKey || "").replace(/\\/g, "/");
+  if (explicit && !explicit.split("/").includes("..")) return explicit;
+  const relativePath = String(record?.relativePath || "").replace(/\\/g, "/");
+  if (!relativePath || relativePath.split("/").includes("..")) return "";
+  return `student-materials/${relativePath}`;
+}
+
+async function sendStoredUpload(req, res, id, adminRequired = false) {
   const session = requireSession(req, res);
   if (!session) return;
   const record = getUploadRecord(id);
@@ -2719,13 +2953,35 @@ function sendStoredUpload(req, res, id, adminRequired = false) {
     sendJson(res, 404, { error: "未找到可访问的资料文件。" });
     return;
   }
+  const safeName = safeFileName(record.name || "申请材料");
+  const objectKey = storedUploadObjectKey(record);
+  if (cosStorage.active && objectKey) {
+    try {
+      const body = await cosStorage.getBuffer(objectKey);
+      res.writeHead(200, {
+        "Content-Type": record.mimeType || "application/octet-stream",
+        "Content-Length": body.length,
+        "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(safeName)}`,
+        "Cache-Control": "private, no-store",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Authorization",
+      });
+      res.end(body);
+      return;
+    } catch (error) {
+      if (!cosStorage.isMissingObject(error)) {
+        console.error("COS material download failed", error);
+        sendJson(res, 503, { error: "资料云端读取暂时不可用，请稍后重试。" });
+        return;
+      }
+    }
+  }
   const filePath = resolveStoredUploadPath(record);
   if (!filePath || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
     sendJson(res, 404, { error: "资料文件不存在或已迁移，请联系管理员。" });
     return;
   }
   const stat = fs.statSync(filePath);
-  const safeName = safeFileName(record.name || "申请材料");
   res.writeHead(200, {
     "Content-Type": record.mimeType || "application/octet-stream",
     "Content-Length": stat.size,
@@ -2764,6 +3020,16 @@ async function handleDeleteMaterial(req, res) {
     if (!record || record?.user?.storageKey !== getSessionStorageKey(session)) {
       sendJson(res, 404, { error: "未找到当前账号的资料记录。" });
       return;
+    }
+    const objectKey = storedUploadObjectKey(record);
+    if (cosStorage.active && objectKey) {
+      try {
+        await cosStorage.remove(objectKey);
+      } catch (error) {
+        console.error("COS material delete failed", error);
+        sendJson(res, 503, { error: "资料云端删除暂时未完成，请稍后重试。" });
+        return;
+      }
     }
     const nextRecords = records.filter((item) => item.id !== id);
     if (!writeJsonlFile(MP_UPLOADS_FILE, nextRecords)) {
@@ -3567,12 +3833,12 @@ function formatDocumentDateTimeForLanguage(date = new Date(), language = "zh") {
 
 function documentFooterText(language, generatedAtText) {
   if (language === "de") {
-    return `Erstellt am ${generatedAtText}. KI-gestützter Entwurf zur Bewerbungsvorbereitung; vor der Einreichung sind alle Angaben und Programmanforderungen zu prüfen.`;
+    return `KI-Entwurf vom ${generatedAtText}; nicht ungeprüft einreichen. Fakten, Eigennamen, Studiengang, Vorgaben, Wortgrenze und Sprache vor der Bewerbung selbst oder fachlich prüfen.`;
   }
   if (language === "en") {
-    return `Generated on ${generatedAtText}. AI-assisted application-preparation draft; verify all facts and programme requirements before submission.`;
+    return `AI-assisted draft generated on ${generatedAtText}; do not submit unchecked. Verify facts, proper names, programme details, prompts, word limits and language before applying.`;
   }
-  return `本文件生成于 ${generatedAtText}，生成内容仅为申请材料准备初稿，不具有完整申请学校的作用。本文件最终解释权归留德小栈所有。`;
+  return `本文件生成于 ${generatedAtText}，仅为 AI 辅助申请初稿，不能未经检查直接提交。申请前请核对事实、专有名词、目标项目、官网题目、字数和语言，建议由文书老师审核。`;
 }
 
 function readJpegDimensions(buffer) {
@@ -4168,9 +4434,9 @@ function addPdfKitFooters(document, footerText, generatedAtText, layoutVersion =
     const page = document.page;
     const left = page.margins.left;
     const right = page.width - page.margins.right;
-    // Keep the footer inside the 34-point area reserved by ensurePdfKitSpace.
+    // Keep the two-line disclaimer inside the area reserved by ensurePdfKitSpace.
     // PDFKit otherwise treats it as flowing content and silently adds a page.
-    const footerY = page.height - page.margins.bottom - 17;
+    const footerY = page.height - page.margins.bottom - 25;
     document.save();
     document
       .opacity(1)
@@ -4185,11 +4451,11 @@ function addPdfKitFooters(document, footerText, generatedAtText, layoutVersion =
       .fillColor("#64748b")
       .text(footerText, left, footerY, {
         width: right - left - 86,
-        height: 10,
-        lineBreak: false,
+        height: 22,
+        lineGap: 1,
         ellipsis: true,
       });
-    document.text(`${index + 1} / ${range.count}`, right - 70, footerY, {
+    document.text(`${index + 1} / ${range.count}`, right - 70, footerY + 4, {
       width: 70,
       align: "right",
       lineBreak: false,
@@ -5045,6 +5311,20 @@ async function createCvTableDocx(title, content, generatedAtText, language) {
   return docx.Packer.toBuffer(document);
 }
 
+async function archiveGeneratedDocument(session, buffer, extension, mimeType, toolKey = "document") {
+  if (!cosStorage.active || !session?.openid) return { archived: false, provider: "local-response" };
+  const storageKey = getSessionStorageKey(session);
+  const safeTool = String(toolKey || "document").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").slice(0, 40) || "document";
+  const objectKey = `generated-documents/${storageKey}/${createRecordId(safeTool)}.${extension}`;
+  try {
+    await cosStorage.putBuffer(objectKey, buffer, mimeType);
+    return { archived: true, provider: "tencent-cos" };
+  } catch (error) {
+    console.warn("COS generated document archive failed:", error.message);
+    return { archived: false, provider: "local-response" };
+  }
+}
+
 async function handleDocumentPdf(req, res) {
   const session = requireSession(req, res);
   if (!session) return;
@@ -5094,6 +5374,13 @@ async function handleDocumentPdf(req, res) {
     recordUsage(session, usageAction, {
       preview: documentData.preview,
     });
+    const archive = await archiveGeneratedDocument(
+      session,
+      pdf,
+      "pdf",
+      "application/pdf",
+      documentData.toolKey || documentData.kind
+    );
     sendJson(res, 200, {
       ok: true,
       fileName: `${safeFileName(body.fileName || documentData.title, "liude-document").replace(/\.pdf$/i, "")}.pdf`,
@@ -5111,6 +5398,8 @@ async function handleDocumentPdf(req, res) {
       templateVersion: DOCUMENT_TEMPLATE_VERSION,
       generationSource: documentData.generationSource,
       pdfFontEmbedded: true,
+      storageArchived: archive.archived,
+      storageProvider: archive.provider,
     });
   } catch (error) {
     if (isJsonParseError(error)) {
@@ -5145,6 +5434,13 @@ async function handleDocumentWord(req, res) {
           ? "document.export.matching.word"
           : "document.export.draft.word";
     recordUsage(session, usageAction, { preview: documentData.preview });
+    const archive = await archiveGeneratedDocument(
+      session,
+      word,
+      "docx",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      documentData.toolKey || documentData.kind
+    );
     sendJson(res, 200, {
       ok: true,
       fileName: `${safeFileName(body.fileName || documentData.title, "liude-document").replace(/\.(?:docx?|word)$/i, "")}.docx`,
@@ -5157,6 +5453,8 @@ async function handleDocumentWord(req, res) {
       generatedAtText,
       templateVersion: DOCUMENT_TEMPLATE_VERSION,
       generationSource: documentData.generationSource,
+      storageArchived: archive.archived,
+      storageProvider: archive.provider,
     });
   } catch (error) {
     if (isJsonParseError(error)) {
@@ -5373,7 +5671,12 @@ const server = http.createServer(async (req, res) => {
       courseVideoChunkUploadEnabled: true,
       courseVideoMaxBytes: MP_MAX_COURSE_VIDEO_BYTES,
       courseVideoChunkBytes: MP_COURSE_VIDEO_CHUNK_BYTES,
-      courseVideoStoragePersistent: externalPersistentDataDirConfigured(),
+      courseVideoStoragePersistent: persistentStorageConfigured(),
+      cosStorageEnabled: cosStorage.enabled,
+      cosStorageConfigured: cosStorage.configured,
+      cosStorageActive: cosStorage.active,
+      cosStorageRegion: cosStorage.active ? cosStorage.region : "",
+      cosPrivateBucketExpected: true,
       courseBundledGermanVideoEnabled: getCourseVideoFileInfo(
         getCourseVideoPath(BUNDLED_GERMAN_COURSE_VIDEO_FILE)
       ).exists,
@@ -5390,7 +5693,11 @@ const server = http.createServer(async (req, res) => {
       companyDatabaseIntegrationReserved: true,
       studentUploadDatabaseEnabled: false,
       studentUploadTeacherReviewEnabled: true,
-      studentUploadStorageMode: externalPersistentDataDirConfigured() ? "persistent-filesystem" : "ephemeral-filesystem",
+      studentUploadStorageMode: cosStorage.active
+        ? "private-tencent-cos"
+        : externalPersistentDataDirConfigured()
+          ? "persistent-filesystem"
+          : "ephemeral-filesystem",
       studentUploadDownloadEnabled: true,
       customerMessagingEnabled: true,
       customerMessageWebhookConfigured: getCustomerMessageWebhookUrls().length > 0,
@@ -5418,32 +5725,33 @@ const server = http.createServer(async (req, res) => {
       paymentIntegrationPrepared: paymentConfiguration.integrationPrepared,
       paymentMissingKeys: paymentConfiguration.missingKeys,
       paymentProductCount: paymentConfiguration.products.length,
-      paymentOrderPersistenceConfigured: externalPersistentDataDirConfigured(),
+      paymentOrderPersistenceConfigured: persistentStorageConfigured(),
       paymentBankAccountExposedToClient: false,
       profileLockEnabled: true,
       profileStructuredContactEnabled: true,
       contactVerificationConfigured: false,
       externalPersistentDataDirConfigured: externalPersistentDataDirConfigured(),
-      studentDataPersistenceRisk: !externalPersistentDataDirConfigured(),
+      persistentStorageConfigured: persistentStorageConfigured(),
+      studentDataPersistenceRisk: !persistentStorageConfigured(),
     });
     return;
   }
 
   const courseVideoMatch = url.pathname.match(/^\/api\/mp\/course-video\/([^/]+)$/);
   if (req.method === "GET" && courseVideoMatch) {
-    sendCourseVideo(req, res, decodeURIComponent(courseVideoMatch[1]), url);
+    await sendCourseVideo(req, res, decodeURIComponent(courseVideoMatch[1]), url);
     return;
   }
 
   const adminMaterialFileMatch = url.pathname.match(/^\/api\/mp\/admin\/material-file\/([^/]+)$/);
   if (req.method === "GET" && adminMaterialFileMatch) {
-    sendStoredUpload(req, res, decodeURIComponent(adminMaterialFileMatch[1]), true);
+    await sendStoredUpload(req, res, decodeURIComponent(adminMaterialFileMatch[1]), true);
     return;
   }
 
   const materialFileMatch = url.pathname.match(/^\/api\/mp\/material-file\/([^/]+)$/);
   if (req.method === "GET" && materialFileMatch) {
-    sendStoredUpload(req, res, decodeURIComponent(materialFileMatch[1]), false);
+    await sendStoredUpload(req, res, decodeURIComponent(materialFileMatch[1]), false);
     return;
   }
 
@@ -5685,11 +5993,17 @@ const server = http.createServer(async (req, res) => {
   sendJson(res, 404, { error: "Not found" });
 });
 
-server.listen(PORT, () => {
-  console.log(`Liude Xiaozhan Mini Program adapter running at http://127.0.0.1:${PORT}`);
-  console.log("Recommendation engine: mini-program standalone");
-  console.log(`User whitelist: ${MP_ALLOWED_OPENIDS.length ? `${MP_ALLOWED_OPENIDS.length} openid(s)` : "empty"}`);
-});
+initializeCosPersistence()
+  .catch((error) => {
+    console.error("COS persistence initialization failed; local fallback remains available:", error.message);
+  })
+  .finally(() => {
+    server.listen(PORT, () => {
+      console.log(`Liude Xiaozhan Mini Program adapter running at http://127.0.0.1:${PORT}`);
+      console.log("Recommendation engine: mini-program standalone");
+      console.log(`User whitelist: ${MP_ALLOWED_OPENIDS.length ? `${MP_ALLOWED_OPENIDS.length} openid(s)` : "empty"}`);
+    });
+  });
 
 module.exports = server;
 module.exports.testHelpers = {

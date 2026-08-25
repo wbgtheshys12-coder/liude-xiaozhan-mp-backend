@@ -60,6 +60,18 @@ services:
         value: "one-time"
       - key: MP_DATA_DIR
         value: data
+      - key: MP_COS_ENABLED
+        value: "false"
+      - key: TENCENT_COS_SECRET_ID
+        sync: false
+      - key: TENCENT_COS_SECRET_KEY
+        sync: false
+      - key: TENCENT_COS_BUCKET
+        value: liude-xiaozhan-prod-1473723135
+      - key: TENCENT_COS_REGION
+        value: ap-shanghai
+      - key: MP_COS_ROOT_PREFIX
+        value: ""
       - key: MP_MEDIA_SIGNING_SECRET
         sync: false
       - key: MP_MEDIA_URL_TTL_SECONDS

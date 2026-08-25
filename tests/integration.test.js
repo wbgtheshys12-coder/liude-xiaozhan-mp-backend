@@ -272,6 +272,28 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
   assert.equal(lockedProfile.response.status, 409);
   assert.equal(lockedProfile.payload.locked, true);
 
+  const luClosedSlots = await requestJson("/api/mp/booking/slots?advisorKey=a2&date=2099-12-28", { token: userToken });
+  assert.equal(luClosedSlots.response.status, 200);
+  assert.equal(luClosedSlots.payload.advisorUnavailable, true);
+  assert.deepEqual(luClosedSlots.payload.closedTimes, luClosedSlots.payload.times);
+  assert.match(luClosedSlots.payload.availabilityMessage, /陆老师仅周日开放预约/);
+  const luClosedBooking = await requestJson("/api/mp/booking", {
+    token: userToken,
+    body: { advisorKey: "a2", advisorName: "陆老师", date: "2099-12-28", dateDisplay: "2099年12月28日 周一", time: "10:00" },
+  });
+  assert.equal(luClosedBooking.response.status, 400);
+  assert.equal(luClosedBooking.payload.advisorUnavailable, true);
+  const luSundayBooking = await requestJson("/api/mp/booking", {
+    token: userToken,
+    body: { advisorKey: "a2", advisorName: "陆老师", date: "2099-12-27", dateDisplay: "2099年12月27日 周日", time: "10:00" },
+  });
+  assert.equal(luSundayBooking.response.status, 200);
+  const cancelLuSundayBooking = await requestJson("/api/mp/booking/cancel", {
+    token: userToken,
+    body: { bookingId: luSundayBooking.payload.bookingId },
+  });
+  assert.equal(cancelLuSundayBooking.response.status, 200);
+
   const sentMessage = await requestJson("/api/mp/messages", {
     token: userToken,
     body: { content: "请问机械工程匹配结果如何理解？" },
