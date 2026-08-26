@@ -214,8 +214,10 @@ test("mini program pages, bindings, JSON, layout guards and package size", miniP
 
 test("production deployment defaults allow public login and formal Mini Program links", () => {
   const renderConfig = fs.readFileSync(path.resolve(__dirname, "..", "render.yaml"), "utf8");
+  const packageConfig = JSON.parse(fs.readFileSync(path.resolve(__dirname, "..", "package.json"), "utf8"));
   assert.match(renderConfig, /key:\s*MP_OPEN_LOGIN\s*\r?\n\s*value:\s*"true"/);
   assert.match(renderConfig, /key:\s*MP_BOOKING_MINIPROGRAM_STATE\s*\r?\n\s*value:\s*"formal"/);
+  assert.equal(packageConfig.engines?.node, "22.x");
 });
 
 test("student profile cache stays isolated by WeChat account", miniProgramTestOptions, () => {
