@@ -5637,7 +5637,7 @@ const server = http.createServer(async (req, res) => {
       engine: "mini-program-standalone",
       transcriptEngine: "pdf-ocr-embedded-fallback-20260730",
       transcriptEmbeddedImageFallback: true,
-      recommendationEngineVersion: "industrial-engineering-20260729",
+      recommendationEngineVersion: "cross-domain-evidence-20260826",
       recommendationReviewedTranscriptReuseEnabled: true,
       recommendationFileReplayDisabled: true,
       webSeparated: true,
