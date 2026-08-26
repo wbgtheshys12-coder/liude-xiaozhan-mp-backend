@@ -4895,7 +4895,6 @@ function isDocumentSectionHeading(line) {
   const value = String(line || "").trim();
   if (!value) return false;
   if (/^\d+\.\s+\S/u.test(value) && value.length <= 72) return true;
-  if (value.length > 26) return false;
   if (
     /^(动机申请信中文初稿|留德申请个人简历中文信息稿|课程描述初稿|个人与学习背景|为什么选择德国|为什么选择该专业|毕业后的计划|个人信息|教育背景|语言与标准考试|工作\/实习经历|研究\/项目\/毕业论文|发表论文|奖励与荣誉|课外活动\/社会实践|技能、证书与兴趣|MOTIVATION LETTER|MOTIVATIONSSCHREIBEN|CURRICULUM VITAE|LEBENSLAUF|PERSONAL DETAILS|PERSÖNLICHE DATEN|EDUCATION|AUSBILDUNG|EXCHANGE \/ SUMMER SCHOOL|AUSLANDS- \/ SOMMERSCHULERFAHRUNG|LANGUAGES AND STANDARDISED TESTS|SPRACHKENNTNISSE UND STANDARDISIERTE TESTS|PROFESSIONAL EXPERIENCE|BERUFS- UND PRAKTIKUMSERFAHRUNG|RESEARCH, PROJECTS AND THESIS|FORSCHUNG, PROJEKTE UND ABSCHLUSSARBEIT|PUBLICATIONS|PUBLIKATIONEN|HONOURS AND AWARDS|AUSZEICHNUNGEN|EXTRACURRICULAR ACTIVITIES|AUSSERUNIVERSITÄRES ENGAGEMENT|SKILLS, CERTIFICATES AND INTERESTS|KENNTNISSE, ZERTIFIKATE UND INTERESSEN)$/.test(
       value
@@ -4903,6 +4902,10 @@ function isDocumentSectionHeading(line) {
   ) {
     return true;
   }
+  // Several established German/English CV headings are longer than 26
+  // characters. Keep the conservative length guard only for the generic
+  // fallback below, after checking the explicit heading allow-list above.
+  if (value.length > 26) return false;
   return /^(课程主要内容|学习成果|考核方式|与目标方向的关系|相关课程补充)[：:]?$/.test(value);
 }
 
@@ -6018,6 +6021,7 @@ module.exports.testHelpers = {
     sessions.clear();
   },
   formatDocumentDateTime,
+  parseDocumentSections,
   paginatePdfText,
   shouldUseRecommendationFallback,
   wrapPdfText,

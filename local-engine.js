@@ -1071,6 +1071,16 @@ function collectDomainSignals(text) {
   add("materials", ["材料", "材料科学"], /材料|materials?|material science|werkstoff/);
   add("business", ["管理", "商科", "市场"], /管理|商科|市场|business|management|marketing|supply chain/);
   add("finance", ["金融", "会计", "财务"], /金融|会计|财务|finance|accounting|taxation/);
+  add(
+    "life",
+    ["生命科学", "健康", "生物医学", "神经科学"],
+    /生命科学|健康|医学|生物|神经科学|认知科学|life sciences?|health|medical|medicine|biomedical|biology|biotechnology|neuroscience|neurobiology|cognitive science/
+  );
+  add(
+    "social",
+    ["心理学", "社会科学", "认知心理"],
+    /心理|社会科学|行为科学|认知心理|psychology|psychological|social sciences?|behaviou?r(?:al)? science|cognitive psychology/
+  );
   add("law", ["法律", "法学", "知识产权"], /法律|法学|知识产权|law|legal|regulatory|intellectual property/);
   add("design", ["设计", "服装", "纺织"], /设计|服装|纺织|fashion|textile|clothing|garment/);
   add("environment", ["环境", "可持续"], /环境|可持续|sustainability|environment|ecology/);
@@ -1660,7 +1670,10 @@ const DOMAIN_ORDER = [
   "general",
 ];
 
-const GENERIC_DOMAINS = new Set(["general", "engineering", "social", "life"]);
+// Life science and social science are broad, but they still carry decisive
+// meaning when the applicant explicitly targets health or psychology. Treat
+// only truly generic labels as non-specific so those targets influence rank.
+const GENERIC_DOMAINS = new Set(["general", "engineering"]);
 
 const DOMAIN_RULES = {
   industrial: {
@@ -1714,6 +1727,14 @@ const DOMAIN_RULES = {
   economics: {
     strong: /economics?|econometrics|economic|经济|计量经济/,
     related: ["business", "finance", "data"],
+  },
+  life: {
+    strong: /life sciences?|health|medical|medicine|biomedical|biology|biotechnology|neuroscience|neurobiology|cognitive science|生命科学|健康|医学|生物|神经科学|认知科学/,
+    related: ["social", "data", "ai"],
+  },
+  social: {
+    strong: /psychology|psychological|social sciences?|behaviou?r(?:al)? science|cognitive psychology|work, organizational and health psychology|心理|社会科学|行为科学|认知心理/,
+    related: ["life", "data", "business"],
   },
   design: {
     strong: /fashion|textile|clothing|garment|design|服装|纺织|设计/,
@@ -1823,8 +1844,8 @@ function inferDomainsFromText(text) {
   };
   add("economics", /economics?|econometrics|经济|计量经济/);
   add("industrial", /wirtschaftsingenieur|industrial engineering|engineering management|technology management|technologiemanagement|business administration and engineering|construction management|project management|经济工程|工业工程|工程管理|工程造价/);
-  add("life", /biology|biomedical|biotechnology|medical|health|生物|医学|健康/);
-  add("social", /social|society|psychology|media|culture|社会|心理|媒体|文化/);
+  add("life", /life sciences?|biology|biomedical|biotechnology|medical|medicine|health|neuroscience|neurobiology|cognitive science|生物|医学|健康|神经科学|认知科学/);
+  add("social", /social|society|psychology|psychological|behaviou?r(?:al)? science|cognitive psychology|media|culture|社会|心理|行为科学|认知心理|媒体|文化/);
   add("textile", /textile|fashion|clothing|garment|纺织|服装/);
   return orderDomains(domains.length ? domains : ["general"]);
 }
@@ -1971,6 +1992,26 @@ function detectCrossDomainRisk(targetDomains, programDomains, titleCorpus) {
     cap = Math.min(cap, 78);
     risks.push("目标包含法律/知识产权，但项目未体现法律方向");
   }
+  if (hasTarget(["finance"]) && !programHas(["finance"])) {
+    const clearlyUnrelatedTitle =
+      /mechanical|production|manufacturing|energy|thermal|electrical|electronics?|civil|structural|materials?|biomedical|biology|neuroscience|psychology|law|机械|制造|能源|电气|电子|土木|材料|生物|心理|法律/.test(
+        titleCorpus
+      );
+    if (clearlyUnrelatedTitle) {
+      penalty += 24;
+      cap = Math.min(cap, 68);
+      risks.push("金融会计目标与项目标题主方向不一致，已降权");
+    } else {
+      penalty += 8;
+      cap = Math.min(cap, 84);
+      risks.push("金融会计目标未在项目名称或专业标签中直接体现");
+    }
+  }
+  if (hasTarget(["life", "social"]) && !programHas(["life", "social"])) {
+    penalty += 18;
+    cap = Math.min(cap, 72);
+    risks.push("健康/心理目标未在项目名称或专业标签中体现，通用数据项目已降权");
+  }
   if (hasTarget(["design", "textile"]) && !programHas(["design", "textile"])) {
     penalty += 18;
     cap = Math.min(cap, 72);
@@ -2039,8 +2080,9 @@ function rankingPriority(scored) {
   const strength = scored.audit?.strongestFit?.strength;
   const industrialPriority = scored.audit?.exactIndustrialTitle ? 24 : 0;
   const titlePriority = strength === "title" ? 30 : strength === "strong" ? 18 : strength === "medium" ? 8 : 0;
+  const multiTargetPriority = Math.min(18, Math.max(0, (scored.audit?.directFits?.length || 0) - 1) * 6);
   const coursePriority = Math.min(15, Math.round((scored.audit?.courseFit?.score || 0) / 8));
-  return industrialPriority + titlePriority + coursePriority;
+  return industrialPriority + titlePriority + multiTargetPriority + coursePriority;
 }
 
 function numericCredits(value) {

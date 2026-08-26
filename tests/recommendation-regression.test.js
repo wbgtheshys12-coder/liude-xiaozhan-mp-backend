@@ -126,3 +126,37 @@ test("partial transcript evidence prompts course completion without reporting re
   assert.match(preview.transcriptSummary.warnings.join(" "), /补充 3-6 门核心课程/);
   assert.doesNotMatch(preview.transcriptSummary.warnings.join(" "), /无法识别|识别失败/);
 });
+
+test("finance and accounting target does not rank pure engineering programmes above finance programmes", async () => {
+  const result = await localEngine.createRecommendation({
+    major: "会计与管理",
+    gpa: "3.4/4.0",
+    language: "IELTS 7.0",
+    targetDegree: "硕士",
+    targetField: "Finance, Accounting and Management",
+    courses: "Financial Accounting, Management Accounting, Corporate Finance, Microeconomics, Econometrics, Statistics",
+    recommendationCount: 6,
+  });
+
+  assert.equal(result.recommendations.length, 6);
+  const topThree = result.recommendations.slice(0, 3).map((item) => item.program).join(" ");
+  assert.match(topThree, /Finance|Accounting|Auditing|Controlling|Taxation/);
+  assert.doesNotMatch(topThree, /Mechanical Engineering|Energy Engineering|Civil Engineering/);
+});
+
+test("health psychology target retains a health, psychology, neuroscience or life-science candidate", async () => {
+  const result = await localEngine.createRecommendation({
+    major: "Health Psychology",
+    gpa: "3.5/4.0",
+    language: "IELTS 7.5",
+    targetDegree: "硕士",
+    targetField: "Health Psychology and Data Analysis",
+    courses: "Psychology, Research Methods, Statistics, Data Analysis, Cognitive Psychology, Health Behavior",
+    recommendationCount: 6,
+  });
+
+  assert.equal(result.recommendations.length, 6);
+  const programmes = result.recommendations.map((item) => item.program).join(" ");
+  assert.match(programmes, /Psychology/);
+  assert.match(programmes, /Neuroscience|Health|Life Sciences|Biology/);
+});

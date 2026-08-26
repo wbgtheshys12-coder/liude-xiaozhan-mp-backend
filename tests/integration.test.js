@@ -33,6 +33,32 @@ process.env.MP_TRANSCRIPT_TEMPLATES_FILE = path.join(testDataDir, "transcript-te
 const server = require("../server");
 const localEngine = require("../local-engine");
 
+test("long German and English CV headings remain separate document sections", () => {
+  const content = [
+    "EDUCATION",
+    "2020-2024 Example University",
+    "LANGUAGES AND STANDARDISED TESTS",
+    "IELTS 7.0",
+    "RESEARCH, PROJECTS AND THESIS",
+    "Project evidence",
+    "SPRACHKENNTNISSE UND STANDARDISIERTE TESTS",
+    "Deutsch B2",
+    "FORSCHUNG, PROJEKTE UND ABSCHLUSSARBEIT",
+    "Projektbeleg",
+  ].join("\n");
+  const parsed = server.testHelpers.parseDocumentSections(content);
+  assert.deepEqual(
+    parsed.sections.map((section) => section.heading),
+    [
+      "EDUCATION",
+      "LANGUAGES AND STANDARDISED TESTS",
+      "RESEARCH, PROJECTS AND THESIS",
+      "SPRACHKENNTNISSE UND STANDARDISIERTE TESTS",
+      "FORSCHUNG, PROJEKTE UND ABSCHLUSSARBEIT",
+    ]
+  );
+});
+
 async function waitForServer() {
   if (server.listening) return;
   await new Promise((resolve) => server.once("listening", resolve));
