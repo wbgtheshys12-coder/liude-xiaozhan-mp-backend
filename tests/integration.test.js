@@ -64,6 +64,61 @@ async function waitForServer() {
   await new Promise((resolve) => server.once("listening", resolve));
 }
 
+test("PDF export embeds readable regular glyphs and keeps section headings with their first paragraph", async () => {
+  const sections = Array.from({ length: 8 }, (_, index) =>
+    `${index + 1}. Section ${index + 1}\nMarker${index + 1} ${"This is verified application evidence with clear dates and course details. ".repeat(7)}\n`
+  );
+  const buffer = await server.testHelpers.createWatermarkedPdf("Motivation letter", sections.join("\n"), "DRAFT", "30/08/2026", "en", "motivation");
+  const raw = buffer.toString("latin1");
+  assert.match(raw, /NotoSansSC-Regular/);
+  assert.doesNotMatch(raw, /NotoSansSC-Thin/);
+  assert.match(raw, /\/FontFile2\b/);
+  const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const document = await getDocument({ data: new Uint8Array(buffer), useSystemFonts: false }).promise;
+  try {
+    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber++) {
+      const page = await document.getPage(pageNumber);
+      const text = (await page.getTextContent()).items.map(item => item.str || "").join(" ");
+      for (let section = 1; section <= sections.length; section++) {
+        if (text.includes(`Section ${section}`)) assert.ok(text.includes(`Marker${section}`), `orphan section ${section} on page ${pageNumber}`);
+      }
+      assert.ok(!text.includes("\ufffd"));
+    }
+  } finally {
+    await document.destroy();
+  }
+});
+
+test("matching PDF preserves long school names and cell content across page breaks", async () => {
+  const school = "Karlsruhe Institute of Technology";
+  const sentinel = "FINAL_EVIDENCE_MARKER";
+  const buffer = await server.testHelpers.createMatchingTablePdf("匹配测试", {
+    profile: {},
+    recommendations: [{
+      university: school, schoolName: "卡尔斯鲁厄理工学院", city: "Karlsruhe 卡尔斯鲁厄",
+      tags: ["TU9"], program: "Construction and Robotics", degree: "Master",
+      courseEvaluation: `${"Course evidence: mathematics, statistics and engineering modules. ".repeat(180)} ${sentinel}`
+    }]
+  }, "DRAFT", "2026-08-30");
+  const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const document = await getDocument({ data: new Uint8Array(buffer), useSystemFonts: false }).promise;
+  try {
+    assert.ok(document.numPages > 1);
+    let text = "";
+    for (let index = 1; index <= document.numPages; index++) {
+      const page = await document.getPage(index);
+      text += (await page.getTextContent()).items.map(item => item.str || "").join(" ");
+    }
+    const compact = text.replace(/\s/g, "");
+    assert.ok(compact.includes(school.replace(/\s/g, "")));
+    assert.ok(compact.includes("ConstructionandRobotics"));
+    assert.ok(compact.includes(sentinel));
+    assert.equal((compact.match(/Courseevidence:/g) || []).length, 180);
+  } finally {
+    await document.destroy();
+  }
+});
+
 function baseUrl() {
   const address = server.address();
   return `http://127.0.0.1:${address.port}`;
@@ -123,7 +178,16 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
   assert.equal(health.response.status, 200);
   assert.equal(health.payload.transcriptEngine, "pdf-ocr-embedded-fallback-20260730");
   assert.equal(health.payload.transcriptEmbeddedImageFallback, true);
-  assert.equal(health.payload.recommendationEngineVersion, "industrial-engineering-20260729");
+  assert.equal(health.payload.recommendationEngineVersion, "cross-domain-evidence-20260826");
+  assert.equal(health.payload.releaseVersion, "20260830-login-about");
+  const poster = await fetch(`${baseUrl()}/api/mp/public/about-poster.jpg`);
+  assert.equal(poster.status, 200);
+  assert.equal(poster.headers.get("Content-Type"), "image/jpeg");
+  assert.deepEqual(Buffer.from(await poster.arrayBuffer()), fs.readFileSync(path.join(__dirname, "..", "assets", "about-us-20260830.jpg")));
+  const posterHead = await fetch(`${baseUrl()}/api/mp/public/about-poster.jpg`, { method: "HEAD" });
+  assert.equal(posterHead.status, 200);
+  assert.equal((await posterHead.arrayBuffer()).byteLength, 0);
+  assert.ok(Number(posterHead.headers.get("Content-Length")) > 0);
   assert.equal(health.payload.recommendationReviewedTranscriptReuseEnabled, true);
   assert.equal(health.payload.recommendationFileReplayDisabled, true);
   assert.equal(health.payload.bookingTeacherOpenidCount, 2);

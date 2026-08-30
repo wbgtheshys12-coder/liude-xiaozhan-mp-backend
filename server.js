@@ -102,7 +102,8 @@ const MP_BOOKING_TIMEZONE_OFFSET_MINUTES = Number(process.env.MP_BOOKING_TIMEZON
 const MAX_REQUEST_BYTES = Number(process.env.MAX_REQUEST_BYTES || 40 * 1024 * 1024);
 const ADMIN_WEB_DIR = path.join(__dirname, "admin-web");
 const DOCUMENT_LOGO_PATH = path.join(__dirname, "assets", "document-logo.jpg");
-const DOCUMENT_PDF_FONT_PATH = path.join(__dirname, "assets", "NotoSansSC-VF.ttf");
+// A static 400-weight instance avoids PDFKit embedding the variable font's Thin default.
+const DOCUMENT_PDF_FONT_PATH = path.join(__dirname, "assets", "NotoSansSC-Regular.ttf");
 const DOCUMENT_TIMEZONE = "Asia/Shanghai";
 const DOCUMENT_TEMPLATE_VERSION = "liude-doc-template-20260731-embedded-font-v2";
 const MATCHING_PDF_LAYOUT_VERSION = "landscape-table-embedded-font-v2";
@@ -4675,17 +4676,22 @@ function createWatermarkedPdf(title, content, watermark, generatedAtText = forma
       .lineTo(pdf.page.width - pdf.page.margins.right, pdf.y + 7)
       .stroke();
     pdf.moveDown(1);
-    String(content || "")
+    const contentLines = String(content || "")
       .replace(/\r\n?/g, "\n")
-      .split("\n")
-      .forEach((rawLine) => {
+      .split("\n");
+    contentLines.forEach((rawLine, index) => {
         const line = rawLine.trim();
         if (!line) {
           pdf.moveDown(0.35);
           return;
         }
         if (isDocumentSectionHeading(line) || /^\d+\.\s+\S/u.test(line)) {
-          ensurePdfKitSpace(pdf, 38);
+          // Keep a section heading with its first paragraph, not alone at the page foot.
+          const nextLine = contentLines.slice(index + 1).find(value => value.trim()) || "";
+          const nextHeight = pdf.font("LiudeNoto").fontSize(10.2).heightOfString(nextLine.trim(), { width, lineGap: 2.6 });
+          const headingHeight = pdf.fontSize(11.2).heightOfString(line, { width, lineGap: 1 }) + 8;
+          ensurePdfKitSpace(pdf, Math.min(headingHeight + nextHeight + 16,
+            pdf.page.height - pdf.page.margins.top - pdf.page.margins.bottom - 34));
           pdf
             .font("LiudeNoto")
             .fontSize(11.2)
@@ -4702,7 +4708,8 @@ function createWatermarkedPdf(title, content, watermark, generatedAtText = forma
         const isClosing = /^(Mit freundlichen Grüßen|Yours faithfully|Sincerely,?)$/i.test(line);
         const fontSize = isNotice ? 7.6 : isMeta ? 8.4 : 10.2;
         const color = isNotice ? "#5c6f82" : isMeta ? "#40566f" : "#223247";
-        ensurePdfKitSpace(pdf, pdf.heightOfString(line, { width, lineGap: 2.6 }) + 16);
+        pdf.font("LiudeNoto").fontSize(fontSize);
+        ensurePdfKitSpace(pdf, pdf.heightOfString(line, { width, lineGap: isNotice ? 1.5 : 2.6 }) + 16);
         pdf
           .font("LiudeNoto")
           .fontSize(fontSize)
@@ -4716,6 +4723,31 @@ function createWatermarkedPdf(title, content, watermark, generatedAtText = forma
       });
     addPdfKitFooters(pdf, footer, generatedAtText);
   });
+}
+
+function wrapPdfKitCellText(document, value, width) {
+  const lines = [];
+  String(value || "-").split(/\r?\n/u).forEach(paragraph => {
+    let line = "";
+    const tokens = paragraph.match(/[A-Za-z\u00c0-\u024f0-9]+(?:['’-][A-Za-z\u00c0-\u024f0-9]+)*|[ \t]+|./gu) || [""];
+    tokens.forEach(token => {
+      if (line && document.widthOfString(line + token) > width) {
+        lines.push(line.trimEnd());
+        line = "";
+      }
+      if (!line) token = token.trimStart();
+      // Only split a single word when it cannot fit in the column by itself.
+      for (const character of token) {
+        if (line && document.widthOfString(line + character) > width) {
+          lines.push(line.trimEnd());
+          line = "";
+        }
+        line += character;
+      }
+    });
+    lines.push(line.trimEnd());
+  });
+  return lines;
 }
 
 function createMatchingTablePdf(title, matchingData, watermark, generatedAtText = formatDocumentDateTime()) {
@@ -4784,10 +4816,11 @@ function createMatchingTablePdf(title, matchingData, watermark, generatedAtText 
       currentY = pdf.page.margins.top;
       drawHeader(false);
     };
+    const fontSize = 6.6;
+    const padding = 4;
+    pdf.font("LiudeNoto").fontSize(fontSize);
+    const lineHeight = pdf.currentLineHeight(true) + 1.6;
     const drawRow = (groups, alternate) => {
-      const fontSize = 6.6;
-      const lineHeight = 8.2;
-      const padding = 4;
       const rowLines = Math.max(...groups.map((lines) => lines.length), 1);
       const rowHeight = Math.max(24, rowLines * lineHeight + padding * 2);
       let x = left;
@@ -4795,11 +4828,11 @@ function createMatchingTablePdf(title, matchingData, watermark, generatedAtText 
         const fill = alternate ? "#f8fbfe" : "#ffffff";
         pdf.rect(x, currentY, columns[index].width, rowHeight).fillAndStroke(fill, "#becad7");
         const color = index === 6 ? "#087a70" : index === 1 ? "#9a5b08" : "#26384d";
-        pdf.font("LiudeNoto").fontSize(fontSize).fillColor(color).text(lines.join("\n") || "-", x + padding, currentY + padding, {
-          width: columns[index].width - padding * 2,
-          height: rowHeight - padding * 2,
-          lineGap: 1.6,
-          ellipsis: true,
+        // Lines are measured with the same embedded font, so do not wrap them again.
+        lines.forEach((line, lineIndex) => {
+          pdf.font("LiudeNoto").fontSize(fontSize).fillColor(color).text(line || " ", x + padding, currentY + padding + lineIndex * lineHeight, {
+            lineBreak: false,
+          });
         });
         x += columns[index].width;
       });
@@ -4808,20 +4841,21 @@ function createMatchingTablePdf(title, matchingData, watermark, generatedAtText 
     drawHeader(true);
     matchingData.recommendations.forEach((item, itemIndex) => {
       const cellValues = matchingPdfCells(item);
-      const allLines = cellValues.map((value, index) => matchingPdfCellLines(value, columns[index].width, 6.6));
+      pdf.font("LiudeNoto").fontSize(fontSize);
+      const allLines = cellValues.map((value, index) => wrapPdfKitCellText(pdf, value, columns[index].width - padding * 2));
       const maxLines = Math.max(...allLines.map((lines) => lines.length), 1);
       let offset = 0;
       while (offset < maxLines) {
         const bottom = pdf.page.height - pdf.page.margins.bottom - 24;
-        let availableLines = Math.floor((bottom - currentY - 8) / 8.2);
+        let availableLines = Math.floor((bottom - currentY - padding * 2) / lineHeight);
         if (availableLines < 4) {
           addTablePage();
-          availableLines = Math.floor((pdf.page.height - pdf.page.margins.bottom - 24 - currentY - 8) / 8.2);
+          availableLines = Math.floor((pdf.page.height - pdf.page.margins.bottom - 24 - currentY - padding * 2) / lineHeight);
         }
         const take = Math.max(1, Math.min(maxLines - offset, availableLines));
         const groups = allLines.map((lines, index) => {
-          if (offset > 0 && [0, 1, 2, 6].includes(index)) {
-            return index === 0 ? matchingPdfCellLines(`${cellValues[index]}\n（续）`, columns[index].width, 6.6) : lines.slice(0, Math.min(lines.length, take));
+          if (offset > 0 && index === 0 && offset >= lines.length) {
+            return ["（上页学校续表）"];
           }
           return lines.slice(offset, offset + take);
         });
@@ -5615,11 +5649,32 @@ function sendAdminWebAsset(res, pathname) {
   fs.createReadStream(filePath).pipe(res);
 }
 
+async function sendAboutPoster(req, res) {
+  // Exact public marketing asset only: never expose uploads or arbitrary paths.
+  try {
+    const bytes = await fs.promises.readFile(path.join(__dirname, "assets", "about-us-20260830.jpg"));
+    res.writeHead(200, {
+      "Content-Type": "image/jpeg",
+      "Content-Length": bytes.length,
+      "Cache-Control": "public, max-age=3600",
+      "X-Content-Type-Options": "nosniff"
+    });
+    res.end(req.method === "HEAD" ? undefined : bytes);
+  } catch (error) {
+    sendJson(res, 404, { error: "品牌介绍图片暂未提供。" });
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
   if (req.method === "OPTIONS") {
     sendJson(res, 204, {});
+    return;
+  }
+
+  if (["GET", "HEAD"].includes(req.method) && url.pathname === "/api/mp/public/about-poster.jpg") {
+    await sendAboutPoster(req, res);
     return;
   }
 
@@ -5634,6 +5689,8 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 200, {
       ok: true,
       service: "liude-xiaozhan-miniprogram-backend",
+      releaseVersion: "20260830-login-about",
+      aboutPosterAvailable: fs.existsSync(path.join(__dirname, "assets", "about-us-20260830.jpg")),
       engine: "mini-program-standalone",
       transcriptEngine: "pdf-ocr-embedded-fallback-20260730",
       transcriptEmbeddedImageFallback: true,
