@@ -5674,9 +5674,14 @@ function sendAdminWebAsset(res, pathname) {
     sendJson(res, 404, { error: "Not found" });
     return;
   }
-  const filePath = path.resolve(ADMIN_WEB_DIR, ...cleanName.split("/").filter(Boolean));
+  const pdfVendor = {
+    "pdf-vendor/pdf.mjs": require.resolve("pdfjs-dist/build/pdf.mjs"),
+    "pdf-vendor/pdf.worker.mjs": require.resolve("pdfjs-dist/build/pdf.worker.mjs"),
+  };
+  const vendorFile = Object.prototype.hasOwnProperty.call(pdfVendor, cleanName) ? pdfVendor[cleanName] : "";
+  const filePath = vendorFile || path.resolve(ADMIN_WEB_DIR, ...cleanName.split("/").filter(Boolean));
   const adminRoot = path.resolve(ADMIN_WEB_DIR);
-  if (!(filePath === adminRoot || filePath.startsWith(`${adminRoot}${path.sep}`)) || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+  if ((!vendorFile && !(filePath === adminRoot || filePath.startsWith(`${adminRoot}${path.sep}`))) || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
     sendJson(res, 404, { error: "Not found" });
     return;
   }
@@ -5684,6 +5689,7 @@ function sendAdminWebAsset(res, pathname) {
   const contentTypes = {
     ".html": "text/html; charset=utf-8",
     ".js": "application/javascript; charset=utf-8",
+    ".mjs": "application/javascript; charset=utf-8",
     ".css": "text/css; charset=utf-8",
     ".svg": "image/svg+xml",
     ".png": "image/png",
@@ -5696,7 +5702,7 @@ function sendAdminWebAsset(res, pathname) {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "no-referrer",
-    "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; frame-src blob:; media-src 'self' https:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self'; worker-src 'self'; style-src 'self'; font-src 'self' blob: data:; img-src 'self' data: blob:; frame-src blob:; media-src 'self' https:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
   });
   fs.createReadStream(filePath).pipe(res);
 }
@@ -5745,7 +5751,8 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 200, {
       ok: true,
       service: "liude-xiaozhan-miniprogram-backend",
-      releaseVersion: "20260905-review-functional-update",
+      releaseVersion: "20260906-review-qa-final",
+      deployCommit: String(process.env.RENDER_GIT_COMMIT || "").slice(0, 40),
       aboutPosterAvailable: fs.existsSync(path.join(__dirname, "assets", "about-us-20260830.jpg")),
       engine: "mini-program-standalone",
       transcriptEngine: "pdf-ocr-embedded-fallback-20260730",

@@ -179,7 +179,7 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
   assert.equal(health.payload.transcriptEngine, "pdf-ocr-embedded-fallback-20260730");
   assert.equal(health.payload.transcriptEmbeddedImageFallback, true);
   assert.equal(health.payload.recommendationEngineVersion, "cross-domain-evidence-20260826");
-  assert.equal(health.payload.releaseVersion, "20260905-review-functional-update");
+  assert.equal(health.payload.releaseVersion, "20260906-review-qa-final");
   const poster = await fetch(`${baseUrl()}/api/mp/public/about-poster.jpg`);
   assert.equal(poster.status, 200);
   assert.equal(poster.headers.get("Content-Type"), "image/jpeg");

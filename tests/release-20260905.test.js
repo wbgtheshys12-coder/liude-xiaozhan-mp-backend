@@ -96,6 +96,12 @@ test("student course feedback can be sent before profile completion; administrat
 });
 
 test("original student transcript bytes are available only to owner and administrator", async () => {
+  for(const asset of ["pdf-preview.js","pdf-vendor/pdf.mjs","pdf-vendor/pdf.worker.mjs"]) {
+    const response=await fetch(base+"/admin/"+asset);
+    assert.equal(response.status,200);assert.match(response.headers.get("content-type"),/javascript/);
+    await response.arrayBuffer();
+  }
+  assert.equal((await fetch(base+"/admin/pdf-vendor/package.json")).status,404);
   const buffer = await server.testHelpers.createWatermarkedPdf("Synthetic transcript","Mathematics 90 / 100; Credits 5.0","TEST");
   const upload = await json("/api/mp/material/upload",student,{category:"成绩单",usage:"合成测试",file:{name:"synthetic-transcript.pdf",mimeType:"application/pdf",size:buffer.length,content:"data:application/pdf;base64,"+buffer.toString("base64")}});
   assert.equal(upload.status,200,JSON.stringify(upload.data));

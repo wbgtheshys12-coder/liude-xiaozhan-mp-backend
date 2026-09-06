@@ -280,11 +280,27 @@
     document.body.appendChild(link);
     if (preview && /^(application\/pdf|image\/)/i.test(blob.type)) {
       const dialog = document.createElement("dialog"); dialog.className = "material-preview";
-      const close = document.createElement("button"); close.textContent = "关闭预览"; close.onclick = () => dialog.close();
-      const frame = document.createElement("iframe"); frame.src = url; frame.title = name || "学生资料预览"; frame.className = "material-frame";
-      dialog.append(close, frame); document.body.appendChild(dialog); dialog.onclose = () => { URL.revokeObjectURL(url); dialog.remove(); }; dialog.showModal();
+      const toolbar = document.createElement("div"); toolbar.className = "preview-toolbar";
+      const close = document.createElement("button"); close.className = "ghost"; close.textContent = "关闭预览"; close.onclick = () => dialog.close();
+      link.textContent = "保存原文件"; link.className = "preview-save";
+      const title = document.createElement("strong"); title.textContent = name || "学生资料预览";
+      toolbar.append(title, link, close);
+      const content = document.createElement("div"); content.className = "preview-content";
+      let dispose;
+      dialog.append(toolbar, content); document.body.appendChild(dialog);
+      dialog.onclose = () => { dispose?.(); URL.revokeObjectURL(url); dialog.remove(); };
+      dialog.showModal();
+      if (/^application\/pdf/i.test(blob.type)) {
+        content.textContent = "正在加载 PDF 页面……";
+        try {
+          const { renderPdfPreview } = await import("/admin/pdf-preview.js");
+          if (dialog.open) dispose = await renderPdfPreview(content, blob, () => dialog.open);
+        } catch (error) { if (dialog.open) content.textContent = "此文件暂时无法在线预览，请点击上方“保存原文件”后使用 PDF 阅读器打开。"; }
+      } else {
+        const img = document.createElement("img"); img.src = url; img.alt = name || "学生资料图片"; img.className = "material-image"; content.append(img);
+      }
     } else { link.click(); setTimeout(() => URL.revokeObjectURL(url), 60000); }
-    link.remove();
+    if (!preview || !/^(application\/pdf|image\/)/i.test(blob.type)) link.remove();
   }
 
   async function login() {
