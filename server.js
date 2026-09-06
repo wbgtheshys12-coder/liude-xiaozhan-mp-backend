@@ -1479,7 +1479,13 @@ function readCourseRecords() {
       byId.delete(course.id);
       return;
     }
-    byId.set(course.id, course);
+    // Legacy copies of the bundled public demo predate the explicit free flag.
+    // Never infer public access for other assets, private ACLs, or an explicit false.
+    const legacyPublicDemo = course.id === "course_recorded_german_sample"
+      && !Object.prototype.hasOwnProperty.call(course, "free")
+      && getLocalCourseVideoFile(course.videoUrl) === BUNDLED_GERMAN_COURSE_VIDEO_FILE
+      && !(course.allowedStorageKeys || []).length;
+    byId.set(course.id, legacyPublicDemo ? { ...course, free: true } : course);
   });
   return Array.from(byId.values()).sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
 }

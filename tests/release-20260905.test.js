@@ -112,6 +112,20 @@ test("original student transcript bytes are available only to owner and administ
 });
 
 test("free course publication, private ACL and storage origin remain explicit", async () => {
+  const courseFile=path.join(dir,"courses.jsonl");
+  const prior=fs.existsSync(courseFile) ? fs.readFileSync(courseFile) : null;
+  const legacy={id:"course_recorded_german_sample",title:"Legacy bundled demo",type:"recorded",status:"published",videoUrl:"/api/mp/course-video/german-course.mp4"};
+  const bundled=(await json("/api/mp/admin/courses",admin)).data.records.find(item=>item.id===legacy.id);
+  legacy.videoUrl=bundled.videoUrl;
+  try {
+    for(const [overrides,expected] of [[{},true],[{free:false},false],[{allowedStorageKeys:["restricted"]},false],[{status:"draft"},false],[{deleted:true},false],[{videoUrl:"https://example.com/private.mp4"},false]]) {
+      fs.writeFileSync(courseFile,JSON.stringify({...legacy,...overrides})+"\n");
+      const visible=(await json("/api/mp/public/courses")).data.records.some(item=>item.id===legacy.id);
+      assert.equal(visible,expected,"Legacy public demo must preserve explicit access restrictions");
+    }
+  } finally {
+    if(prior) fs.writeFileSync(courseFile,prior); else fs.unlinkSync(courseFile);
+  }
   const body={title:"Synthetic free course",type:"recorded",videoUrl:"https://example.com/lesson.mp4",free:true,status:"published"};
   const saved = await json("/api/mp/admin/courses",admin,body);
   assert.equal(saved.status,200);
