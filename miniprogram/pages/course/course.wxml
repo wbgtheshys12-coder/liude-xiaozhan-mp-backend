@@ -1,0 +1,38 @@
+<view class="screen-page course-page">
+  <view class="hero">
+    <text class="eyebrow">课程匹配</text>
+    <text class="title">补课建议</text>
+    <text class="summary">先根据申请方向判断可能缺口，再把成绩单课程与目标项目的模块和学分要求逐项核对。</text>
+  </view>
+
+  <view class="section">
+    <view wx:for="{{modules}}" wx:key="title" class="module-card">
+      <view class="module-head">
+        <text class="module-title">{{item.title}}</text>
+        <text class="module-level">{{item.level}}</text>
+      </view>
+      <text class="module-desc">{{item.desc}}</text>
+    </view>
+  </view>
+
+  <view class="notice-card">
+    <text class="notice-title">如何得到精确建议</text>
+    <text class="notice-desc">补课建议不能只按专业名称判断，需要成绩单课程、目标专业模块手册和申请要求一起核对。先完成院校专业匹配，再回到成绩单核对表补充课程与学分信息。</text>
+  </view>
+
+  <view class="action-row">
+    <button class="primary-button" bindtap="goAdvisor">进入院校匹配与课程核对</button>
+  </view>
+  <button class="ghost-button" bindtap="showDiagnosis">查看完整自动补课诊断</button>
+
+  <view wx:if="{{diagnosisVisible}}" class="diagnosis-panel">
+    <text class="notice-title">自动补课诊断</text>
+    <view wx:for="{{diagnosis}}" wx:key="title" class="diagnosis-item">
+      <view class="module-head">
+        <text class="module-title">{{item.title}}</text>
+        <text class="module-level">{{item.level}}</text>
+      </view>
+      <text class="module-desc">{{item.desc}}</text>
+    </view>
+  </view>
+</view>

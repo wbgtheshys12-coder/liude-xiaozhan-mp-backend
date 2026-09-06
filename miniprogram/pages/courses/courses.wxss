@@ -1,0 +1,165 @@
+.courses-page {
+  min-height: 100vh;
+  padding: 24rpx;
+  background: #f5f7fb;
+  box-sizing: border-box;
+}
+
+.hero,
+.course-card,
+.loading-card {
+  padding: 26rpx;
+  border-radius: 18rpx;
+  background: #ffffff;
+  border: 1rpx solid #e3ebf5;
+}
+
+.eyebrow,
+.course-type {
+  display: block;
+  color: #1f58a7;
+  font-size: 23rpx;
+  font-weight: 900;
+}
+
+.title {
+  display: block;
+  margin-top: 8rpx;
+  color: #17243a;
+  font-size: 42rpx;
+  font-weight: 900;
+}
+
+.summary,
+.protect-note,
+.course-summary,
+.course-meta,
+.player-note,
+.empty {
+  display: block;
+  margin-top: 12rpx;
+  color: #526174;
+  font-size: 25rpx;
+  line-height: 1.55;
+}
+
+.protect-note {
+  color: #9c3b23;
+  font-weight: 800;
+}
+
+.course-list {
+  margin-top: 22rpx;
+}
+
+.course-card {
+  margin-bottom: 18rpx;
+}
+
+.course-head,
+.player-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+
+.course-status {
+  color: #0b705e;
+  font-size: 23rpx;
+  font-weight: 900;
+}
+
+.course-title {
+  display: block;
+  margin-top: 12rpx;
+  color: #17243a;
+  font-size: 32rpx;
+  font-weight: 900;
+}
+
+.course-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+
+.primary-button {
+  width: 100%;
+  min-height: 78rpx;
+  margin: 22rpx 0 0;
+  border-radius: 999rpx;
+  background: #1f58a7;
+  color: #ffffff;
+  font-size: 27rpx;
+  font-weight: 900;
+}
+
+.primary-button::after {
+  border: 0;
+}
+
+.loading-track {
+  height: 14rpx;
+  margin-top: 18rpx;
+  border-radius: 999rpx;
+  background: #edf2f8;
+  overflow: hidden;
+}
+
+.loading-fill {
+  height: 100%;
+  background: #1f58a7;
+}
+
+.player-mask {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 20;
+  padding: 24rpx;
+  padding-bottom: calc(24rpx + env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 24, 38, 0.72);
+  box-sizing: border-box;
+}
+
+.player-panel {
+  width: 100%;
+  height: 90%;
+  max-height: 850rpx;
+  max-width: 800px;
+  padding: 22rpx;
+  border-radius: 18rpx;
+  background: #ffffff;
+}
+
+.player-head {
+  color: #17243a;
+  font-size: 28rpx;
+  font-weight: 900;
+}
+
+.close {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  font-size: 42rpx;
+  color: #526174;
+}
+
+.course-video {
+  width: 100%;
+  height: 340rpx;
+  max-height: 55vh;
+  margin-top: 18rpx;
+  border-radius: 14rpx;
+  overflow: hidden;
+}

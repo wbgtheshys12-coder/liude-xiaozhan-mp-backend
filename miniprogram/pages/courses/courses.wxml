@@ -1,0 +1,42 @@
+<view class="screen-page courses-page">
+  <view class="hero">
+    <text class="eyebrow">免费课程 · 在线学习</text>
+    <text class="title">网课中心</text>
+    <text class="summary">{{notice}}</text>
+    <text class="protect-note">{{protectNote}}</text>
+  </view>
+
+  <view wx:if="{{loading}}" class="loading-card">
+    <text class="loading-title">正在加载课程</text>
+    <view class="loading-track"><view class="loading-fill" style="width: 66%;"></view></view>
+  </view>
+
+  <view wx:else class="course-list">
+    <view wx:for="{{courses}}" wx:key="id" class="course-card">
+      <view class="course-head">
+        <text class="course-type">{{item.typeText}}</text>
+        <text class="course-status">{{item.availabilityText}}</text>
+      </view>
+      <text class="course-title">{{item.title}}</text>
+      <text class="course-summary">{{item.summary}}</text>
+      <view class="course-meta">
+        <text>{{item.startAt || item.duration || '时间待定'}}</text>
+        <text wx:if="{{item.tagText}}">{{item.tagText}}</text>
+      </view>
+      <button class="primary-button" disabled="{{!item.available}}" data-id="{{item.id}}" bindtap="openCourse">{{item.actionText}}</button>
+      <button data-id="{{item.id}}" bindtap="sendFeedback">课程反馈 / 私信老师</button>
+    </view>
+    <view wx:if="{{!courses.length}}" class="empty">暂无开放课程。</view>
+  </view>
+
+  <view wx:if="{{currentCourse}}" class="player-mask">
+    <scroll-view class="player-panel" scroll-y="{{true}}">
+      <view class="player-head">
+        <text>{{currentCourse.title}}</text>
+        <text class="close" bindtap="closePlayer">×</text>
+      </view>
+      <video class="course-video" src="{{currentCourse.videoUrl}}" controls="{{true}}" show-fullscreen-btn="{{true}}" show-download-btn="{{false}}" show-center-play-btn="{{true}}"></video>
+      <text class="player-note">{{currentCourse.free ? '免费公开学习' : '仅供有权限的账号学习'}}。不提供下载入口，请勿擅自传播。</text>
+    </scroll-view>
+  </view>
+</view>

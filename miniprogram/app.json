@@ -1,0 +1,74 @@
+{
+  "pages": [
+    "pages/home/home",
+    "pages/login/login",
+    "pages/onboarding/onboarding",
+    "pages/search/search",
+    "pages/school/school",
+    "pages/course/course",
+    "pages/plan/plan",
+    "pages/news/news",
+    "pages/consult/consult",
+    "pages/about/about",
+    "pages/feature/feature",
+    "pages/service/service",
+    "pages/courses/courses",
+    "pages/live/live",
+    "pages/booking/booking",
+    "pages/bookings/bookings",
+    "pages/admin/bookings",
+    "pages/admin/courses",
+    "pages/admin/uploads",
+    "pages/admin/messages",
+    "pages/admin/stats",
+    "pages/messages/messages",
+    "pages/me/me",
+    "pages/account/account",
+    "pages/settings/settings",
+    "pages/advisor/advisor",
+    "pages/results/results",
+    "pages/materials/materials",
+    "pages/tools/tools",
+    "pages/policy/policy"
+  ],
+  "window": {
+    "navigationBarTitleText": "留德小栈",
+    "navigationBarBackgroundColor": "#1f58a7",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#f5f7fb"
+  },
+  "tabBar": {
+    "color": "#526174",
+    "selectedColor": "#0b705e",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "white",
+    "list": [
+      {
+        "pagePath": "pages/home/home",
+        "text": "首页",
+        "iconPath": "assets/home/tab-home.png",
+        "selectedIconPath": "assets/home/tab-home.png"
+      },
+      {
+        "pagePath": "pages/service/service",
+        "text": "服务",
+        "iconPath": "assets/home/tab-service.png",
+        "selectedIconPath": "assets/home/tab-service.png"
+      },
+      {
+        "pagePath": "pages/booking/booking",
+        "text": "预约",
+        "iconPath": "assets/home/tab-booking.png",
+        "selectedIconPath": "assets/home/tab-booking.png"
+      },
+      {
+        "pagePath": "pages/me/me",
+        "text": "我的",
+        "iconPath": "assets/home/tab-me.png",
+        "selectedIconPath": "assets/home/tab-me.png"
+      }
+    ]
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

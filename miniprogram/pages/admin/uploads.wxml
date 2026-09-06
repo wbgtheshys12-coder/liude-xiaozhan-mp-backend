@@ -1,0 +1,20 @@
+<view class="screen-page uploads-page">
+  <view class="hero">
+    <text class="title">学生资料库</text>
+    <text class="summary">查看学生上传的成绩单、申请材料和文书相关文件。{{privacyNote}}</text>
+    <button class="primary-button" bindtap="exportData">导出使用数据</button>
+  </view>
+
+  <view wx:if="{{loading}}" class="empty">正在加载资料...</view>
+  <view wx:else class="record-list">
+    <view wx:for="{{records}}" wx:key="id" class="record-card">
+      <text class="record-title">{{item.name}}</text>
+      <text class="record-meta">{{item.category}} · {{item.sizeText}}</text>
+      <text class="record-meta">学生：{{item.studentName || item.user.storageKey}}</text>
+      <text class="record-meta">用途：{{item.trainingConsent ? '已授权去标识化 OCR 改进' : '仅申请服务'}}</text>
+      <text class="record-time">{{item.createdAt}}</text>
+      <button class="primary-button material-open-button" data-id="{{item.id}}" bindtap="openMaterial">查看/保存资料</button>
+    </view>
+    <view wx:if="{{!records.length}}" class="empty">暂无学生上传资料。</view>
+  </view>
+</view>

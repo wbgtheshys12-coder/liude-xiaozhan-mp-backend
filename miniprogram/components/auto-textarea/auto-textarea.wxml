@@ -1,0 +1,3 @@
+<view class="auto-shell {{variant == 'form' ? 'form' : ''}}">
+  <textarea class="auto-input {{strong ? 'strong' : ''}}" value="{{displayValue}}" placeholder="{{displayPlaceholder}}" placeholder-class="auto-placeholder" auto-height="{{true}}" maxlength="{{maxlength}}" cursor-spacing="24" bindinput="onInput"></textarea>
+</view>

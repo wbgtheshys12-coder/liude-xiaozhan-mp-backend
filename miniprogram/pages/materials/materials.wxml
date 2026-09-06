@@ -1,0 +1,75 @@
+<view class="screen-page page">
+  <view class="brand-card">
+    <text class="eyebrow">申请材料助手</text>
+    <text class="title">{{progress.percent}}%</text>
+    <view class="summary">已完成 {{progress.completed}} / {{progress.total}} 项。学生上传的材料会进入内部资料库，仅管理员可查看。</view>
+  </view>
+
+  <view class="panel">
+    <text class="section-title">核心服务 · 资料与文书</text>
+    <view class="summary">支持 PDF、Word、Excel 和图片。资料仅用于申请服务和顾问核对，请不要上传与申请无关的敏感材料。</view>
+    <view class="training-consent-row">
+      <view class="training-consent-copy">
+        <text class="training-consent-title">去标识化成绩单识别改进授权</text>
+        <text class="training-consent-desc">关闭时，本科成绩单只用于当前申请服务；开启后，才可作为内部 OCR 识别改进素材。不会进入公开代码或公开数据集。</text>
+      </view>
+      <switch checked="{{trainingConsent}}" bindchange="updateTrainingConsent" color="#1f58a7"></switch>
+    </view>
+    <button class="secondary-button upload-button" loading="{{uploading}}" disabled="{{uploading}}" bindtap="uploadMaterial">{{uploading ? '上传中' : '上传资料到内部资料库'}}</button>
+    <view wx:for="{{uploadedRecords}}" wx:key="id" class="upload-record">
+      <text class="material-title">{{item.name}}</text>
+      <text class="material-meta">{{item.category}} · {{item.createdAt}}</text>
+      <text class="material-meta">{{item.trainingConsent ? '已授权去标识化识别改进' : '仅用于申请服务'}}</text>
+      <view class="upload-record-actions">
+        <button class="secondary-button compact-action" data-id="{{item.id}}" bindtap="openUploadedMaterial">查看/保存</button>
+        <button class="secondary-button compact-action danger" data-id="{{item.id}}" bindtap="deleteUploadedMaterial">删除</button>
+      </view>
+    </view>
+  </view>
+
+  <view class="panel">
+    <view class="checklist-head">
+      <text class="section-title">申请材料清单</text>
+      <view class="checklist-tabs">
+        <text wx:for="{{checklistTabs}}" wx:key="key" class="checklist-tab {{activeChecklist == item.key ? 'active' : ''}}" data-key="{{item.key}}" bindtap="switchChecklist">{{item.label}}</text>
+      </view>
+    </view>
+    <text class="summary">{{checklist.title}}</text>
+    <view wx:for="{{checklist.items}}" wx:key="*this" class="checklist-row">
+      <text class="check-dot"></text>
+      <text class="check-text">{{item}}</text>
+    </view>
+  </view>
+
+  <view wx:if="{{blocked}}" class="paywall-card">
+    <text class="section-title">文书初稿生成权限</text>
+    <view class="summary">当前微信号还没有开通高级文书生成权限；材料清单和资料上传仍可正常使用。</view>
+  </view>
+
+  <view wx:for="{{categories}}" wx:key="key" class="panel">
+    <text class="section-title">{{item.label}}</text>
+    <view wx:for="{{materialsByCategory[item.key]}}" wx:for-item="material" wx:key="id" class="material-card">
+      <text class="material-title">{{material.name}}</text>
+      <text class="material-meta">{{material.requiredLevel}} · {{material.deadlineStage}} · {{material.priority}}优先级</text>
+      <view class="summary" style="margin-top: 10rpx;">{{material.description}}</view>
+      <view class="material-actions">
+        <picker mode="selector" range="{{statusOptions}}" data-id="{{material.id}}" bindchange="changeStatus">
+          <view class="secondary-button" style="min-height: 70rpx; padding: 16rpx 24rpx;">{{material.status}}</view>
+        </picker>
+        <button wx:if="{{material.canAutoGenerate}}" class="secondary-button" data-id="{{material.id}}" loading="{{draftingId == material.id}}" disabled="{{blocked || draftingId == material.id}}" bindtap="generateDraft">{{blocked ? '权限未开通' : (draftingId == material.id ? 'AI 生成中' : '生成初稿')}}</button>
+      </view>
+      <view wx:if="{{draftingId == material.id}}" class="loading-card compact">
+        <view class="loading-head">
+          <text class="loading-title">正在生成材料初稿</text>
+          <text class="loading-percent">{{draftProgress}}%</text>
+        </view>
+        <view class="loading-track">
+          <view class="loading-fill" style="width: {{draftProgress}}%;"></view>
+        </view>
+        <text class="loading-desc">{{draftProgressText || '正在整理当前材料内容。'}}</text>
+      </view>
+      <view wx:if="{{material.generatedDraft}}" class="draft-box">{{material.generatedDraft}}</view>
+    </view>
+    <view wx:if="{{!materialsByCategory[item.key].length}}" class="empty">当前分类暂无材料项。</view>
+  </view>
+</view>

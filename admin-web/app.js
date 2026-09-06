@@ -1,7 +1,7 @@
 (() => {
   "use strict";
   const $ = (id) => document.getElementById(id);
-  const state = { token: sessionStorage.getItem("liude_admin_token") || "", courses: [] };
+  const state = { token: sessionStorage.getItem("liude_admin_token") || "", courses: [], posts: [] };
   const loginPanel = $("loginPanel");
   const appPanel = $("appPanel");
   const globalMessage = $("globalMessage");
@@ -50,7 +50,7 @@
       text = "课程记录存在，但视频文件已失效，请重新上传。";
     } else if (url) {
       stateName = "ready";
-      const kind = meta.videoStorage === "local" || /^\/api\/mp\/course-video\//.test(url) ? "本地视频已上传" : "外部视频链接已配置";
+      const kind = ({ "tencent-cos": "腾讯云 COS 视频", bundled: "随后端发布的视频（不在COS）", local: "当前服务器本地视频", external: "外部视频链接" })[meta.videoStorage] || "视频地址已配置";
       const detail = [meta.name || meta.videoFileName, formatBytes(meta.size || meta.videoSize)].filter(Boolean).join(" · ");
       text = `${kind}${detail ? `：${detail}` : ""}。${meta.justUploaded ? "请继续保存课程，保存后学生端才会显示。" : ""}`;
     }
@@ -68,7 +68,7 @@
           ? `视频已配置${course.videoSize ? ` · ${formatBytes(course.videoSize)}` : ""}`
           : "视频待配置";
     const preview = course.videoPreviewUrl ? `<button class="ghost preview-course" data-id="${escapeHtml(course.id)}" type="button">测试播放</button>` : "";
-    return `<article class="card"><div class="card-head"><h3>${escapeHtml(course.title)}</h3><span class="badge">${course.type === "live" ? "直播" : "录播"} · ${escapeHtml(course.status)}</span></div><p class="meta">${escapeHtml(course.summary || "暂无简介")}</p><p class="meta">${escapeHtml(course.startAt || course.duration || "")}</p><p class="media-line ${course.videoStorage === "local" && !course.videoExists ? "missing" : ""}">${escapeHtml(mediaText)}</p><div class="card-actions"><button class="ghost edit-course" data-id="${escapeHtml(course.id)}" type="button">编辑</button>${preview}<button class="danger-button delete-course" data-id="${escapeHtml(course.id)}" type="button">删除课程</button></div></article>`;
+    return `<article class="card"><div class="card-head"><h3>${escapeHtml(course.title)}</h3><span class="badge">${course.type === "live" ? "直播" : "录播"} · ${escapeHtml(course.status)}</span></div><p class="meta">${escapeHtml(course.summary || "暂无简介")}</p><p class="meta">${escapeHtml(course.startAt || course.duration || "")}</p><p class="media-line ${course.videoStorage === "local" && !course.videoExists ? "missing" : ""}">${escapeHtml(mediaText)} · ${escapeHtml(({bundled:"后端内置（不在腾讯云）","tencent-cos":"腾讯云 COS",local:"服务器本地",external:"外部链接",none:"未上传"})[course.videoStorage] || "待核实")} · ${course.free ? "免费公开" : "登录 / 授权课程"}</p><div class="card-actions"><button class="ghost edit-course" data-id="${escapeHtml(course.id)}" type="button">编辑</button>${preview}<button class="danger-button delete-course" data-id="${escapeHtml(course.id)}" type="button">删除课程</button></div></article>`;
   }
 
   async function loadCourses() {
@@ -80,12 +80,12 @@
 
   async function loadBookings() {
     const payload = await api("/api/mp/admin/bookings?status=all");
-    $("bookingsList").innerHTML = (payload.records || []).map((item) => `<article class="card"><div class="card-head"><h3>${escapeHtml(item.studentName || "微信用户")}</h3><span class="badge">${escapeHtml(item.status || "confirmed")}</span></div><p class="meta">${escapeHtml(item.dateDisplay || item.date)} ${escapeHtml(item.time)} · ${escapeHtml(item.advisorName)}</p><p class="meta">联系方式：${escapeHtml(item.contact || "未填写")}</p><p class="meta">学校：${escapeHtml(item.school || "未填写")}</p><p class="meta">专业 / 层次：${escapeHtml(item.major || "未填写")} · ${escapeHtml(item.applicationLevel || "未填写")}</p><p class="meta">备注：${escapeHtml(item.note || "无")}</p></article>`).join("") || '<p class="meta">暂无预约。</p>';
+    $("bookingsList").innerHTML = (payload.records || []).map((item) => `<article class="card"><div class="card-head"><h3>${escapeHtml(item.studentName || "微信用户")}</h3><span class="badge">${escapeHtml(item.statusText || item.status || "confirmed")}</span></div><p class="meta">${escapeHtml(item.dateDisplay || item.date)} ${escapeHtml(item.time)} · ${escapeHtml(item.advisorName)}</p><p class="meta">联系方式：${escapeHtml(item.contact || "未填写")}</p><p class="meta">学校：${escapeHtml(item.school || "未填写")}</p><p class="meta">专业 / 层次：${escapeHtml(item.major || "未填写")} · ${escapeHtml(item.applicationLevel || "未填写")}</p><p class="meta">备注：${escapeHtml(item.note || "无")}</p>${item.requestOnly && item.status === "pending" ? `<button class="booking-contacted" data-id="${escapeHtml(item.id)}">标记已联系</button>` : ""}</article>`).join("") || '<p class="meta">暂无预约。</p>';
   }
 
   async function loadUploads() {
     const payload = await api("/api/mp/admin/uploads");
-    $("uploadsList").innerHTML = (payload.records || []).map((item) => `<article class="card"><div class="card-head"><h3>${escapeHtml(item.name)}</h3><span class="badge">${escapeHtml(item.category)}</span></div><p class="meta">学生：${escapeHtml(item.studentName || item.user?.storageKey || "未填写")}</p><p class="meta">用途：${escapeHtml(item.usage || "未填写")} · ${Math.round(Number(item.size || 0) / 1024)} KB</p><div class="card-actions"><button class="ghost download-upload" data-id="${escapeHtml(item.id)}" data-name="${escapeHtml(item.name)}" type="button">安全下载</button></div></article>`).join("") || '<p class="meta">暂无学生资料。</p>';
+    $("uploadsList").innerHTML = (payload.records || []).map((item) => `<article class="card"><div class="card-head"><h3>${escapeHtml(item.name)}</h3><span class="badge">${escapeHtml(item.category)}</span></div><p class="meta">学生：${escapeHtml(item.studentName || item.user?.storageKey || "未填写")}</p><p class="meta">用途：${escapeHtml(item.usage || "未填写")} · ${Math.round(Number(item.size || 0) / 1024)} KB</p><div class="card-actions"><button class="ghost download-upload" data-id="${escapeHtml(item.id)}" data-name="${escapeHtml(item.name)}" type="button">保存资料</button><button class="ghost preview-upload" data-id="${escapeHtml(item.id)}" data-name="${escapeHtml(item.name)}" type="button">查看资料</button></div></article>`).join("") || '<p class="meta">暂无学生资料。</p>';
   }
 
   async function loadMessages() {
@@ -109,7 +109,7 @@
     const payload = await api("/api/mp/admin/stats");
     const summary = payload.summary || {};
     const labels = { bookings: "预约", activeBookings: "有效预约", uploads: "资料", profiles: "学生档案", courses: "课程", publishedCourses: "已发布课程", messages: "客服消息", messageConversations: "客服会话", usage: "使用事件", activeUsers: "活跃用户" };
-    $("statsList").innerHTML = `<div class="stats-grid">${Object.entries(labels).map(([key, label]) => `<div class="stat"><strong>${escapeHtml(summary[key] || 0)}</strong><span>${label}</span></div>`).join("")}</div>`;
+    $("statsList").innerHTML = `<p class="fine-print">${escapeHtml(payload.measurementNote || "")}</p><div class="stats-grid">${Object.entries(labels).map(([key, label]) => `<div class="stat"><strong>${escapeHtml(summary[key] || 0)}</strong><span>${label}</span></div>`).join("")}</div>`;
   }
 
   async function loadPayments() {
@@ -127,6 +127,7 @@
       if (resource === "messages") await loadMessages();
       if (resource === "payments") await loadPayments();
       if (resource === "stats") await loadStats();
+      if (resource === "posts") await loadPosts();
       setMessage("数据已更新。", true);
     } catch (error) {
       setMessage(error.message);
@@ -146,6 +147,7 @@
     if (!course) return;
     $("courseId").value = course.id || "";
     $("courseType").value = course.type || "recorded";
+    $("courseFree").checked = course.free === true;
     $("courseTitle").value = course.title || "";
     $("courseSummary").value = course.summary || "";
     $("courseTags").value = (course.tags || []).join(", ");
@@ -252,6 +254,7 @@
       summary: $("courseSummary").value.trim(),
       tags: $("courseTags").value.split(/[,，]/).map((item) => item.trim()).filter(Boolean),
       status: $("courseStatus").value,
+      free: $("courseFree").checked,
       videoUrl: $("courseVideoUrl").value.trim(),
       liveUrl: $("courseLiveUrl").value.trim(),
       startAt: $("courseStartAt").value.trim(),
@@ -259,29 +262,37 @@
       allowedStorageKeys: $("courseAllowedKeys").value.split(/[,，\n]/).map((item) => item.trim()).filter(Boolean),
     };
     if (!payload.title) throw new Error("请填写课程名称。" );
+    if (payload.free && payload.allowedStorageKeys.length) throw new Error("免费公开课不能限定学生，请取消勾选免费或清空限定名单。");
     await api("/api/mp/admin/courses", { method: "POST", body: JSON.stringify(payload) });
     resetCourseForm();
     await loadCourses();
     setMessage("课程已保存。", true);
   }
 
-  async function downloadUpload(id, name) {
+  async function downloadUpload(id, name, preview = false) {
     const response = await fetch(`/api/mp/admin/material-file/${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${state.token}` } });
-    if (!response.ok) throw new Error("资料下载失败或无权限。" );
+    if (!response.ok) { const error = await response.json().catch(() => ({})); throw new Error(error.error || `资料读取失败：${response.status}`); }
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
     link.download = name || "student-material";
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    document.body.appendChild(link);
+    if (preview && /^(application\/pdf|image\/)/i.test(blob.type)) {
+      const dialog = document.createElement("dialog"); dialog.className = "material-preview";
+      const close = document.createElement("button"); close.textContent = "关闭预览"; close.onclick = () => dialog.close();
+      const frame = document.createElement("iframe"); frame.src = url; frame.title = name || "学生资料预览"; frame.className = "material-frame";
+      dialog.append(close, frame); document.body.appendChild(dialog); dialog.onclose = () => { URL.revokeObjectURL(url); dialog.remove(); }; dialog.showModal();
+    } else { link.click(); setTimeout(() => URL.revokeObjectURL(url), 60000); }
+    link.remove();
   }
 
   async function login() {
     state.token = $("tokenInput").value.trim();
     if (!state.token) { $("loginMessage").textContent = "请输入后台访问令牌。"; return; }
     try {
-      await api("/api/mp/session");
+      const session = await api("/api/mp/session");
+      if (!session.authenticated || !session.isAdmin) throw new Error("请使用有效的管理员登录令牌。");
       sessionStorage.setItem("liude_admin_token", state.token);
       $("tokenInput").value = "";
       $("loginMessage").textContent = "";
@@ -300,6 +311,25 @@
     showApp(false);
   }
 
+  async function loadPosts() {
+    const payload = await api("/api/mp/admin/posts"); state.posts = payload.records || [];
+    $("postsList").innerHTML = state.posts.map((post) => {
+      const actions = post.status === "draft" ? [["submit","提交审核"]] : post.status === "pending" ? [["approve","审核发布"],["reject","退回草稿"]] : [["unpublish","下架"]];
+      return `<article class="card"><h3>${escapeHtml(post.title)}</h3><p>${escapeHtml({draft:"草稿",pending:"待审核",published:"已发布"}[post.status])}</p><p class="meta post-content">${escapeHtml(post.content)}</p><p class="meta">${escapeHtml(post.sourceUrl)}</p><button data-id="${escapeHtml(post.id)}" data-post-action="edit">编辑</button>${actions.map(([action,label]) => `<button data-id="${escapeHtml(post.id)}" data-post-action="${action}">${label}</button>`).join("")}</article>`;
+    }).join("") || "<p>暂无资讯。请先新建草稿。</p>";
+  }
+  async function actOnPost(id, action) {
+    const post = state.posts.find((item) => item.id === id); if (!post) return;
+    if (action === "edit") { $("postId").value = post.id; $("postUpdatedAt").value = post.updatedAt; $("postTitle").value = post.title; $("postContent").value = post.content; $("postSource").value = post.sourceUrl || ""; $("postForm").scrollIntoView({behavior:"smooth"}); return; }
+    if (action === "approve" && !confirm("请确认事实、日期、来源及隐私内容已经人工核对。审核发布后所有用户可见，确定发布？")) return;
+    await api("/api/mp/admin/posts", { method:"POST", body: JSON.stringify({ id, action, updatedAt:post.updatedAt }) });
+    await loadPosts(); setMessage("资讯状态已更新。",true);
+  }
+  $("postForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+    api("/api/mp/admin/posts", {method:"POST",body:JSON.stringify({id:$("postId").value,updatedAt:$("postUpdatedAt").value,action:"save",title:$("postTitle").value,content:$("postContent").value,sourceUrl:$("postSource").value})}).then(() => { $("postForm").reset(); return loadPosts(); }).then(() => setMessage("已保存草稿，尚未发布。",true)).catch((error) => setMessage(error.message));
+  });
+  $("resetPost").addEventListener("click", () => $("postForm").reset());
   $("loginButton").addEventListener("click", login);
   $("tokenInput").addEventListener("keydown", (event) => { if (event.key === "Enter") login(); });
   $("logoutButton").addEventListener("click", logout);
@@ -331,11 +361,20 @@
     if (removeCourse) deleteCourse(removeCourse.dataset.id).catch((error) => setMessage(error.message));
     const download = event.target.closest(".download-upload");
     if (download) downloadUpload(download.dataset.id, download.dataset.name).catch((error) => setMessage(error.message));
+    const viewUpload = event.target.closest(".preview-upload");
+    if (viewUpload) downloadUpload(viewUpload.dataset.id, viewUpload.dataset.name, true).catch((error) => setMessage(error.message));
+    const postAction = event.target.closest("[data-post-action]");
+    if (postAction) actOnPost(postAction.dataset.id, postAction.dataset.postAction).catch((error) => setMessage(error.message));
+    const contacted = event.target.closest(".booking-contacted");
+    if (contacted && confirm("确认已经通过学生留下的联系方式联系过本人？")) api("/api/mp/admin/booking-request/status", { method:"POST", body:JSON.stringify({id:contacted.dataset.id,status:"contacted"}) }).then(loadBookings).catch((error) => setMessage(error.message));
     const reply = event.target.closest(".reply-message");
     if (reply) replyMessage(reply.dataset.storageKey).catch((error) => setMessage(error.message));
   });
 
   if (state.token) {
-    api("/api/mp/session").then(() => { showApp(true); loadResource("courses"); }).catch(logout);
+    api("/api/mp/session").then((session) => {
+      if (!session.authenticated || !session.isAdmin) throw new Error("管理员登录已失效");
+      showApp(true); loadResource("courses");
+    }).catch(logout);
   }
 })();

@@ -3209,17 +3209,18 @@ function createForeignApplicationDraft(body = {}) {
     language === "de"
       ? new Intl.DateTimeFormat("de-DE", { dateStyle: "short", timeStyle: "medium", timeZone: "Asia/Shanghai" }).format(now)
       : new Intl.DateTimeFormat("en-GB", { dateStyle: "short", timeStyle: "medium", timeZone: "Asia/Shanghai" }).format(now);
-  const draft =
-    toolKey === "cv"
-      ? buildForeignCvDraft(form, language, generatedAt)
-      : buildForeignMotivationDraft(form, language, generatedAt);
+  const factual = require("./factual-drafts").createFactualDraft(form, language, toolKey, generatedAt);
+  const draft = factual.draft;
   return {
     ok: true,
     draft,
     language,
     toolKey,
     foreignLanguageReady: !containsCjkText(draft),
-    source: "privacy-safe-structured-language-v1",
+    source: factual.source,
+    translationComplete: factual.translationComplete,
+    untranslatedFields: factual.warnings,
+    reviewMessage: factual.warnings.length ? "本地结构整理无法完整翻译部分内容，已在初稿中标记待翻译；原文保留在填写表中。请先补充目标语言或交由文书老师翻译，不可直接递交。" : "本次使用你填写的事实生成结构初稿；正式递交前仍需核对目标语言、学校格式和事实。",
     warnings:
       resolveLatinApplicantName(form) === "Applicant"
         ? [
@@ -3260,6 +3261,27 @@ function createMaterialDraft(body = {}) {
 }
 
 module.exports = {
+  getPublicCatalog() {
+    const seen = new Set();
+    return [...EXTERNAL_PROGRAMS, ...FALLBACK_PROGRAMS].filter((program) => {
+      const key = `${program.university}|${program.programDisplayName || program.programTitle}`.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key); return true;
+    }).map((program, index) => ({
+      id: program.id || `catalog-${index}`,
+      university: program.university || "",
+      title: program.programDisplayName || program.programTitle || "",
+      overview: String(program.overview || "暂无详细介绍，请核对项目官网。").slice(0, 3000),
+      prerequisites: String(program.prerequisites || "").slice(0, 2000),
+      applicationPeriod: program.applicationPeriod || "",
+      applicationDeadline: program.applicationDeadline || program.deadline || "",
+      degree: program.degree || "",
+      city: program.city || "",
+      keywords: program.keywords || [],
+      domains: program.domains || [],
+      sourceUrls: (program.sourcePaths || []).map((source) => source.url).filter((url) => /^https:\/\//.test(url || "")).slice(0, 4)
+    }));
+  },
   createRecommendation,
   createTranscriptPreview,
   createMaterialDraft,

@@ -1,0 +1,7 @@
+{
+  "navigationBarTitleText": "文书与课程材料",
+  "usingComponents": {
+    "experience-form": "/components/experience-form/experience-form",
+    "auto-textarea": "/components/auto-textarea/auto-textarea"
+  }
+}

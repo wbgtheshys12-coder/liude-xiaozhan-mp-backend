@@ -1,0 +1,84 @@
+<view class="screen-page admin-page {{settingsClass}}">
+  <view class="admin-head">
+    <text class="admin-title">预约管理</text>
+    <button class="refresh-button" loading="{{loading}}" disabled="{{loading}}" bindtap="refreshBookings">刷新</button>
+  </view>
+
+  <view class="summary-grid">
+    <view class="summary-card">
+      <text class="summary-value">{{count}}</text>
+      <text class="summary-label">当前记录</text>
+    </view>
+    <view class="summary-card">
+      <text class="summary-value">{{todayCount}}</text>
+      <text class="summary-label">今日预约</text>
+    </view>
+  </view>
+
+  <view wx:if="{{canSubscribeBookingNotice}}" class="notice-card subscription-card">
+    <text class="subscription-title">{{noticeTitle}}</text>
+    <text class="subscription-desc">{{noticeDescription}}</text>
+    <button class="subscribe-button" disabled="{{noticeAuthorized}}" bindtap="authorizeNextBookingNotice">{{noticeButtonText}}</button>
+  </view>
+
+  <view class="filter-row">
+    <view wx:for="{{advisorFilters}}" wx:key="key" class="filter-chip {{selectedAdvisor === item.key ? 'active' : ''}}" data-key="{{item.key}}" bindtap="selectAdvisor">
+      <text>{{item.label}}</text>
+    </view>
+  </view>
+
+  <view wx:if="{{occupiedSlots.length}}" class="occupied-card">
+    <text class="section-title">已占用时间</text>
+    <text class="occupied-text">{{occupiedSlots.join('；')}}</text>
+  </view>
+
+  <view wx:if="{{error}}" class="notice-card warning">
+    <text>{{error}}</text>
+  </view>
+
+  <view wx:elif="{{loading}}" class="notice-card">
+    <text>正在读取预约记录...</text>
+  </view>
+
+  <view wx:elif="{{!records.length}}" class="notice-card">
+    <text>暂无预约记录。</text>
+  </view>
+
+  <view wx:for="{{records}}" wx:key="id" class="booking-card">
+    <view class="booking-top">
+      <view class="booking-main">
+        <text class="student-name">{{item.studentName || '微信用户'}}</text>
+        <text class="booking-time">{{item.dateText}}</text>
+      </view>
+      <text class="status-pill">{{item.statusText}}</text>
+    </view>
+    <view class="booking-line">
+      <text class="line-label">顾问</text>
+      <text class="line-value">{{item.advisorName}}</text>
+    </view>
+    <view class="booking-line">
+      <text class="line-label">联系方式</text>
+      <text class="line-value">{{item.contact || '未填写'}}</text>
+    </view>
+    <view class="booking-line">
+      <text class="line-label">学校</text>
+      <text class="line-value">{{item.school || '未填写'}}</text>
+    </view>
+    <view class="booking-line">
+      <text class="line-label">专业</text>
+      <text class="line-value">{{item.major || '未填写'}} · {{item.applicationLevel || '未填写'}}</text>
+    </view>
+    <view class="booking-line">
+      <text class="line-label">备注</text>
+      <text class="line-value">{{item.noteText}}</text>
+    </view>
+    <view class="booking-line">
+      <text class="line-label">用户</text>
+      <text class="line-value">{{item.userText}}</text>
+    </view>
+    <view class="booking-footer">
+      <text class="created-text">{{item.createdText}}</text>
+      <button class="copy-button" data-id="{{item.id}}" bindtap="copyBooking">复制信息</button>
+    </view>
+  </view>
+</view>

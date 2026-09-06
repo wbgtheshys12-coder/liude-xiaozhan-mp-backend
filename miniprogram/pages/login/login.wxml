@@ -1,0 +1,40 @@
+<view class="screen-page login-page">
+  <view class="login-card">
+    <image class="brand-logo" src="/assets/logo.jpg" mode="aspectFill"></image>
+    <text class="brand-name">欢迎来到留德小栈</text>
+    <text class="brand-desc">懂德国 · 懂申请</text>
+    <text class="brand-summary">选学校、准备文书、学德语，与老师一起推进你的申请。</text>
+
+    <view class="mini-tags">
+      <text class="mini-tag">院校推荐</text>
+      <text class="mini-tag">材料生成</text>
+      <text class="mini-tag">顾问预约</text>
+    </view>
+
+    <checkbox-group class="privacy-row" bindchange="togglePrivacy">
+      <label class="privacy-label">
+        <checkbox value="accepted" checked="{{privacyAccepted}}" />
+        <text>我已阅读并同意</text>
+      </label>
+      <text class="privacy-link" catchtap="openPrivacyContract">《用户隐私保护指引》</text>
+    </checkbox-group>
+
+    <button class="login-button" loading="{{loading}}" disabled="{{loading || !privacyAccepted}}" bindtap="login">
+      {{loading ? '正在进入…' : '微信一键登录'}}
+    </button>
+    <text class="login-note">登录用于保存个人资料和提交服务申请，不要求授权手机号、头像或昵称。公开院校、资讯和免费课程无需登录。</text>
+    <button class="about-link" bindtap="enterApp">暂不登录，继续浏览</button>
+    <view wx:if="{{loading}}" class="loading-card compact login-loading">
+      <view class="loading-head">
+        <text class="loading-title">正在登录</text>
+        <text class="loading-percent">{{loginProgress}}%</text>
+      </view>
+      <view class="loading-track">
+        <view class="loading-fill" style="width: {{loginProgress}}%;"></view>
+      </view>
+      <text class="loading-desc">{{loginProgressText || '正在校验微信绑定状态。'}}</text>
+    </view>
+    <view wx:if="{{message}}" class="status {{isError ? 'error' : ''}}">{{message}}</view>
+    <button class="about-link" bindtap="openAbout">先了解留德小栈</button>
+  </view>
+</view>

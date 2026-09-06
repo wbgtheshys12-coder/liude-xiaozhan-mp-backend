@@ -1,0 +1,22 @@
+<view class="screen-page service-page">
+  <view class="service-top">
+      <text class="page-title">核心服务</text>
+    <view class="date-row">
+      <view wx:for="{{filters}}" wx:key="key" class="date-pill {{activeFilter == item.key ? 'active' : ''}}" data-key="{{item.key}}" bindtap="switchFilter">
+        <text>{{item.label}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="service-list">
+    <view wx:for="{{visibleServices}}" wx:key="key" class="service-item">
+      <image class="service-image" src="{{item.image}}" mode="aspectFit"></image>
+      <view class="service-copy">
+        <text class="service-title">{{item.title}}</text>
+        <text class="service-desc">{{item.desc}}</text>
+        <text class="service-price">{{item.price}}</text>
+      </view>
+      <button class="service-button" data-url="{{item.url}}" data-tab="{{item.tab}}" bindtap="openService">进入</button>
+    </view>
+  </view>
+</view>

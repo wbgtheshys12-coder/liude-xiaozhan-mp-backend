@@ -1,0 +1,126 @@
+<view class="screen-page page tools-page">
+  <view class="tool-hero">
+    <text class="ai-generated-badge">AI生成 · 人工智能生成初稿</text>
+    <text class="tool-eyebrow">文书与课程材料</text>
+    <text class="tool-title">{{activeTool.title}}</text>
+    <text class="tool-summary">{{activeTool.summary}}</text>
+    <text class="tool-summary">{{activeTool.templateSource}}</text>
+  </view>
+
+  <scroll-view class="tool-tabs" scroll-x="true" enable-flex="true">
+    <view wx:for="{{tools}}" wx:key="key" class="tool-tab {{activeTool.key == item.key ? 'active' : ''}}" data-key="{{item.key}}" bindtap="setActive">{{item.shortTitle}}</view>
+  </scroll-view>
+
+  <view class="language-card">
+    <text class="language-title">生成版本</text>
+    <view class="language-options">
+      <view wx:for="{{languageOptions}}" wx:key="key"
+        class="language-option {{outputLanguage == item.key ? 'active' : ''}}"
+        data-language="{{item.key}}"
+        bindtap="selectLanguage">
+        <text class="language-label">{{item.label}}</text>
+        <text class="language-note">{{item.note}}</text>
+      </view>
+    </view>
+    <text class="language-desc">选择最终文件语言。内容在独立后端整理为所选语言的结构稿；不能完整翻译的内容会标记待补全，不会发送到外部翻译平台。正式提交前仍需核对专有名词、事实和目标项目要求。</text>
+    <text class="language-review">{{languageReviewMessage}}</text>
+  </view>
+
+  <view class="progress-card">
+    <view class="progress-row">
+      <text class="progress-title">填写进度</text>
+      <text class="progress-count">{{filledCount}} / {{totalFields}}</text>
+    </view>
+    <view class="progress-track">
+      <view class="progress-fill" style="width: {{completion}}%;"></view>
+    </view>
+  </view>
+  <view class="preview-lock">{{materialAccessMessage}}</view>
+  <view class="privacy-note">
+    <text class="privacy-title">隐私提醒</text>
+    <text class="privacy-desc">请勿填写身份证号、护照号、银行卡、验证码等非必要敏感信息。生成结果属于 AI 辅助初稿，正式提交前必须自行核对或由文书老师审核。</text>
+  </view>
+  <view wx:if="{{activeTool.key == 'motivation'}}" class="motivation-guidance">
+    <text class="motivation-guidance-title">动机信填写建议</text><text class="motivation-guidance-desc">生成内容和你填写的内容强相关。请聚焦学习、学术和职业目标，不以移民为申请动机；应如实表达，不能虚构个人意图或经历。</text><picker range="{{['1页（精简）', '2页（推荐）']}}" value="{{pageLimit - 1}}" bindchange="changePageLimit"><view class="form-input">篇幅：{{pageLimit}} 页 · 点击选择</view></picker><text class="motivation-guidance-desc">学校如有明确页数或字数要求，以其要求为准；选择一页时请精简经历。</text>
+    <text class="motivation-guidance-desc">请把希望在动机信中体现的内容写具体：时间、课程或项目、本人职责、采用的方法、取得的结果，以及这些经历与目标专业的关系。信息越详细，生成的初稿越能体现个人特点。</text>
+    <view class="motivation-disclaimer">
+      <text class="motivation-disclaimer-title">申请使用提示</text>
+      <text class="motivation-disclaimer-desc">生成内容仅为 AI 辅助申请初稿，不代表学校要求或录取判断，不能未经检查直接作为最终申请文书提交。正式申请前，请本人核对事实、专有名词、目标项目、官网题目、字数和语言，建议由文书老师审核。</text>
+    </view>
+  </view>
+
+  <block wx:for="{{activeSections}}" wx:for-item="section" wx:key="title">
+    <view class="form-section">
+      <text class="form-section-title">{{section.title}}</text>
+      <text wx:if="{{section.desc}}" class="form-section-desc">{{section.desc}}</text>
+      <block wx:for="{{section.fields}}" wx:for-item="field" wx:key="key">
+        <view class="form-field">
+          <view class="label-row">
+            <text class="field-label">{{field.label}}</text>
+            <text wx:if="{{field.required}}" class="required-mark">* 必填</text>
+          </view>
+          <auto-textarea
+            wx:if="{{field.type == 'long'}}"
+            class="form-auto-textarea"
+            variant="form"
+            value="{{field.value}}"
+            placeholder="{{field.placeholder}}"
+            data-key="{{field.key}}"
+            bindinput="updateField"
+            maxlength="{{-1}}"
+          ></auto-textarea>
+          <input placeholder-class="input-placeholder"
+            wx:else
+            class="form-input"
+            value="{{field.value}}"
+            placeholder="{{field.placeholder}}"
+            data-key="{{field.key}}"
+            bindinput="updateField"
+          />
+        </view>
+      </block>
+    </view>
+  </block>
+
+  <view class="form-section"><button bindtap="toggleExperience">{{showExperience ? '收起分项经历表' : '按个人简历信息表填写 / 复用经历'}}</button><experience-form wx:if="{{showExperience}}" value="{{experienceData}}" bindchange="applyExperience" /></view>
+  <view class="action-card">
+    <view class="action-heading">
+      <text class="action-title">生成与导出</text>
+      <text class="action-badge">德语 / 英语初稿免费</text>
+    </view>
+    <button class="primary-button" loading="{{generatingDraft}}" disabled="{{generatingDraft}}" bindtap="generateDraft">{{generatingDraft ? '生成中' : activeTool.actionLabel}}</button>
+    <view class="action-divider"></view>
+    <text class="action-subtitle">完整文件</text>
+    <button class="secondary-button" bindtap="exportWord">{{activeTool.wordExportLabel}}</button>
+    <button class="secondary-button" bindtap="exportPdf">{{activeTool.pdfExportLabel}}</button>
+    <text class="action-note">Word 可继续编辑；PDF 带留德小栈水印并嵌入字体。两种格式使用同一份所选语言结构稿，待翻译标记需由本人或老师补齐。页数限制适用于 PDF；Word 在不同编辑器中可能重新分页。</text>
+    <view class="action-divider"></view>
+    <text class="action-subtitle">填写内容</text>
+    <button class="secondary-button" bindtap="saveForm">保存填写内容</button>
+    <button class="secondary-button" bindtap="exportQuestionnairePdf">导出填写内容 PDF（水印）</button>
+    <button class="service-button" bindtap="goMessages">联系文书老师人工校对</button>
+    <button class="ghost-button" bindtap="clearForm">清空重填</button>
+  </view>
+
+  <view wx:if="{{generatingDraft}}" class="loading-card">
+    <view class="loading-head">
+      <text class="loading-title">正在生成初稿</text>
+      <text class="loading-percent">{{draftProgress}}%</text>
+    </view>
+    <view class="loading-track">
+      <view class="loading-fill" style="width: {{draftProgress}}%;"></view>
+    </view>
+    <text class="loading-desc">{{draftProgressText || '正在整理调查表内容。'}}</text>
+  </view>
+
+  <view class="draft-card">
+    <text wx:if="{{generationReview}}" class="language-review">{{generationReview}}</text>
+    <view class="draft-head">
+      <text class="draft-title">专业排版预览 · AI生成</text>
+      <button class="copy-button" bindtap="copyDraft">复制</button>
+    </view>
+    <view wx:if="{{draftLocked}}" class="preview-lock">收费功能待开发：当前账号仅展示完整内容前 20%，可导出同等范围的 Word 或水印 PDF。</view>
+    <view wx:if="{{displayDraft}}" class="document-preview"><text class="preview-running-head">{{activeTool.key == 'cv' ? 'LEBENSLAUF / CV' : 'MOTIVATION LETTER'}}</text><text wx:for="{{draftParagraphs}}" wx:key="index" class="document-paragraph">{{item}}</text><text class="preview-running-head">AI生成 · 正式递交前须核对。最终分页以导出 PDF 为准。</text></view>
+    <view wx:else class="empty-draft">填写上方调查表后，点击“生成初稿”。</view>
+  </view>
+</view>

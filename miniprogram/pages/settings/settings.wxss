@@ -1,0 +1,168 @@
+.settings-page {
+  min-height: 100vh;
+  padding: 34rpx 30rpx 56rpx;
+  background: #f7f9fc;
+}
+
+.settings-hero {
+  padding: 34rpx 30rpx;
+  border: 1rpx solid #dbe8f7;
+  border-radius: 18rpx;
+  background: #eef6ff;
+  color: #17243a;
+  box-shadow: none;
+}
+
+.settings-title,
+.settings-summary,
+.section-label,
+.setting-title,
+.setting-desc,
+.advisor-name,
+.advisor-desc {
+  display: block;
+}
+
+.settings-title {
+  font-size: 36rpx;
+  font-weight: 900;
+}
+
+.settings-summary {
+  margin-top: 12rpx;
+  color: #34445a;
+  font-size: 25rpx;
+  line-height: 1.55;
+  font-weight: 700;
+}
+
+.settings-section {
+  margin-top: 20rpx;
+  padding: 26rpx;
+  border-radius: 16rpx;
+  border: 1rpx solid #e5edf7;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: 24rpx;
+  padding: 22rpx 0;
+  border-bottom: 1rpx solid #edf1f7;
+}
+
+.setting-row:first-child {
+  padding-top: 0;
+}
+
+.setting-row:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.setting-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.setting-title {
+  color: #17243a;
+  font-size: 29rpx;
+  font-weight: 900;
+}
+
+.setting-desc {
+  margin-top: 8rpx;
+  color: #526174;
+  font-size: 24rpx;
+  line-height: 1.5;
+  font-weight: 700;
+}
+
+.section-label {
+  color: #17243a;
+  font-size: 30rpx;
+  font-weight: 900;
+}
+
+.advisor-setting-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16rpx;
+  margin-top: 18rpx;
+}
+
+.advisor-setting {
+  min-height: 126rpx;
+  padding: 22rpx;
+  border: 2rpx solid #dce6f4;
+  border-radius: 14rpx;
+  background: #f8fbff;
+}
+
+.advisor-setting.active {
+  border-color: #1f58a7;
+  background: #eaf3ff;
+}
+
+.advisor-name {
+  color: #17243a;
+  font-size: 28rpx;
+  font-weight: 900;
+}
+
+.advisor-desc {
+  margin-top: 8rpx;
+  color: #43536a;
+  font-size: 24rpx;
+  line-height: 1.4;
+  font-weight: 800;
+}
+
+.action-section {
+  display: grid;
+  gap: 16rpx;
+}
+
+.teacher-notice-section {
+  display: grid;
+  gap: 18rpx;
+}
+
+.teacher-notice-button {
+  width: 100%;
+}
+
+.ghost-action,
+.danger-action {
+  min-height: 78rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0 30rpx;
+  border-radius: 999rpx;
+  font-size: 27rpx;
+  font-weight: 900;
+  line-height: 1.2;
+  text-align: center;
+  white-space: normal;
+}
+
+.ghost-action {
+  border: 1rpx solid rgba(31, 88, 167, 0.18);
+  background: #ffffff;
+  color: #1f58a7;
+}
+
+.danger-action {
+  background: #fff0f0;
+  color: #b42323;
+}
+
+.ghost-action::after,
+.danger-action::after {
+  border: 0;
+}

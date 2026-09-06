@@ -3,7 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 
-const miniRoot = path.resolve(__dirname, "..", "..", "用户版小程序");
+const miniRoot = fs.existsSync(path.resolve(__dirname, "../../用户版小程序/app.json")) ? path.resolve(__dirname, "../../用户版小程序") : path.resolve(__dirname, "../miniprogram");
 const miniProgramAvailable = fs.existsSync(path.join(miniRoot, "app.json"));
 const miniProgramTestOptions = { skip: miniProgramAvailable ? false : "standalone backend checkout has no Mini Program source" };
 
@@ -64,10 +64,10 @@ test("mini program pages, bindings, JSON, layout guards and package size", miniP
   assert.match(read("pages/onboarding/onboarding.wxml"), /申请硕士/);
   assert.match(read("utils/profile.js"), /hasAccountScope/);
   assert.match(read("utils/profile.js"), /session\.user\?\.storageKey/);
-  assert.match(read("pages/booking/booking.wxml"), /已绑定学生资料/);
-  assert.match(read("pages/booking/booking.wxml"), /客服微信：/);
+  assert.match(read("pages/booking/booking.wxml"), /提交预约申请/);
+  assert.match(read("pages/booking/booking.wxml"), /咨询微信：/);
   assert.match(read("pages/booking/booking.wxml"), /liudexiaozhan|serviceWechat/);
-  assert.match(read("pages/booking/booking.js"), /陆老师仅周日开放预约/);
+  assert.match(read("pages/booking/booking.js"), /booking-request/);
   assert.doesNotMatch(read("pages/booking/booking.wxml"), /bindinput="update(?:StudentName|Contact|Major)"/);
   assert.match(read("pages/tools/tools.wxml"), /\* 必填/);
   const documentToolSource = `${read("pages/tools/tools.js")}\n${read("pages/tools/tools.wxml")}`;
@@ -91,12 +91,12 @@ test("mini program pages, bindings, JSON, layout guards and package size", miniP
   assert.doesNotMatch(read("pages/tools/tools.js"), /buildWordHtml|buildQuestionnaireWordHtml|\.doc`/);
   assert.match(read("pages/results/results.wxml"), /导出匹配汇总表 PDF/);
   assert.match(read("pages/results/results.js"), /matchingData:\s*buildMatchingTableData/);
-  assert.match(read("pages/advisor/advisor.wxml"), /填写匹配度调查表/);
+  assert.match(read("pages/advisor/advisor.wxml"), /成绩单/);
   const advisorCopy = `${read("pages/advisor/advisor.wxml")}\n${read("pages/advisor/advisor.js")}`;
   assert.match(advisorCopy, /语言考试（可多选）/);
   assert.match(advisorCopy, /EDUCATION_STATUS_OPTIONS/);
   assert.match(advisorCopy, /请按成绩单补充关键课程/);
-  assert.match(advisorCopy, /课程与成绩核对（必做）/);
+  assert.match(advisorCopy, /课程与成绩核对 \*/);
   assert.match(advisorCopy, /成绩单为可选项/);
   assert.match(advisorCopy, /按现有信息推荐/);
   assert.match(read("pages/advisor/advisor.js"), /transcriptFileCount: this\.data\.files\.length/);

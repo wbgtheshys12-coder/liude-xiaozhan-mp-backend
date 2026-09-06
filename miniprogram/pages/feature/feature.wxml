@@ -1,0 +1,31 @@
+<view class="screen-page feature-page">
+  <view class="hero">
+    <text class="tag">{{meta.tag}}</text>
+    <text class="title">{{meta.title}}</text>
+    <text class="summary">{{meta.summary}}</text>
+  </view>
+
+  <view class="feature-grid">
+    <view wx:for="{{cards}}" wx:key="title" class="feature-card">
+      <text class="feature-card-title">{{item.title}}</text>
+      <text class="feature-card-value">{{item.value}}</text>
+      <text class="feature-card-desc">{{item.desc}}</text>
+    </view>
+  </view>
+
+  <view wx:if="{{list.length}}" class="panel">
+    <text class="section-title">明细</text>
+    <view wx:for="{{list}}" wx:key="title" class="list-row">
+      <view class="list-copy">
+        <text class="list-title">{{item.title}}</text>
+        <text class="list-desc">{{item.desc}}</text>
+      </view>
+      <text class="list-extra">{{item.extra}}</text>
+    </view>
+  </view>
+
+  <view class="action-bar">
+    <button class="primary-button" bindtap="handlePrimary">{{primaryText}}</button>
+    <button class="secondary-button" bindtap="handleSecondary">{{secondaryText}}</button>
+  </view>
+</view>

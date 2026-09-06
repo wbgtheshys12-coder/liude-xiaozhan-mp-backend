@@ -4,7 +4,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const test = require("node:test");
 
-const root = path.resolve(__dirname, "../../用户版小程序");
+const root = fs.existsSync(path.resolve(__dirname, "../../用户版小程序/app.json")) ? path.resolve(__dirname, "../../用户版小程序") : path.resolve(__dirname, "../miniprogram");
 const options = { skip: fs.existsSync(path.join(root, "app.json")) ? false : "standalone backend checkout" };
 const completeProfile = { name: "测试学生", phone: "13800138000", school: "测试大学", major: "机械工程", applicationLevel: "硕士" };
 
@@ -85,20 +85,13 @@ test("returning student with account-scoped profile enters without another login
   assert.equal(h.calls.modals, 0);
 });
 
-test("new student profile is handed to onboarding once without duplicate network requests", options, async () => {
-  const h = harness("pages/login/login.js");
-  await h.page.goAfterLogin({ profile: { name: "测试学生" } });
-  assert.equal(h.calls.profile, 0);
-  assert.equal(h.calls.redirects[0], "/pages/onboarding/onboarding");
-  assert.equal(h.app.globalData.onboardingProfile.name, "测试学生");
-  const onboarding = harness("pages/onboarding/onboarding.js");
-  onboarding.app.globalData.token = "valid";
-  onboarding.app.globalData.onboardingProfile = h.app.globalData.onboardingProfile;
-  onboarding.page.onLoad();
-  assert.equal(onboarding.calls.profile, 0);
-  assert.equal(onboarding.page.data.loading, false);
-  assert.equal(onboarding.page.data.draft.name, "测试学生");
-  assert.equal(onboarding.app.globalData.onboardingProfile, null);
+test("new student can enter home without mandatory onboarding", options, async () => {
+  const h = harness("pages/login/login.js", { profile: { name: "测试学生" } });
+  h.page.setData({ privacyAccepted: true });
+  h.api.loginUser = async () => ({ profile: { name: "测试学生" } });
+  await h.page.login();
+  assert.equal(h.calls.home, 1);
+  assert.equal(h.calls.redirects.length, 0);
 });
 
 test("temporary profile network errors do not force users to re-enter saved information", options, async () => {

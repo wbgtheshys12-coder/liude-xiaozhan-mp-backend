@@ -1,0 +1,66 @@
+<view class="screen-page admin-course-page">
+  <view class="hero">
+    <text class="title">网课管理</text>
+    <text class="summary">老师和内部管理员可维护录播课和直播课。录播视频可从手机相册或微信聊天文件选择，也可填写 HTTPS 视频链接；直播课填写直播间、会议入口或腾讯会议链接。</text>
+    <text class="notice">本地上传视频使用绑定微信账号的短时签名播放地址，不提供下载入口。微信无法绝对阻止系统录屏；外部 HTTPS 视频需由视频平台另行配置防盗链/签名。</text>
+    <text class="storage-notice {{storagePersistent ? 'safe' : 'risk'}}">{{storageNote}}</text>
+  </view>
+
+  <view class="form-card">
+    <picker mode="selector" range="{{typeOptions}}" bindchange="changeType">
+      <view class="input-like">课程类型：{{form.type == 'live' ? '直播课' : '录播课'}}</view>
+    </picker>
+    <input placeholder-class="input-placeholder" class="input" value="{{form.title}}" placeholder="课程标题" data-field="title" bindinput="updateField" />
+    <textarea placeholder-class="input-placeholder" class="textarea" value="{{form.summary}}" placeholder="课程简介" data-field="summary" bindinput="updateField" auto-height="true" />
+    <input placeholder-class="input-placeholder" class="input" value="{{form.tagsText}}" placeholder="标签，用逗号分隔，例如：TU9，材料准备" data-field="tagsText" bindinput="updateField" />
+    <view wx:if="{{form.type == 'recorded'}}" class="upload-panel">
+      <input placeholder-class="input-placeholder" class="input" value="{{form.videoUrl}}" placeholder="录播视频链接（https），也可点击下方上传" data-field="videoUrl" bindinput="updateField" />
+      <view class="video-status {{videoStatus}}">
+        <view class="status-line">
+          <text class="status-dot"></text>
+          <text class="status-title">{{videoStatus == 'uploading' ? '正在上传' : videoStatus == 'ready' ? '视频已配置' : videoStatus == 'missing' ? '视频需要重新上传' : '尚未配置视频'}}</text>
+        </view>
+        <text wx:if="{{videoFileName}}" class="status-detail">文件：{{videoFileName}}</text>
+        <text wx:if="{{videoSizeText}}" class="status-detail">大小：{{videoSizeText}}</text>
+        <view wx:if="{{uploadingVideo}}" class="upload-progress" aria-label="视频上传进度 {{uploadProgress}}%">
+          <view class="upload-progress-bar" style="width: {{uploadProgress}}%;"></view>
+        </view>
+        <text wx:if="{{uploadingVideo}}" class="status-detail">已上传 {{uploadProgress}}%</text>
+      </view>
+      <view class="button-row compact">
+        <button class="secondary-button" loading="{{uploadingVideo}}" disabled="{{uploadingVideo}}" bindtap="chooseVideo">{{uploadingVideo ? '上传 ' + uploadProgress + '%' : '选择并上传视频'}}</button>
+        <button class="secondary-button danger" loading="{{deletingVideo}}" disabled="{{uploadingVideo || deletingVideo || !form.videoUrl}}" bindtap="removeVideo">移除视频</button>
+      </view>
+      <text wx:if="{{videoUploadNote}}" class="upload-note">{{videoUploadNote}}</text>
+    </view>
+    <view wx:if="{{form.type == 'live'}}" class="upload-panel">
+      <input placeholder-class="input-placeholder" class="input" value="{{form.liveUrl}}" placeholder="直播入口/会议链接（https，例如腾讯会议、企业微信直播等）" data-field="liveUrl" bindinput="updateField" />
+      <text class="upload-note">直播功能以链接入口形式开放。后续如果接入腾讯云直播，可把推流/观看地址填在这里。</text>
+    </view>
+    <input placeholder-class="input-placeholder" class="input" value="{{form.startAt}}" placeholder="直播时间/开放时间，例如：每周三 20:00" data-field="startAt" bindinput="updateField" />
+    <input placeholder-class="input-placeholder" class="input" value="{{form.duration}}" placeholder="时长，例如：60分钟" data-field="duration" bindinput="updateField" />
+    <textarea placeholder-class="input-placeholder" class="textarea" value="{{form.allowedStorageKeysText}}" placeholder="课程学员账号标识，用逗号分隔；留空表示所有已登录用户可学习" data-field="allowedStorageKeysText" bindinput="updateField" auto-height="true" />
+    <text class="upload-note">学生可在“我的 → 账户与付费”复制账号标识。每个标识只对应一个微信账号，可用于逐人绑定课程权限。</text>
+    <view class="button-row">
+      <button class="secondary-button" bindtap="resetForm">清空</button>
+      <button class="primary-button" loading="{{saving}}" disabled="{{saving}}" bindtap="saveCourse">保存课程</button>
+    </view>
+  </view>
+
+  <view class="list-card">
+    <view class="section-head">
+      <text class="section-title">已有课程</text>
+      <text class="sync-note">电脑后台与小程序同步</text>
+    </view>
+    <view wx:for="{{records}}" wx:key="id" class="course-row">
+      <text class="course-title">{{item.title}}</text>
+      <text class="course-meta">{{item.type == 'live' ? '直播课' : '录播课'}} · {{item.status}}</text>
+      <text class="course-media {{item.mediaState}}">{{item.mediaText}}</text>
+      <view class="course-actions">
+        <button class="row-button" data-id="{{item.id}}" bindtap="editCourse">编辑课程</button>
+        <button class="row-button danger" data-id="{{item.id}}" bindtap="deleteCourse">删除课程</button>
+      </view>
+    </view>
+    <text wx:if="{{!loading && !records.length}}" class="empty-note">暂无课程，可在上方新建。</text>
+  </view>
+</view>

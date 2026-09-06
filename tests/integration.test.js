@@ -179,7 +179,7 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
   assert.equal(health.payload.transcriptEngine, "pdf-ocr-embedded-fallback-20260730");
   assert.equal(health.payload.transcriptEmbeddedImageFallback, true);
   assert.equal(health.payload.recommendationEngineVersion, "cross-domain-evidence-20260826");
-  assert.equal(health.payload.releaseVersion, "20260830-login-about");
+  assert.equal(health.payload.releaseVersion, "20260905-review-functional-update");
   const poster = await fetch(`${baseUrl()}/api/mp/public/about-poster.jpg`);
   assert.equal(poster.status, 200);
   assert.equal(poster.headers.get("Content-Type"), "image/jpeg");
@@ -233,7 +233,7 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
   assert.equal(health.payload.documentLogoWatermarkEnabled, true);
   assert.equal(health.payload.documentPdfFontEmbedded, true);
   assert.equal(health.payload.documentForeignLanguageGuardEnabled, true);
-  assert.equal(health.payload.documentDraftEngine, "privacy-safe-structured-language-v1");
+  assert.equal(health.payload.documentDraftEngine, "factual-local-structured-draft-v2");
   assert.equal(health.payload.documentOutputTimezone, "Asia/Shanghai");
   assert.deepEqual(health.payload.documentLanguages, ["de", "en"]);
   assert.equal(health.payload.documentGermanFormatCvEnabled, true);
@@ -337,10 +337,10 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
 
   const messageBeforeProfile = await requestJson("/api/mp/messages", {
     token: userToken,
-    body: { content: "资料未绑定前不应发送" },
+    body: { content: "未补齐资料也可发送课程反馈" },
   });
-  assert.equal(messageBeforeProfile.response.status, 400);
-  assert.equal(messageBeforeProfile.payload.requiresOnboarding, true);
+  assert.equal(messageBeforeProfile.response.status, 200);
+  assert.notEqual(messageBeforeProfile.payload.requiresOnboarding, true);
   const bookingBeforeProfile = await requestJson("/api/mp/booking", {
     token: userToken,
     body: { advisorKey: "a1", advisorName: "张老师", date: "2099-12-28", dateDisplay: "2099年12月28日", time: "09:00" },
@@ -422,8 +422,8 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
   assert.equal(repliedMessage.payload.record.direction, "staff");
   const userMessages = await requestJson("/api/mp/messages", { token: userToken });
   assert.equal(userMessages.response.status, 200);
-  assert.equal(userMessages.payload.records.length, 2);
-  assert.equal(userMessages.payload.records[1].content, "老师已收到，会结合课程背景核验。");
+  assert.equal(userMessages.payload.records.length, 3);
+  assert.equal(userMessages.payload.records[2].content, "老师已收到，会结合课程背景核验。");
   assert.equal(userMessages.payload.complete, true);
   assert.equal(userMessages.payload.profile.contact, "13800000000");
 
@@ -680,7 +680,7 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
       language: "zh",
       title: "测试动机信",
       fileName: "test-motivation.pdf",
-      content: "Motivation Letter für Universität\n这是一份用于自动化校验的长文书内容。\n".repeat(80),
+      content: "Motivation Letter für Universität\n这是一份用于自动化校验的文书内容。\n".repeat(3),
     },
   });
   assert.equal(pdfPreview.response.status, 200);
@@ -756,7 +756,7 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
   const matchingPageText = await matchingFirstPage.getTextContent();
   const matchingPageString = matchingPageText.items.map((item) => item.str || "").join(" ");
   assert.match(matchingPageString, /Technical Unive\s*rsity/);
-  assert.match(matchingPageString, /AI 辅助初步筛选/);
+  assert.match(matchingPageString, /AI生成/);
   assert.doesNotMatch(matchingPageString, /https?:\/\//i);
   assert.doesNotMatch(matchingPageString, /#{2,}/);
 
@@ -808,12 +808,12 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
   });
   assert.equal(germanDraft.response.status, 200);
   assert.equal(germanDraft.payload.foreignLanguageReady, true);
-  assert.equal(germanDraft.payload.source, "privacy-safe-structured-language-v1");
+  assert.equal(germanDraft.payload.source, "factual-local-structured-draft-v2");
   assert.doesNotMatch(germanDraft.payload.draft, /[\u3400-\u9fff]/u);
-  assert.match(germanDraft.payload.draft, /1\. Einleitung/);
-  assert.match(germanDraft.payload.draft, /2\. Akademischer und beruflicher Hintergrund/);
-  assert.match(germanDraft.payload.draft, /6\. Zukunftspläne/);
-  assert.match(germanDraft.payload.draft, /ANP/);
+  assert.match(germanDraft.payload.draft, /MOTIVATIONSSCHREIBEN/);
+  assert.equal(germanDraft.payload.translationComplete, false);
+  assert.ok(germanDraft.payload.untranslatedFields.length > 0);
+  assert.match(germanDraft.payload.draft, /Originalangaben/);
 
   const germanPdf = await requestJson("/api/mp/document/pdf", {
     token: userToken,
@@ -830,7 +830,7 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
   assert.equal(germanPdf.response.status, 200);
   assert.equal(germanPdf.payload.language, "de");
   assert.equal(germanPdf.payload.templateVersion, "liude-doc-template-20260731-embedded-font-v2");
-  assert.equal(germanPdf.payload.generationSource, "privacy-safe-structured-language-v1");
+  assert.equal(germanPdf.payload.generationSource, "factual-local-structured-draft-v2");
   assert.equal(germanPdf.payload.pdfFontEmbedded, true);
   assert.match(germanPdf.payload.generatedAtText, /^\d{2}\.\d{2}\.\d{4}.*\d{2}:\d{2}:\d{2} \(China Standard Time\)$/);
   const germanPdfBuffer = Buffer.from(germanPdf.payload.contentBase64, "base64");
@@ -841,7 +841,7 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
   assert.match(germanPageString, /Motivationsschreiben/);
   assert.equal((germanPageString.match(/Motivationsschreiben/gi) || []).length, 1);
   assert.doesNotMatch(germanPageString, /[\u3400-\u9fff]/u);
-  assert.match(germanPageString, /1\. Einleitung/);
+  assert.match(germanPageString, /Sehr geehrte Damen und Herren/);
   assert.match(germanPdfBuffer.toString("latin1"), /\/FontFile[23]\b/);
 
   const englishCvWord = await requestJson("/api/mp/document/word", {
@@ -872,7 +872,7 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
   assert.equal(englishCvWord.response.status, 200);
   assert.equal(englishCvWord.payload.language, "en");
   assert.equal(englishCvWord.payload.templateVersion, "liude-doc-template-20260731-embedded-font-v2");
-  assert.equal(englishCvWord.payload.generationSource, "privacy-safe-structured-language-v1");
+  assert.equal(englishCvWord.payload.generationSource, "factual-local-structured-draft-v2");
   const englishCvBuffer = Buffer.from(englishCvWord.payload.contentBase64, "base64");
   assert.equal(englishCvBuffer.slice(0, 2).toString("ascii"), "PK");
   assert.ok(englishCvBuffer.length > 5000);

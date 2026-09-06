@@ -1,0 +1,12 @@
+<view class="screen-page booking-page">
+  <view class="booking-head"><text class="booking-title">预约咨询</text><text class="service-note">提交你的问题和联系方式，老师会主动联系你。此处不选择日期或时段，不代表已确认会谈时间。</text></view>
+  <view class="booking-section">
+    <text class="section-title">姓名 *</text><input class="input" value="{{studentName}}" data-key="studentName" bindinput="inputField" maxlength="40" placeholder="用于老师称呼你" />
+    <text class="section-title">联系方式 *</text><input class="input" value="{{contact}}" data-key="contact" bindinput="inputField" maxlength="100" placeholder="手机、邮箱或微信号，任选其一" />
+    <text class="section-title">希望联系的老师</text><picker range="{{advisors}}" value="{{advisorIndex}}" bindchange="changeAdvisor"><view class="input">{{advisors[advisorIndex]}} · 点击选择</view></picker>
+    <text class="section-title">咨询内容 *</text><textarea style="width:100%;box-sizing:border-box;min-height:220rpx" auto-height maxlength="1000" value="{{note}}" data-key="note" bindinput="inputField" placeholder="例如：希望核对选校方向、申请材料或文书内容" />
+    <button class="primary-button" loading="{{sending}}" disabled="{{sending}}" bindtap="submit">提交预约申请</button>
+    <text wx:if="{{successMessage}}" class="service-note">{{successMessage}}</text>
+  </view>
+  <view class="booking-section"><button bindtap="viewBookings">查看我的申请</button><text class="service-note">也可主动添加咨询微信：liudexiaozhan</text><button bindtap="copyWechat">复制咨询微信</button></view>
+</view>

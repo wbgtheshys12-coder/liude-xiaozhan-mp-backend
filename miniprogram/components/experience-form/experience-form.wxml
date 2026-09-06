@@ -1,0 +1,11 @@
+<view class="experience"><text class="hint">按个人简历信息表整理，填一次可在院校匹配与简历中复用。没有的经历无需添加。请填写真实月份，只有仍在持续的经历勾选“至今”。</text>
+  <view wx:for="{{groups}}" wx:for-item="group" wx:key="key" class="group"><text class="heading">{{group.title}}</text>
+    <view wx:for="{{group.rows}}" wx:for-item="row" wx:for-index="rowIndex" wx:key="id" class="entry">
+      <view wx:if="{{group.dated}}" class="dates"><view><text>开始年月 *</text><picker mode="date" fields="month" value="{{row.start}}" data-group="{{group.key}}" data-index="{{rowIndex}}" data-key="start" bindchange="update"><view class="field">{{row.start || '选择年月'}}</view></picker></view><view><text>结束年月 *</text><picker wx:if="{{!row.ongoing}}" mode="date" fields="month" value="{{row.end}}" data-group="{{group.key}}" data-index="{{rowIndex}}" data-key="end" bindchange="update"><view class="field">{{row.end || '选择年月'}}</view></picker><text wx:else class="field">至今 / bis heute</text></view></view>
+      <view wx:if="{{group.dated}}" class="ongoing"><text>仍在持续（至今）</text><switch checked="{{row.ongoing}}" data-group="{{group.key}}" data-index="{{rowIndex}}" data-key="ongoing" bindchange="update" /></view>
+      <view wx:for="{{row.fields}}" wx:for-item="field" wx:key="key"><text class="label">{{field.label}}</text><textarea wx:if="{{field.long}}" class="field detail" auto-height value="{{field.value}}" data-group="{{group.key}}" data-index="{{rowIndex}}" data-key="{{field.key}}" bindinput="update" maxlength="3000" placeholder="可留空，请勿虚构" /><input wx:else class="field" value="{{field.value}}" data-group="{{group.key}}" data-index="{{rowIndex}}" data-key="{{field.key}}" bindinput="update" maxlength="300" /></view>
+      <button size="mini" data-group="{{group.key}}" data-index="{{rowIndex}}" bindtap="remove">移除此项</button>
+    </view><button class="add" data-group="{{group.key}}" bindtap="add">＋ 添加{{group.title}}</button>
+  </view>
+  <view class="group"><text class="heading">时间空档说明</text><text class="hint">如毕业后备考、求职或休息，请写明起止年月及真实情况。系统不会自动补写经历或把已结束的经历改为“至今”。</text><textarea class="field detail" auto-height value="{{gapExplanation}}" bindinput="update" maxlength="2000" placeholder="例如：YYYY-MM 至 YYYY-MM，具体情况" /></view>
+</view>

@@ -1,0 +1,64 @@
+<view class="screen-page account-page">
+  <view class="hero">
+    <text class="title">账号与权益</text>
+    <text class="summary">当前微信号即小程序登录身份，一个微信只对应一份学习、预约、订单和服务记录。</text>
+  </view>
+
+  <view class="panel">
+    <text class="section-title">微信登录权限</text>
+    <text class="field">账号标识：{{accountStorageKey}}</text>
+    <text class="tip">系统只展示脱敏账号标识，不在页面暴露 openid 原文。</text>
+    <button class="primary-button secondary" bindtap="copyAccountStorageKey">复制课程绑定标识</button>
+  </view>
+
+  <view class="panel payment-panel">
+    <view class="status-row">
+      <text class="section-title">{{payment.title}}</text>
+      <text class="status-badge {{payment.paymentReady ? 'ready' : ''}}">{{payment.paymentReady ? '已开放' : payment.documentDownloadFree ? '免费内测' : '准备中'}}</text>
+    </view>
+    <text class="tip">{{payment.message}}</text>
+
+    <view wx:if="{{payment.documentDownloadFree}}" class="notice-card">
+      <text class="notice-title">当前无需付款</text>
+      <text class="notice-text">已开放的文书与匹配报告功能继续按内测规则免费使用；收费开放后会先展示服务内容和价格。</text>
+    </view>
+
+    <view wx:elif="{{payment.products.length}}" class="product-list">
+      <view wx:for="{{payment.products}}" wx:key="id" class="product-card">
+        <view class="product-copy">
+          <text class="product-title">{{item.title}}</text>
+          <text class="product-description">{{item.description}}</text>
+        </view>
+        <view class="product-action">
+          <text class="product-price">{{item.priceText}}</text>
+          <button
+            class="pay-button"
+            disabled="{{!payment.paymentReady || payingProductId}}"
+            loading="{{payingProductId == item.id}}"
+            data-product-id="{{item.id}}"
+            bindtap="startPayment"
+          >{{payment.paymentReady ? '微信支付' : '暂未开放'}}</button>
+        </view>
+      </view>
+    </view>
+
+    <view wx:if="{{lastOrder}}" class="order-card">
+      <text class="order-title">最近支付状态：{{lastOrder.status == 'PAID' ? '已支付' : '确认中'}}</text>
+      <text class="order-text">{{lastOrder.productTitle}} · {{lastOrder.priceText}}</text>
+      <text class="order-text">订单号：{{lastOrder.outTradeNo}}</text>
+    </view>
+
+    <view wx:if="{{canManagePayment && !payment.paymentReady}}" class="readiness-card">
+      <text class="readiness-title">管理员接入进度</text>
+      <view wx:for="{{payment.checklist}}" wx:key="key" class="readiness-row">
+        <text class="readiness-dot {{item.complete ? 'complete' : ''}}">{{item.complete ? '✓' : '·'}}</text>
+        <text class="readiness-label">{{item.label}}</text>
+        <text class="readiness-state">{{item.complete ? '已完成' : '待完成'}}</text>
+      </view>
+      <text class="security-tip">这里只显示是否完成，不显示密钥、私钥或银行账号原文。</text>
+    </view>
+
+    <text class="tip">收费上线后只通过微信支付展示价格并由用户确认，不会要求用户向页面展示的银行账户直接转账。</text>
+    <text class="tip">购买权益与当前微信账号绑定；付款前请确认当前登录账号正确。</text>
+  </view>
+</view>

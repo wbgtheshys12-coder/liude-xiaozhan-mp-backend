@@ -1,0 +1,28 @@
+<view class="screen-page plan-page">
+  <view class="hero">
+    <text class="eyebrow">申请节奏</text>
+    <text class="title">德国留学时间规划</text>
+    <text class="summary">把院校匹配、材料准备、递交申请和签证入学拆成可执行节点，避免到截止前才发现材料缺口。</text>
+  </view>
+
+  <view class="timeline">
+    <view wx:for="{{stages}}" wx:key="title" class="stage-card">
+      <view class="stage-line">
+        <text class="stage-dot"></text>
+      </view>
+      <view class="stage-copy">
+        <text class="stage-time">{{item.time}}</text>
+        <text class="stage-title">{{item.title}}</text>
+        <text class="stage-desc">{{item.desc}}</text>
+        <view class="task-list">
+          <text wx:for="{{item.tasks}}" wx:key="*this" class="task-chip">{{item}}</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="action-row">
+    <button class="primary-button" bindtap="goMaterials">打开材料清单</button>
+    <button class="secondary-button" bindtap="goBooking">预约顾问核对</button>
+  </view>
+</view>

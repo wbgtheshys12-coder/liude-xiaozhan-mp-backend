@@ -1,0 +1,204 @@
+<view class="screen-page page">
+  <view class="brand-card">
+    <text class="ai-generated-badge">AI生成 · 院校建议不是录取承诺</text>
+    <text class="title">院校专业匹配</text>
+    <view class="subtext">按步骤填写真实资料，生成德国院校推荐、专业匹配和证据审计。成绩单可选，上传后推荐会更准确。</view>
+  </view>
+
+  <view class="panel">
+    <text class="section-title">填写进度</text>
+    <view class="step-row">
+      <view wx:for="{{formSteps}}" wx:key="*this" class="step-pill {{currentStep == index ? 'active' : ''}} {{currentStep > index ? 'done' : ''}}" data-index="{{index}}" bindtap="goStep">
+        {{index + 1}} {{item}}
+      </view>
+    </view>
+  </view>
+
+  <view class="panel" wx:if="{{currentStep == 0}}">
+    <text class="section-title">基础背景</text>
+    <label class="field"><text class="label">学生姓名</text><input placeholder-class="input-placeholder" class="input" value="{{profile.name}}" data-field="name" bindinput="onFieldInput" placeholder="例如：张同学" /></label>
+    <label class="field"><text class="label">当前学校 *</text><input placeholder-class="input-placeholder" class="input" value="{{profile.school}}" data-field="school" bindinput="onFieldInput" placeholder="例如：浙江大学" /></label>
+    <view class="field">
+      <text class="label">当前学历与毕业状态</text>
+      <picker range="{{educationStatusOptions}}" range-key="label" value="{{educationStatusIndex}}" bindchange="onEducationStatusChange">
+        <view class="picker-control">{{educationStatusOptions[educationStatusIndex].label}}<text class="picker-arrow">›</text></view>
+      </picker>
+    </view>
+    <label class="field"><text class="label">当前 / 本科专业 *</text><input placeholder-class="input-placeholder" class="input" value="{{profile.major}}" data-field="major" bindinput="onFieldInput" placeholder="电子信息工程 / 计算机科学" /></label>
+    <label class="field"><text class="label">GPA / 均分</text><input placeholder-class="input-placeholder" class="input" value="{{profile.gpa}}" data-field="gpa" bindinput="onFieldInput" placeholder="例如：85/100 或 3.4/4.0" /></label>
+    <view class="field">
+      <text class="label">语言考试（可多选）</text>
+      <view class="choice-grid language-choice-grid">
+        <view wx:for="{{languageTestOptions}}" wx:key="type" class="choice-chip {{item.selected ? 'active' : ''}}" data-index="{{index}}" bindtap="toggleLanguageTest">{{item.type}}</view>
+      </view>
+      <block wx:for="{{languageTestOptions}}" wx:key="type">
+        <view wx:if="{{item.selected}}" class="language-score-row">
+          <text class="language-score-type">{{item.type}}</text>
+          <input placeholder-class="input-placeholder" class="input language-score-input" value="{{item.score}}" data-index="{{index}}" bindinput="onLanguageScoreInput" placeholder="{{item.placeholder}}" />
+        </view>
+      </block>
+      <text class="hint">可以同时填写德语和英语成绩；尚未考试可填写“计划考试 + 日期”。</text>
+    </view>
+    <view class="field">
+      <text class="label">中国大陆学历背景</text>
+      <picker range="{{chinaEducationOptions}}" value="{{chinaEducationIndex}}" bindchange="onChinaEducationChange">
+        <view class="picker-control">{{chinaEducationOptions[chinaEducationIndex]}}<text class="picker-arrow">›</text></view>
+      </picker>
+    </view>
+  </view>
+
+  <view class="panel" wx:if="{{currentStep == 1}}">
+    <text class="section-title">院校专业目标</text>
+    <view class="field">
+      <text class="label">目标学历 *</text>
+      <picker range="{{targetDegreeOptions}}" value="{{targetDegreeIndex}}" bindchange="onTargetDegreeChange">
+        <view class="picker-control">{{targetDegreeOptions[targetDegreeIndex]}}<text class="picker-arrow">›</text></view>
+      </picker>
+    </view>
+    <view class="field">
+      <text class="label">授课语言偏好</text>
+      <picker range="{{instructionLanguageOptions}}" value="{{instructionLanguageIndex}}" bindchange="onInstructionLanguageChange">
+        <view class="picker-control">{{instructionLanguageOptions[instructionLanguageIndex]}}<text class="picker-arrow">›</text></view>
+      </picker>
+    </view>
+    <view class="field">
+      <text class="label">推荐学校数量</text>
+      <view class="count-row">
+        <view wx:for="{{countOptions}}" wx:key="value" class="count-option {{recommendationCount == item.value ? 'active' : ''}} {{item.locked ? 'locked' : ''}}" data-value="{{item.value}}" data-locked="{{item.locked}}" bindtap="setRecommendationCount">{{item.label}}</view>
+      </view>
+      <text class="hint">当前默认开放 6 所推荐；10 所推荐与收费权益显示为待开发。</text>
+    </view>
+    <label class="field"><text class="label">目标专业方向 *</text><input placeholder-class="input-placeholder" class="input" value="{{profile.targetField}}" data-field="targetField" bindinput="onFieldInput" placeholder="数据科学 / 机械工程 / 通信技术" /></label>
+    <view class="field">
+      <text class="label">城市偏好（可多选）</text>
+      <view class="choice-grid">
+        <view wx:for="{{cityOptions}}" wx:key="value" class="choice-chip {{item.selected ? 'active' : ''}}" data-value="{{item.value}}" bindtap="toggleCity">{{item.value}}</view>
+      </view>
+      <input placeholder-class="input-placeholder" class="input" value="{{profile.cityPreference}}" data-field="cityPreference" bindinput="onFieldInput" placeholder="也可手填：无强偏好 / Heidelberg" />
+    </view>
+    <view class="field">
+      <text class="label">德国州范围（可多选）</text>
+      <view class="choice-grid">
+        <view wx:for="{{stateOptions}}" wx:key="value" class="choice-chip {{item.selected ? 'active' : ''}}" data-value="{{item.value}}" bindtap="toggleState">{{item.label}}</view>
+      </view>
+    </view>
+    <label class="field"><text class="label">预算说明</text><input placeholder-class="input-placeholder" class="input" value="{{profile.budget}}" data-field="budget" bindinput="onFieldInput" placeholder="偏向公立大学，希望控制生活成本" /></label>
+  </view>
+
+  <view class="panel" wx:if="{{currentStep == 2}}">
+    <text class="section-title">课程与经历</text><text class="hint">原有文字已保留。下方分项表与留德简历共用，无需重复填写；没有的经历可留空。</text><experience-form value="{{experienceData}}" bindchange="onExperienceChange" />
+    <label class="field"><text class="label">实习 / 科研 / 项目经历</text><textarea placeholder-class="input-placeholder" class="textarea" value="{{profile.experience}}" data-field="experience" bindinput="onFieldInput" placeholder="填写相关经历" /></label>
+    <label class="field"><text class="label">主要课程 / 课程关键词</text><textarea placeholder-class="input-placeholder" class="textarea" value="{{profile.courses}}" data-field="courses" bindinput="onFieldInput" placeholder="数据结构、统计学、控制理论等" /></label>
+    <label class="field"><text class="label">毕业论文 / Abschlussarbeit 题目</text><input placeholder-class="input-placeholder" class="input" value="{{profile.thesisTopic}}" data-field="thesisTopic" bindinput="onFieldInput" placeholder="基于机器学习的用户行为预测" /></label>
+    <label class="field"><text class="label">项目经历补充</text><textarea class="textarea" value="{{profile.projects}}" data-field="projects" bindinput="onFieldInput" /></label>
+    <label class="field"><text class="label">实习经历补充</text><textarea class="textarea" value="{{profile.internships}}" data-field="internships" bindinput="onFieldInput" /></label>
+  </view>
+
+  <view class="panel" wx:if="{{currentStep == 3}}">
+    <text class="section-title">成绩单与课程信息</text>
+    <view class="summary">这里只需要上传成绩单图片或 PDF，不需要再上传调查表或简历。成绩单会保存到当前账号资料库，授权老师可查看原件并复核。暂时没有成绩单也可以手动补充核心课程，结果仅供初筛。</view>
+    <view class="compliance-note">
+      隐私与合规提示：政治敏感课程/人物信息会自动隐藏，不进入对外展示和推荐报告；院校匹配仍会继续进行。
+    </view>
+    <button class="secondary-button" bindtap="chooseFiles">上传成绩单照片或 PDF</button>
+    <view wx:if="{{files.length}}" class="file-list">
+      <view wx:for="{{files}}" wx:key="id" class="file-item">
+        <view class="file-copy">
+          <text class="file-name">{{item.name}}</text>
+          <text class="file-meta">{{item.displaySize}} · {{item.type}}</text>
+        </view>
+        <button class="file-delete" data-index="{{index}}" bindtap="removeFile">删除</button>
+      </view>
+    </view>
+    <text class="hint">{{fileHint}}</text>
+    <view wx:if="{{transcriptPreviewLoading}}" class="loading-card">
+      <view class="loading-head">
+        <text class="loading-title">正在整理课程信息</text>
+        <text class="loading-percent">{{transcriptProgress}}%</text>
+      </view>
+      <view class="loading-track">
+        <view class="loading-fill" style="width: {{transcriptProgress}}%;"></view>
+      </view>
+      <text class="loading-desc">{{transcriptProgressText || '正在读取文件并生成校对表，整理后仍可手动修改每一行。'}}</text>
+    </view>
+    <view wx:elif="{{transcriptPreviewSummary && transcriptPreviewSummary.summary}}" class="preview-summary">
+      <text class="preview-title">整理摘要</text>
+      <text>{{transcriptPreviewSummary.summary}}</text>
+      <text wx:if="{{transcriptPreviewSummary.sensitiveHidden}}" class="preview-note">已隐藏政治敏感课程/人物信息。</text>
+    </view>
+    <view wx:if="{{transcriptNeedsManualEntry}}" class="manual-entry-callout">
+      <text class="manual-entry-title">请按成绩单补充关键课程</text>
+      <text class="manual-entry-desc">请在下方直接补充课程名称、成绩和学分，识别有误可以修改。识别结果需要本人核对，不会作为学校认证成绩。</text>
+    </view>
+
+    <view class="transcript-toolbar">
+      <view class="review-heading">
+        <text class="label">课程与成绩核对 *</text>
+        <text class="review-guide">逐行检查课程名、成绩、学分和学期；有误可直接修改，也可新增或删除课程。</text>
+      </view>
+      <button class="mini-button" bindtap="rebuildTranscriptRows">重新生成</button>
+    </view>
+    <view class="transcript-table">
+      <view wx:for="{{transcriptRows}}" wx:key="id" class="transcript-edit-card">
+        <view class="transcript-field">
+          <text class="transcript-label">课程 / 项目</text>
+          <auto-textarea class="transcript-course" strong="{{true}}" value="{{item.course}}" data-index="{{index}}" data-field="course" bindinput="onTranscriptInput" placeholder="课程名称"></auto-textarea>
+        </view>
+        <view class="transcript-row">
+          <label class="transcript-field"><text class="transcript-label">成绩</text><input placeholder-class="input-placeholder" class="transcript-input" value="{{item.grade}}" data-index="{{index}}" data-field="grade" bindinput="onTranscriptInput" placeholder="成绩"></input></label>
+          <label class="transcript-field"><text class="transcript-label">学分</text><input placeholder-class="input-placeholder" class="transcript-input" value="{{item.credits}}" data-index="{{index}}" data-field="credits" bindinput="onTranscriptInput" placeholder="学分"></input></label>
+        </view>
+        <view class="transcript-row second">
+          <label class="transcript-field"><text class="transcript-label">学期 / Semester</text><input placeholder-class="input-placeholder" class="transcript-input term" value="{{item.term}}" data-index="{{index}}" data-field="term" bindinput="onTranscriptInput" placeholder="学期"></input></label>
+          <view class="transcript-field"><text class="transcript-label">备注</text><auto-textarea class="transcript-note" value="{{item.note}}" data-index="{{index}}" data-field="note" bindinput="onTranscriptInput" placeholder="待确认、需复核等"></auto-textarea></view>
+        </view>
+        <view class="transcript-card-actions">
+          <button class="row-delete" data-index="{{index}}" bindtap="removeTranscriptRow">删除此行</button>
+        </view>
+      </view>
+    </view>
+    <view class="transcript-actions">
+      <button class="secondary-button" bindtap="addTranscriptRow">新增课程行</button>
+      <button class="primary-button" bindtap="confirmTranscriptReview">{{transcriptReviewed ? '已确认课程信息' : '确认课程信息'}}</button>
+    </view>
+    <view class="review-status {{transcriptReviewed ? 'ok' : ''}}">
+      {{transcriptReviewed ? '已确认：后续匹配会结合当前表格、专业和申请目标。' : '请确认当前课程信息；没有课程时也可按现有信息继续。'}}
+    </view>
+    <view wx:if="{{message}}" class="status {{isError ? 'error' : ''}}">{{message}}</view>
+  </view>
+
+  <view class="panel" wx:if="{{currentStep == 4}}">
+    <text class="section-title">匹配生成</text>
+    <label class="field"><text class="label">职业规划 / 人才引进方向</text><textarea placeholder-class="input-placeholder" class="textarea" value="{{profile.careerPlan}}" data-field="careerPlan" bindinput="onFieldInput" placeholder="例如：德国工程师岗位、蓝卡就业路径、回国人才引进方向" /></label>
+    <label class="field"><text class="label">目标学校特殊要求</text><textarea class="textarea" value="{{profile.targetSchoolRequirements}}" data-field="targetSchoolRequirements" bindinput="onFieldInput" /></label>
+    <label class="field"><text class="label">补充说明</text><textarea class="textarea" value="{{profile.notes}}" data-field="notes" bindinput="onFieldInput" /></label>
+    <view class="match-readiness {{transcriptReviewed ? 'ready' : ''}}">
+      <text>{{transcriptReviewed ? '当前课程与申请信息已确认，可以生成推荐。' : '请先返上一步确认当前课程信息。'}}</text>
+    </view>
+    <button class="primary-button" style="margin-top: 26rpx;" loading="{{submitting}}" disabled="{{submitting}}" bindtap="submitProfile">生成学校和专业推荐</button>
+    <view wx:if="{{submitting}}" class="loading-card">
+      <view class="loading-head">
+        <text class="loading-title">正在生成院校和专业推荐</text>
+        <text class="loading-percent">{{submitProgress}}%</text>
+      </view>
+      <view class="loading-track">
+        <view class="loading-fill" style="width: {{submitProgress}}%;"></view>
+      </view>
+      <text class="loading-desc">{{submitProgressText || '正在结合申请目标、已确认课程信息和专业数据库生成推荐。'}}</text>
+    </view>
+    <view wx:if="{{message}}" class="status {{isError ? 'error' : ''}}">{{message}}</view>
+  </view>
+
+  <view class="panel">
+    <view class="button-row">
+      <button class="secondary-button" disabled="{{currentStep == 0}}" bindtap="prevStep">上一步</button>
+      <button class="primary-button" wx:if="{{currentStep < 4}}" bindtap="nextStep">下一步</button>
+    </view>
+  </view>
+
+  <view wx:if="{{paywallVisible}}" class="paywall-card">
+    <text class="section-title">待开发功能</text>
+    <view class="summary">{{paywallMessage}}</view>
+    <button class="secondary-button" style="margin-top: 22rpx;" bindtap="closePaywall">我知道了</button>
+  </view>
+</view>

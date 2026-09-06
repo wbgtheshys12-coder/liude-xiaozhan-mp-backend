@@ -1,0 +1,76 @@
+<view class="screen-page home-shell {{settingsClass}}">
+  <view class="top-panel">
+    <view class="top-title">留德小栈 AI</view>
+    <view class="search-pill">
+      <image class="search-icon" src="/assets/home/icon-search.png" mode="aspectFit" bindtap="openSearch"></image>
+      <input placeholder-class="input-placeholder" class="search-input" value="{{searchQuery}}" placeholder="搜索院校、专业、文书材料" confirm-type="search" bindinput="updateSearch" bindconfirm="openSearch"></input>
+      <text class="search-action" bindtap="openSearch">搜索</text>
+    </view>
+    <view wx:if="{{searchPreview.length}}" class="search-preview">
+      <view wx:for="{{searchPreview}}" wx:key="key" class="preview-item" data-index="{{index}}" bindtap="openSearchResult">
+        <text class="preview-badge">{{item.badge}}</text>
+        <view class="preview-copy">
+          <text class="preview-title">{{item.title}}</text>
+          <text class="preview-desc">{{item.subtitle}}</text>
+        </view>
+      </view>
+    </view>
+    <swiper wx:if="{{publicPosts.length}}" style="height:92rpx;margin:16rpx 0;background:#eef5ff;border-radius:16rpx" vertical autoplay circular interval="5000">
+      <swiper-item wx:for="{{publicPosts}}" wx:key="id"><view style="padding:20rpx;font-size:26rpx;overflow:hidden;white-space:nowrap;text-overflow:ellipsis" data-id="{{item.id}}" bindtap="openPost">资讯 · {{item.title}}</view></swiper-item>
+    </swiper>
+    <view class="trust-row">
+      <text wx:for="{{trustTags}}" wx:key="text" class="trust-tag">{{item.text}}</text>
+    </view>
+    <image class="banner-image" src="/assets/home/banner-study-world.jpg" mode="aspectFill"></image>
+  </view>
+
+  <view class="section-block quick-block">
+    <view class="quick-grid">
+      <view wx:for="{{quickModules}}" wx:key="key" class="quick-item" data-url="{{item.url}}" data-tab="{{item.tab}}" data-action="{{item.action}}" bindtap="openModule">
+        <image class="quick-icon" src="{{item.icon}}" mode="aspectFit"></image>
+        <text class="quick-title">{{item.title}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="section-block">
+    <view class="section-head">
+      <text class="section-title">核心服务</text>
+      <text class="section-note">匹配、网课与文书</text>
+    </view>
+    <view class="service-grid">
+      <view wx:for="{{coreModules}}" wx:key="key" class="service-card wide" data-url="{{item.url}}" bindtap="openModule">
+        <view class="card-icon primary">
+          <image class="card-icon-image" src="{{item.icon}}" mode="aspectFit"></image>
+        </view>
+        <view class="card-copy">
+          <text class="card-title">{{item.title}}</text>
+          <text class="card-desc">{{item.desc}}</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="section-block">
+    <view class="section-head">
+      <text class="section-title">院校参考</text>
+      <text class="section-note">点击院校查看详情</text>
+    </view>
+    <view wx:for="{{featuredSchools}}" wx:key="id" class="school-card" data-id="{{item.id}}" bindtap="openSchool">
+      <image class="school-logo" src="{{item.logo}}" mode="aspectFit"></image>
+      <view class="school-copy">
+        <view class="school-title-row">
+          <text class="school-title">{{item.rank}} {{item.name}}</text>
+          <text class="school-arrow">›</text>
+        </view>
+        <text class="school-meta">{{item.englishName}}</text>
+        <text class="school-location">{{item.cityDisplay}} · {{item.stateDisplay}}</text>
+        <text class="school-type">{{item.type}}</text>
+        <view class="school-chip-row">
+          <text wx:for="{{item.tags}}" wx:for-item="tag" wx:for-index="tagIndex" wx:key="*this" wx:if="{{tagIndex < 3}}" class="school-chip">{{tag}}</text>
+        </view>
+      </view>
+    </view>
+    <button wx:if="{{hasMoreSchools}}" class="school-toggle-button" hover-class="school-toggle-hover" bindtap="toggleSchools">{{schoolToggleText}}</button>
+  </view>
+</view>

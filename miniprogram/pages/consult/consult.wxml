@@ -1,0 +1,33 @@
+<view class="screen-page consult-page">
+  <view class="hero">
+    <text class="eyebrow">内部顾问</text>
+    <text class="title">1v1 问答</text>
+    <text class="summary">把问题按主题和紧急程度先整理清楚，顾问沟通时可以更快定位院校、材料或政策风险。</text>
+  </view>
+
+  <view class="panel">
+    <text class="section-title">问题主题</text>
+    <view class="chip-row">
+      <text wx:for="{{topics}}" wx:key="*this" class="choice-chip {{selectedTopic == item ? 'active' : ''}}" data-topic="{{item}}" bindtap="chooseTopic">{{item}}</text>
+    </view>
+  </view>
+
+  <view class="panel">
+    <text class="section-title">紧急程度</text>
+    <view class="chip-row">
+      <text wx:for="{{urgencyOptions}}" wx:key="*this" class="choice-chip {{selectedUrgency == item ? 'active' : ''}}" data-urgency="{{item}}" bindtap="chooseUrgency">{{item}}</text>
+    </view>
+  </view>
+
+  <view class="panel">
+    <view class="question-head">
+      <text class="section-title">你的问题</text>
+      <text class="count">{{question.length}}/300</text>
+    </view>
+    <textarea placeholder-class="input-placeholder" class="question-area" maxlength="300" value="{{question}}" placeholder="例如：机器人方向申请德国哪些项目更稳？我目前缺哪些先修课？" bindinput="updateQuestion"></textarea>
+  </view>
+
+  <button class="primary-button" loading="{{sending}}" disabled="{{sending}}" bindtap="submitQuestion">发送给客服</button>
+  <button class="secondary-button" bindtap="goMessages">查看客服回复</button>
+  <button class="secondary-button" bindtap="goBooking">预约顾问沟通</button>
+</view>

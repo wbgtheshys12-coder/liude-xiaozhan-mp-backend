@@ -1,0 +1,39 @@
+<view class="screen-page search-page">
+  <view class="search-head">
+    <view class="search-box">
+      <text class="search-icon">⌕</text>
+      <input placeholder-class="input-placeholder" class="search-input" value="{{query}}" focus="true" placeholder="输入院校、专业、城市或功能" confirm-type="search" bindinput="updateQuery" bindconfirm="submitSearch"></input>
+      <button class="search-button" bindtap="submitSearch">搜索</button>
+    </view>
+
+    <view class="hot-row">
+      <text wx:for="{{hotKeywords}}" wx:key="*this" class="hot-tag" data-keyword="{{item}}" bindtap="chooseKeyword">{{item}}</text>
+    </view>
+  </view>
+
+  <view class="filter-row">
+    <view wx:for="{{filters}}" wx:key="key" class="filter-chip {{activeFilter == item.key ? 'active' : ''}}" data-key="{{item.key}}" bindtap="switchFilter">{{item.label}}</view>
+  </view>
+
+  <view class="result-list">
+    <text wx:if="{{catalogWarning}}" class="empty-desc">{{catalogWarning}}</text>
+    <view wx:if="{{!results.length}}" class="empty-card">
+      <text class="empty-title">暂时没有找到匹配内容</text>
+      <text class="empty-desc">可以尝试搜索学校英文名、城市、专业方向，或从首页进入院校推荐。</text>
+    </view>
+
+    <view wx:for="{{results}}" wx:key="key" class="result-card" data-index="{{index}}" bindtap="openResult">
+      <image wx:if="{{item.logo}}" class="result-logo" src="{{item.logo}}" mode="aspectFit"></image>
+      <view wx:else class="result-icon">{{item.badge}}</view>
+      <view class="result-copy">
+        <view class="result-title-row">
+          <text class="result-title">{{item.title}}</text>
+          <text class="result-badge">{{item.badge}}</text>
+        </view>
+        <text class="result-subtitle">{{item.subtitle}}</text>
+        <text class="result-desc">{{item.desc}}</text>
+      </view>
+      <text class="result-arrow">›</text>
+    </view>
+  </view>
+</view>

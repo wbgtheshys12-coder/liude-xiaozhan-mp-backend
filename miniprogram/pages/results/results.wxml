@@ -1,0 +1,38 @@
+<view class="screen-page"><text class="ai-generated-badge">AI生成 · 匹配结果仅供参考</text><text style="display:block;font-size:24rpx;line-height:1.8;color:#52647c">匹配度是系统依据填写的专业方向、核对后的课程与成绩、语言信息和院校专业库规则计算的参考评分，不是录取概率，不代表一定申请成功。资料缺失或识别错误会影响评分；每项建议的具体依据和不足见下方匹配理由及证据。申请季和截止时间请以学校官网当期公告为准。</text></view>
+<view class="screen-page page {{settingsClass}}">
+  <view class="brand-card">
+    <text class="eyebrow">推荐结果</text>
+    <text class="title">匹配总览</text>
+    <view class="summary">{{recommendation.studentSummary || '暂无推荐结果'}}</view>
+    <view wx:if="{{recommendation.aiReview.summary}}" class="status">{{recommendation.aiReview.summary}}</view>
+    <view class="ai-notice">{{aiNotice}}</view>
+  </view>
+
+  <view class="panel">
+    <text class="section-title">推荐清单</text>
+    <view wx:if="{{!recommendations.length}}" class="empty">还没有推荐结果。</view>
+    <view wx:for="{{recommendations}}" wx:key="rank" class="program-card">
+      <text class="program-title">{{item.rank}}. {{item.university}}</text>
+      <text class="program-meta">{{item.program}} · {{item.cityDisplay}}</text>
+      <text class="score">匹配度 {{item.matchPercent}}%</text>
+      <view class="summary" style="margin-top: 14rpx;">{{item.reason}}</view>
+      <view wx:if="{{item.detail.matchReasonDetails.length}}" class="reason-list">
+        <text class="program-meta">匹配理由</text>
+        <text wx:for="{{item.detail.matchReasonDetails}}" wx:for-item="reason" wx:key="*this" class="reason-item">· {{reason}}</text>
+      </view>
+      <view wx:if="{{item.detail.facts.duration}}" class="program-meta">学制：{{item.detail.facts.duration}}</view>
+      <view wx:if="{{showEvidenceAudit && item.detail.facts.catalogCoverage}}" class="program-meta">专业库覆盖：{{item.detail.facts.catalogCoverage}} · {{item.detail.facts.catalogCoverageScore}}/100</view>
+      <view wx:if="{{showEvidenceAudit && item.qualityAudit.status}}" class="program-meta">证据审计：{{item.qualityAudit.status}} · {{item.qualityAudit.evidenceScore}}/100</view>
+      <view wx:if="{{item.detail.facts.applicationPeriod}}" class="program-meta">申请季 / 时间：{{item.detail.facts.applicationPeriod}}</view><view class="program-meta">申请截止：{{item.detail.facts.applicationDeadline}}</view>
+    </view>
+  </view>
+
+  <view class="panel">
+    <view class="button-row">
+      <button class="secondary-button" bindtap="backToAdvisor">返回修改资料</button>
+      <button class="primary-button" bindtap="openMaterials">打开材料工具箱</button>
+      <button class="secondary-button" loading="{{exportingReport}}" disabled="{{exportingReport}}" bindtap="exportMatchingReport">导出匹配汇总表 PDF</button>
+    </view>
+    <text class="hint">动机信和 CV 已拆成独立模块；课程匹配请回到成绩单核对页补充。</text>
+  </view>
+</view>

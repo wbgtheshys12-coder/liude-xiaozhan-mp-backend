@@ -1,0 +1,176 @@
+.feature-page {
+  min-height: 100vh;
+  padding: 30rpx;
+  background: #f7f9fc;
+}
+
+.hero {
+  padding: 32rpx;
+  border: 1rpx solid #dbe8f7;
+  border-radius: 18rpx;
+  background: #eef6ff;
+  color: #17243a;
+}
+
+.tag,
+.title,
+.summary,
+.section-title,
+.feature-card-title,
+.feature-card-value,
+.feature-card-desc,
+.list-title,
+.list-desc,
+.list-extra {
+  display: block;
+}
+
+.tag {
+  color: #1f58a7;
+  font-size: 23rpx;
+  font-weight: 900;
+}
+
+.title {
+  margin-top: 10rpx;
+  color: #17243a;
+  font-size: 38rpx;
+  font-weight: 900;
+}
+
+.summary {
+  margin-top: 12rpx;
+  color: #34445a;
+  font-size: 25rpx;
+  line-height: 1.55;
+  font-weight: 700;
+}
+
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16rpx;
+  margin-top: 18rpx;
+}
+
+.feature-card {
+  min-height: 156rpx;
+  padding: 24rpx;
+  border: 1rpx solid #e5edf7;
+  border-radius: 16rpx;
+  background: #ffffff;
+}
+
+.feature-card-title {
+  color: #526174;
+  font-size: 23rpx;
+  font-weight: 800;
+}
+
+.feature-card-value {
+  margin-top: 8rpx;
+  color: #17243a;
+  font-size: 31rpx;
+  font-weight: 900;
+  line-height: 1.25;
+  word-break: break-all;
+}
+
+.feature-card-desc {
+  margin-top: 10rpx;
+  color: #34445a;
+  font-size: 23rpx;
+  line-height: 1.45;
+}
+
+.panel {
+  margin-top: 18rpx;
+  padding: 26rpx;
+  border: 1rpx solid #e5edf7;
+  border-radius: 16rpx;
+  background: #ffffff;
+}
+
+.section-title {
+  color: #17243a;
+  font-size: 30rpx;
+  font-weight: 900;
+}
+
+.list-row {
+  display: flex;
+  gap: 18rpx;
+  padding: 22rpx 0;
+  border-bottom: 1rpx solid #edf1f7;
+}
+
+.list-row:last-child {
+  border-bottom: 0;
+}
+
+.list-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.list-title {
+  color: #17243a;
+  font-size: 27rpx;
+  font-weight: 900;
+}
+
+.list-desc {
+  margin-top: 8rpx;
+  color: #34445a;
+  font-size: 24rpx;
+  line-height: 1.5;
+}
+
+.list-extra {
+  flex-shrink: 0;
+  max-width: 190rpx;
+  color: #1f58a7;
+  font-size: 22rpx;
+  line-height: 1.45;
+  text-align: right;
+  font-weight: 900;
+}
+
+.action-bar {
+  display: grid;
+  gap: 16rpx;
+  margin-top: 22rpx;
+}
+
+.primary-button,
+.secondary-button {
+  width: 100%;
+  min-height: 78rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0 30rpx;
+  border-radius: 999rpx;
+  font-size: 27rpx;
+  font-weight: 900;
+  line-height: 1.2;
+  text-align: center;
+  white-space: normal;
+}
+
+.primary-button {
+  background: #1f58a7;
+  color: #ffffff;
+}
+
+.secondary-button {
+  border: 1rpx solid rgba(31, 88, 167, 0.2);
+  background: #ffffff;
+  color: #1f58a7;
+}
+
+.primary-button::after,
+.secondary-button::after {
+  border: 0;
+}

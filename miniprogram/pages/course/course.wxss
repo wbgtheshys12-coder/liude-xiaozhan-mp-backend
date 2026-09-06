@@ -1,0 +1,142 @@
+.course-page {
+  min-height: 100vh;
+  padding: 30rpx;
+  background: #f7f9fc;
+}
+
+.hero {
+  padding: 34rpx;
+  border: 1rpx solid #dbe8f7;
+  border-radius: 18rpx;
+  background: #eef6ff;
+  color: #17243a;
+  box-shadow: none;
+}
+
+.eyebrow,
+.title,
+.summary,
+.module-title,
+.module-desc,
+.notice-title,
+.notice-desc {
+  display: block;
+}
+
+.eyebrow {
+  color: #1f58a7;
+  font-size: 23rpx;
+  font-weight: 900;
+}
+
+.title {
+  margin-top: 12rpx;
+  color: #17243a;
+  font-size: 40rpx;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.summary {
+  margin-top: 14rpx;
+  color: #34445a;
+  font-size: 25rpx;
+  line-height: 1.55;
+}
+
+.section {
+  margin-top: 22rpx;
+}
+
+.module-card,
+.notice-card,
+.diagnosis-panel {
+  margin-top: 18rpx;
+  padding: 26rpx;
+  border-radius: 16rpx;
+  background: #ffffff;
+  border: 1rpx solid #e5edf7;
+  box-shadow: none;
+}
+
+.diagnosis-item {
+  margin-top: 18rpx;
+  padding-top: 18rpx;
+  border-top: 1rpx solid #edf1f7;
+}
+
+.module-head {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+}
+
+.module-title {
+  flex: 1;
+  color: #17243a;
+  font-size: 30rpx;
+  font-weight: 900;
+}
+
+.module-level {
+  flex-shrink: 0;
+  padding: 7rpx 14rpx;
+  border-radius: 999rpx;
+  background: #eaf3ff;
+  color: #1f58a7;
+  font-size: 22rpx;
+  font-weight: 900;
+}
+
+.module-desc,
+.notice-desc {
+  margin-top: 14rpx;
+  color: #526174;
+  font-size: 25rpx;
+  line-height: 1.6;
+}
+
+.notice-title {
+  color: #17243a;
+  font-size: 30rpx;
+  font-weight: 900;
+}
+
+.action-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16rpx;
+  margin-top: 24rpx;
+}
+
+.primary-button,
+.secondary-button,
+.ghost-button {
+  min-height: 78rpx;
+  border-radius: 999rpx;
+  font-size: 25rpx;
+  font-weight: 900;
+}
+
+.primary-button {
+  background: #1f58a7;
+  color: #ffffff;
+}
+
+.secondary-button,
+.ghost-button {
+  background: #ffffff;
+  color: #1f58a7;
+}
+
+.ghost-button {
+  width: 100%;
+  margin-top: 16rpx;
+  color: #1f58a7;
+}
+
+.primary-button::after,
+.secondary-button::after,
+.ghost-button::after {
+  border: 0;
+}

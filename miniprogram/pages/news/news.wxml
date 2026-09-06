@@ -1,0 +1,29 @@
+<view class="screen-page news-page">
+  <view wx:if="{{selectedPost}}" class="article-card"><text class="article-tag">已审核发布 · {{selectedPost.publishedAt}}</text><text class="article-title">{{selectedPost.title}}</text><text style="display:block;white-space:pre-wrap;line-height:1.8" user-select="true">{{selectedPost.content}}</text><button wx:if="{{selectedPost.sourceUrl}}" bindtap="copySource">复制原始来源</button><button bindtap="closePost">返回资讯列表</button></view>
+  <view wx:else class="article-list"><view wx:for="{{posts}}" wx:key="id" class="article-card" data-id="{{item.id}}" bindtap="openPost"><text class="article-tag">已审核资讯</text><text class="article-title">{{item.title}}</text></view></view>
+  <view class="hero">
+    <text class="eyebrow">德国申请信息</text>
+    <text class="title">德区新闻 / 杂谈</text>
+    <text class="summary">集中查看院校选择、政策材料、人才引进和留德准备杂谈。公众号关联后可在这里直接关注。</text>
+  </view>
+
+  <view class="official-card">
+    <official-account></official-account>
+    <text class="official-note">如未显示公众号，请先在微信公众平台完成“小程序关联公众号”。</text>
+  </view>
+
+  <view class="tab-row">
+    <view wx:for="{{tabs}}" wx:key="key" class="tab-chip {{activeTab == item.key ? 'active' : ''}}" data-key="{{item.key}}" bindtap="switchTab">{{item.label}}</view>
+  </view>
+
+  <view class="article-list">
+    <view wx:for="{{articles}}" wx:key="title" class="article-card" data-index="{{index}}" bindtap="openArticle">
+      <view class="article-head">
+        <text class="article-tag">{{item.tag}}</text>
+        <text class="article-arrow">›</text>
+      </view>
+      <text class="article-title">{{item.title}}</text>
+      <text class="article-desc">{{item.desc}}</text>
+    </view>
+  </view>
+</view>

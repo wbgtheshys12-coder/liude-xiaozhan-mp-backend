@@ -1,0 +1,177 @@
+/* Shared device adaptation. Keep content scrollable instead of hiding overflow. */
+page .screen-page {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 960px;
+  min-height: 100vh;
+  margin-left: auto;
+  margin-right: auto;
+  border-left: 0 solid transparent;
+  border-right: 0 solid transparent;
+  border-left-width: env(safe-area-inset-left);
+  border-right-width: env(safe-area-inset-right);
+  padding-bottom: 32rpx;
+  padding-bottom: calc(32rpx + constant(safe-area-inset-bottom));
+  padding-bottom: calc(32rpx + env(safe-area-inset-bottom));
+}
+
+.screen-page label,
+.screen-page navigator,
+.screen-page rich-text {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* A wrapped button label must grow vertically, never be cropped at fixed line height. */
+page .screen-page.screen-page button {
+  height: auto;
+  min-height: 44px;
+  padding-top: 12rpx;
+  padding-bottom: 12rpx;
+  line-height: 1.45;
+  white-space: normal;
+}
+
+page .screen-page input {
+  box-sizing: border-box;
+  min-height: 44px;
+  line-height: 1.5;
+}
+
+.screen-page.screen-page .mini-button,
+.screen-page.screen-page .copy-button,
+.screen-page.screen-page .profile-edit-button,
+.screen-page.screen-page .search-button,
+.screen-page.screen-page .copy-wechat-button {
+  width: auto;
+  min-width: 44px;
+  max-width: 100%;
+  flex-shrink: 0;
+}
+.screen-page .review-heading { flex: 1 1 220rpx; }
+
+page .screen-page .button-row button,
+page .screen-page .dialog-actions button,
+page .screen-page .booking-actions button,
+page .screen-page .bottom-actions button,
+page .screen-page .action-card button,
+page .screen-page .transcript-actions button,
+page .screen-page .manual-match-actions button,
+page .screen-page .level-options button {
+  width: 100%;
+}
+
+.screen-page .section-head,
+.screen-page .label-row,
+.screen-page .action-heading,
+.screen-page .checklist-head,
+.screen-page .bound-profile-head,
+.screen-page .loading-head,
+.screen-page .course-head {
+  flex-wrap: wrap;
+  gap: 12rpx;
+}
+
+.screen-page .step-pill,
+.screen-page .choice-chip,
+.screen-page .level-option,
+.screen-page .student-level-option,
+.screen-page .filter-chip,
+.screen-page .date-pill,
+.screen-page .hot-tag {
+  min-height: 44px;
+  padding-top: 12rpx;
+  padding-bottom: 12rpx;
+  line-height: 1.45;
+  white-space: normal;
+}
+
+/* Lists should reveal complete school names and file names, including long Latin words. */
+.screen-page .result-title,
+.screen-page .result-subtitle,
+.screen-page .result-desc,
+.screen-page .file-name,
+.screen-page .file-meta,
+.screen-page .language-score-type,
+.screen-page .preview-title,
+.screen-page .preview-desc {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.screen-page .tool-tabs,
+.screen-page .filter-row,
+.screen-page .hot-row,
+.service-page .date-row {
+  flex-wrap: wrap;
+  white-space: normal;
+  overflow: visible;
+}
+
+/* Dense cards need fewer columns when the usable screen is narrow. */
+.screen-page.booking-page,
+.screen-page.bookings-page { padding-bottom: 0; }
+.screen-page .footer-spacer {
+  height: 180px;
+  height: calc(180px + env(safe-area-inset-bottom));
+  flex-shrink: 0;
+}
+.screen-page .booking-footer,
+.screen-page .bottom-actions {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 960px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-bottom: 20rpx;
+  padding-bottom: calc(20rpx + constant(safe-area-inset-bottom));
+  padding-bottom: calc(20rpx + env(safe-area-inset-bottom));
+  padding-left: calc(30rpx + env(safe-area-inset-left));
+  padding-right: calc(30rpx + env(safe-area-inset-right));
+  z-index: 12;
+}
+
+.screen-page .dialog-mask,
+.screen-page .player-mask {
+  padding-left: calc(24rpx + env(safe-area-inset-left));
+  padding-right: calc(24rpx + env(safe-area-inset-right));
+}
+
+@media (max-width: 374px) {
+  .screen-page.page { padding-left: 20rpx; padding-right: 20rpx; }
+  .screen-page .panel,
+  .screen-page .form-section,
+  .screen-page .action-card { padding: 20rpx; }
+  .home-shell .service-grid,
+  .home-shell .material-grid,
+  .screen-page .bound-profile-grid,
+  .screen-page .manual-match-actions,
+  .screen-page .language-score-row { grid-template-columns: minmax(0, 1fr); }
+  .screen-page .language-choice-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .screen-page .time-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .screen-page .checklist-head { align-items: flex-start; }
+  .service-page .service-item {
+    display: grid;
+    grid-template-columns: 84rpx minmax(0, 1fr);
+    column-gap: 20rpx;
+    row-gap: 16rpx;
+  }
+  .service-page .service-image { width: 84rpx; height: 84rpx; align-self: start; }
+  .screen-page.service-page .service-button { grid-column: 2; justify-self: start; width: 100%; }
+}
+
+@media (min-width: 600px) {
+  .screen-page .login-card { max-width: 620px; }
+  .screen-page .course-video { max-height: 480px; }
+}
+
+@media (max-height: 500px) {
+  .screen-page.login-page { align-items: flex-start; padding-top: 24rpx; }
+  .screen-page .conversation { height: 42vh; min-height: 140px; }
+}

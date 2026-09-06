@@ -1,0 +1,18 @@
+<view class="screen-page page">
+  <view class="brand-card">
+    <text class="eyebrow">德国申请信息</text>
+    <text class="title">政策与人才引进</text>
+    <view class="summary">把留学政策、人才引进和就业导向单独成栏，方便内部顾问和学生快速查看。</view>
+  </view>
+
+  <view class="tool-tabs">
+    <view wx:for="{{tabs}}" wx:key="key" class="tool-tab {{activeTab == item.key ? 'active' : ''}}" data-key="{{item.key}}" bindtap="switchTab">{{item.label}}</view>
+  </view>
+
+  <view class="panel">
+    <view wx:for="{{items}}" wx:key="title" class="policy-card">
+      <text class="program-title">{{item.title}}</text>
+      <view class="summary">{{item.desc}}</view>
+    </view>
+  </view>
+</view>

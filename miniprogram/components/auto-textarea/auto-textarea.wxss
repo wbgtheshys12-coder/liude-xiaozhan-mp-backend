@@ -1,0 +1,7 @@
+:host { display: block; width: 100%; min-width: 0; }
+.auto-shell { box-sizing: border-box; width: 100%; padding: 16rpx 14rpx; border-radius: 10rpx; background: #f7f9fc; }
+.auto-input { box-sizing: border-box; width: 100%; min-height: 44px; margin: 0; padding: 0; background: transparent; color: #17243a; font-size: 23rpx; line-height: 36rpx; font-family: inherit; }
+.strong { font-weight: 800; }
+.auto-placeholder { color: #657188; }
+.form { padding: 20rpx 22rpx; border: 1rpx solid #dbe8f7; border-radius: 14rpx; background: #f8fbff; }
+.form .auto-input { min-height: 120rpx; font-size: 27rpx; line-height: 42rpx; }

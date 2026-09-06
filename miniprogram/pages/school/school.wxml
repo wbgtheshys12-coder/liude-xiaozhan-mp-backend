@@ -1,0 +1,112 @@
+<view class="screen-page school-page" wx:if="{{school}}">
+  <view class="hero-card">
+    <image class="hero-logo" src="{{school.logo}}" mode="aspectFit"></image>
+    <view class="hero-copy">
+      <text class="rank">{{school.rank}}</text>
+      <text class="school-name">{{school.name}}</text>
+      <text class="english-name">{{school.englishName}}</text>
+      <text class="german-name">{{school.germanName}}</text>
+      <view class="tag-row">
+        <text wx:for="{{school.tags}}" wx:key="*this" class="program-tag">{{item}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="info-grid" wx:if="{{school.cityDisplay || school.stateDisplay}}">
+    <view class="info-item">
+      <text class="info-label">城市</text>
+      <text class="info-value">{{school.cityDisplay}}</text>
+    </view>
+    <view class="info-item">
+      <text class="info-label">州</text>
+      <text class="info-value">{{school.stateDisplay}}</text>
+    </view>
+    <view class="info-item wide">
+      <text class="info-label">学校分类</text>
+      <text class="info-value">{{school.category}} · {{school.type}}</text>
+    </view>
+  </view>
+
+  <view class="section-card">
+    <text class="section-title">学校概况</text>
+    <text class="paragraph">{{school.summary}}</text>
+  </view>
+
+  <view class="section-card" wx:if="{{school.strengths.length}}">
+    <text class="section-title">优势方向</text>
+    <view wx:for="{{school.strengths}}" wx:key="*this" class="bullet-row">
+      <text class="bullet-dot"></text>
+      <text class="bullet-text">{{item}}</text>
+    </view>
+  </view>
+
+  <view class="section-card" wx:if="{{school.programs.length}}">
+    <text class="section-title">代表项目</text>
+    <view class="tag-row">
+      <text wx:for="{{school.programs}}" wx:key="*this" class="program-tag">{{item}}</text>
+    </view>
+  </view>
+
+  <view class="section-card" wx:if="{{school.fitFor.length}}">
+    <text class="section-title">适合学生</text>
+    <view class="tag-row">
+      <text wx:for="{{school.fitFor}}" wx:key="*this" class="fit-tag">{{item}}</text>
+    </view>
+  </view>
+
+  <view class="section-card" wx:if="{{school.application}}">
+    <text class="section-title">申请系统与材料</text>
+    <text class="paragraph">{{school.application}}</text>
+  </view>
+
+  <view class="section-card" wx:if="{{school.language}}">
+    <text class="section-title">语言要求提醒</text>
+    <text class="paragraph">{{school.language}}</text>
+  </view>
+
+  <view class="section-card tuition-card">
+    <view class="tuition-head">
+      <text class="section-title">学费提醒</text>
+      <text class="tuition-badge">现有资料 · 申请前复核</text>
+    </view>
+    <text class="tuition-label">{{school.tuition.label}}</text>
+    <text class="paragraph">{{school.tuition.detail}}</text>
+    <text class="source-note">来源：{{school.tuition.sourceLabel}}。学费会调整，请在申请前再次核对项目官网。</text>
+    <button wx:if="{{school.tuition.sourceUrl}}" class="ghost-button" hover-class="button-hover" bindtap="copyTuitionSource">复制学费说明来源</button>
+  </view>
+
+  <view class="section-card" wx:if="{{school.materialTips.length}}">
+    <text class="section-title">材料准备提醒</text>
+    <view wx:for="{{school.materialTips}}" wx:key="*this" class="bullet-row">
+      <text class="bullet-dot"></text>
+      <text class="bullet-text">{{item}}</text>
+    </view>
+  </view>
+
+  <view class="section-card website-card" wx:if="{{school.website}}">
+    <text class="section-title">官网链接</text>
+    <text class="website-url">{{school.website}}</text>
+    <button class="ghost-button" hover-class="button-hover" bindtap="copyWebsite">复制官网链接</button>
+  </view>
+
+  <view class="section-card" wx:if="{{programs.length || catalogError}}">
+    <text class="section-title">专业库介绍 · {{programs.length || 0}} 个项目</text>
+    <text class="source-note">{{catalogError || '来自已有专业库，原文保留以避免误译；具体招生条件以官网为准。'}}</text>
+    <block wx:for="{{programs}}" wx:key="id">
+      <view wx:if="{{index < visibleProgramCount}}" class="program-detail">
+        <text class="program-heading">{{item.title}}</text>
+        <text class="paragraph">{{item.overview || '暂无详细介绍，请查看项目官网。'}}</text>
+        <text class="paragraph">申请季 / 时间：{{item.applicationPeriod}}</text>
+        <text class="paragraph">申请截止：{{item.applicationDeadline}}</text>
+        <text wx:if="{{item.prerequisites}}" class="paragraph">申请条件（库内原文）：{{item.prerequisites}}</text>
+        <button wx:if="{{item.sourceUrls.length}}" data-url="{{item.sourceUrls[0]}}" bindtap="copyProgramSource">复制项目官方来源</button>
+      </view>
+    </block>
+    <button wx:if="{{programs.length > visibleProgramCount}}" bindtap="showMorePrograms">查看更多专业</button>
+  </view>
+
+  <view class="action-row">
+    <button class="primary-button" hover-class="button-hover" bindtap="goAdvisor">用它做匹配参考</button>
+    <button class="secondary-button" hover-class="button-hover" bindtap="goTools">准备文书材料</button>
+  </view>
+</view>

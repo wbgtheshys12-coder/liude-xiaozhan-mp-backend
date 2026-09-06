@@ -1,0 +1,71 @@
+<view class="screen-page bookings-page {{settingsClass}}">
+  <view class="bookings-head">
+    <text class="bookings-title">预约记录</text>
+    <text class="bookings-subtitle">查看已提交的顾问预约，并取消尚未开始的预约。</text>
+  </view>
+
+  <view wx:if="{{loading}}" class="loading-card">
+    <view class="loading-head">
+      <text class="loading-title">正在同步预约记录</text>
+      <text class="loading-percent">...</text>
+    </view>
+    <view class="loading-track">
+      <view class="loading-fill" style="width: 68%;"></view>
+    </view>
+    <text class="loading-desc">正在读取当前微信账号下的预约信息。</text>
+  </view>
+
+  <view wx:if="{{message}}" class="message {{isError ? 'error' : ''}}">
+    <text>{{message}}</text>
+  </view>
+
+  <view wx:if="{{!loading && !records.length}}" class="empty-card">
+    <text class="empty-title">暂无预约</text>
+    <text class="empty-desc">你还没有提交顾问预约，可以先选择老师和时间。</text>
+    <button class="primary-button" bindtap="createBooking">新增预约</button>
+  </view>
+
+  <view wx:for="{{records}}" wx:key="id" class="booking-card {{item.status}}">
+    <view class="booking-card-head">
+      <view class="booking-main">
+        <text class="booking-time">{{item.dateDisplay || item.date}} {{item.time}}</text>
+        <text class="booking-advisor">{{item.advisorName}}</text>
+      </view>
+      <text class="status-pill {{item.status}}">{{item.statusText}}</text>
+    </view>
+
+    <view class="booking-line">
+      <text class="label">学生</text>
+      <text class="value">{{item.studentName || '未填写'}}</text>
+    </view>
+    <view class="booking-line">
+      <text class="label">联系方式</text>
+      <text class="value">{{item.contact || '未填写'}}</text>
+    </view>
+    <view class="booking-line">
+      <text class="label">学校</text>
+      <text class="value">{{item.school || '未填写'}}</text>
+    </view>
+    <view class="booking-line">
+      <text class="label">专业 / 层次</text>
+      <text class="value">{{item.major || '未填写'}} · {{item.applicationLevel || '未填写'}}</text>
+    </view>
+    <view class="booking-line">
+      <text class="label">备注</text>
+      <text class="value">{{item.note || '无备注'}}</text>
+    </view>
+    <view wx:if="{{item.isLocalOnly}}" class="local-note">旧本地记录缺少服务器编号，无法在线取消。如需处理，请联系老师。</view>
+
+    <view class="booking-actions">
+      <button class="copy-button" data-id="{{item.id}}" bindtap="copyBooking">复制信息</button>
+      <button wx:if="{{item.canCancel}}" class="cancel-button" data-id="{{item.serverId || item.id}}" bindtap="cancelBooking">取消预约</button>
+      <button wx:else class="disabled-button" disabled>{{item.status == 'cancelled' ? '已取消' : '不可取消'}}</button>
+    </view>
+  </view>
+
+  <view class="footer-spacer" style="{{footerInset ? 'height:' + footerInset + 'px;' : ''}}"></view>
+  <view class="bottom-actions">
+    <button class="secondary-button" bindtap="loadBookings">刷新记录</button>
+    <button class="primary-button" bindtap="createBooking">新增预约</button>
+  </view>
+</view>

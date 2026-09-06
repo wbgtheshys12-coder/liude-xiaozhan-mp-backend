@@ -1,0 +1,56 @@
+.uploads-page {
+  min-height: 100vh;
+  padding: 24rpx;
+  background: #f5f7fb;
+  box-sizing: border-box;
+}
+
+.hero,
+.record-card,
+.empty {
+  margin-bottom: 18rpx;
+  padding: 24rpx;
+  border-radius: 18rpx;
+  background: #ffffff;
+  border: 1rpx solid #e3ebf5;
+}
+
+.title,
+.record-title {
+  display: block;
+  color: #17243a;
+  font-size: 32rpx;
+  font-weight: 900;
+}
+
+.summary,
+.record-meta,
+.record-time,
+.empty {
+  display: block;
+  margin-top: 10rpx;
+  color: #526174;
+  font-size: 25rpx;
+  line-height: 1.55;
+}
+
+.primary-button {
+  width: 100%;
+  min-height: 78rpx;
+  margin: 22rpx 0 0;
+  border-radius: 999rpx;
+  background: #1f58a7;
+  color: #ffffff;
+  font-size: 27rpx;
+  font-weight: 900;
+}
+
+.primary-button::after {
+  border: 0;
+}
+
+.material-open-button {
+  min-height: 72rpx;
+  margin-top: 16rpx;
+  font-size: 24rpx;
+}

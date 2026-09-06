@@ -33,6 +33,7 @@
           <button class="tab" data-tab="messages" type="button">客服消息</button>
           <button class="tab" data-tab="payments" type="button">支付订单</button>
           <button class="tab" data-tab="stats" type="button">统计</button>
+          <button class="tab" data-tab="posts" type="button">资讯审核</button>
         </nav>
 
         <p class="security-note">后台仅展示脱敏用户标识。请勿转发学生资料或将访问令牌写入聊天、代码和 GitHub。</p>
@@ -48,10 +49,13 @@
               <label>课程简介<textarea id="courseSummary" maxlength="500"></textarea></label>
               <label>标签（逗号分隔）<input id="courseTags" placeholder="留德基础, 申请规划" /></label>
               <label>状态<select id="courseStatus"><option value="published">已发布</option><option value="draft">草稿</option></select></label>
+              <label><input id="courseFree" type="checkbox" checked /> 免费公开课程（无需登录；不能同时限定学生）</label>
+              <p class="fine-print">建课 → 上传视频 / 填直播入口 → 测试播放 → 保存发布。无视频或直播入口的课程不会作为已就绪课程公开。</p>
               <label>录播视频地址<input id="courseVideoUrl" type="text" placeholder="可填写 https://...，或在下方上传" /></label>
               <label>或分片上传本地视频（单个上限 512MB）<input id="courseVideoFile" type="file" accept="video/mp4,video/quicktime,video/x-m4v" /></label>
               <div class="inline-actions"><button id="uploadVideoButton" class="secondary" type="button">上传本地视频</button><button id="removeVideoButton" class="danger-button" type="button">移除视频</button></div>
               <div id="courseVideoStatus" class="media-status empty">尚未配置视频。</div>
+              <p class="fine-print">直播扩展已预留 HTTPS 入口，后续可对接直播服务。当前未接入推流、连麦或直播录制，不会假装已开放。</p>
               <label>直播 HTTPS 入口<input id="courseLiveUrl" type="url" placeholder="https://..." /></label>
               <label>直播时间<input id="courseStartAt" placeholder="例如：2026-08-01 19:30" /></label>
               <label>时长<input id="courseDuration" placeholder="例如：90 分钟" /></label>
@@ -82,6 +86,16 @@
           <div class="panel"><div class="section-head"><h2>支付订单</h2><button class="ghost refresh" data-resource="payments" type="button">刷新</button></div><p class="fine-print">仅显示脱敏用户标识和订单状态；退款首版请在微信支付商户平台人工处理。</p><div id="paymentsList" class="cards"></div></div>
         </section>
 
+        <section id="postsView" class="view hidden">
+          <div class="split"><form id="postForm" class="panel form-panel">
+            <h2>资讯草稿</h2><p class="fine-print">仅管理员可编辑。草稿保存后提交审核，再明确审核发布，首页才会展示。编辑已发布内容会重新进入草稿。</p>
+            <input id="postId" type="hidden" /><input id="postUpdatedAt" type="hidden" />
+            <label>标题 *<input id="postTitle" required maxlength="80" /></label>
+            <label>正文 *<textarea id="postContent" required maxlength="12000" style="min-height:240px"></textarea></label>
+            <label>原始来源（政策资讯请附官方链接）<input id="postSource" type="url" placeholder="https://..." /></label>
+            <button class="primary" type="submit">保存草稿</button><button id="resetPost" type="button">新建</button>
+          </form><div class="panel"><div class="section-head"><h2>审核与发布</h2><button class="ghost refresh" data-resource="posts" type="button">刷新</button></div><div id="postsList" class="cards"></div></div></div>
+        </section>
         <section id="statsView" class="view hidden">
           <div class="panel"><div class="section-head"><h2>使用统计</h2><button class="ghost refresh" data-resource="stats" type="button">刷新</button></div><div id="statsList" class="cards"></div></div>
         </section>

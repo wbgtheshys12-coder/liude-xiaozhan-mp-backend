@@ -1,0 +1,117 @@
+<view class="screen-page about-page">
+  <image style="width:100%;display:block;border-radius:20rpx;margin-bottom:24rpx" src="{{posterUrl}}" mode="widthFix" show-menu-by-longpress="{{true}}" bindtap="previewPoster" />
+  <view class="hero">
+    <image class="about-logo" src="/assets/logo.jpg" mode="aspectFit"></image>
+    <text class="brand">留德小栈 · 逢考必过德语</text>
+    <text class="title">懂德国 · 懂申请</text>
+    <text class="title-sub">更懂你的留学方向</text>
+    <text class="summary">从德语学习到院校选择，从材料准备到老师复核，陪你把留德计划一步步变成清楚的行动。</text>
+  </view>
+
+  <view class="panel">
+    <text class="eyebrow">WHY LIUDE</text>
+    <text class="section-title">我们的四个优势</text>
+    <view wx:for="{{strengths}}" wx:key="title" class="strength-item">
+      <text class="strength-number">{{item.number}}</text>
+      <view class="process-copy">
+        <text class="service-title">{{item.title}}</text>
+        <text class="service-desc">{{item.desc}}</text>
+      </view>
+    </view>
+    <text class="small-note">团队经历与服务数据来自品牌介绍；过往经验不代表个别申请的录取保证。</text>
+  </view>
+
+  <view class="panel">
+    <text class="eyebrow">STAY CONNECTED</text>
+    <text class="section-title">找到我们</text>
+    <view class="contact-row">
+      <view class="contact-copy"><text class="service-title">小红书 · 留德小栈</text><text class="service-desc">留学经验与申请分享</text></view>
+      <button class="contact-button" data-value="留德小栈" bindtap="copyContact">复制名称</button>
+    </view>
+    <view class="contact-row">
+      <view class="contact-copy"><text class="service-title">公众号 · 留德小栈</text><text class="service-desc">德国高校资讯与实用指南</text></view>
+      <button class="contact-button" bindtap="openOfficialAccount">前往公众号</button>
+    </view>
+    <view class="contact-row">
+      <view class="contact-copy"><text class="service-title">咨询微信</text><text class="wechat-id" user-select="true">{{serviceWechat}}</text></view>
+      <button class="contact-button" data-value="{{serviceWechat}}" bindtap="copyContact">复制微信号</button>
+    </view>
+    <button class="poster-button" bindtap="previewPoster">查看品牌介绍与二维码</button>
+    <text class="small-note">打开原图后可放大、保存或识别二维码；也可复制名称前往微信或小红书搜索。</text>
+  </view>
+
+  <view class="panel">
+    <text class="eyebrow">OUR STORY</text>
+    <text class="section-title">关于留德小栈</text>
+    <text wx:for="{{letter}}" wx:key="*this" class="paragraph">{{item}}</text>
+  </view>
+
+  <view class="panel">
+    <text class="eyebrow">WHAT WE DO</text>
+    <text class="section-title">我们能做什么</text>
+    <view class="service-grid">
+      <view wx:for="{{services}}" wx:key="title" class="service-item">
+        <text class="service-title">{{item.title}}</text>
+        <text class="service-desc">{{item.desc}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="panel">
+    <text class="eyebrow">HOW IT WORKS</text>
+    <text class="section-title">从信息到申请准备</text>
+    <view wx:for="{{process}}" wx:key="title" class="process-item">
+      <text class="process-index">{{index + 1}}</text>
+      <view class="process-copy">
+        <text class="process-title">{{item.title}}</text>
+        <text class="process-desc">{{item.desc}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="panel">
+    <text class="eyebrow">AI / REVIEW</text>
+    <text class="section-title">结果怎么理解</text>
+    <view wx:for="{{boundaries}}" wx:key="*this" class="bullet-row">
+      <text class="bullet-dot">•</text>
+      <text class="bullet-text">{{item}}</text>
+    </view>
+  </view>
+
+  <view class="panel privacy-panel">
+    <text class="eyebrow">PRIVACY</text>
+    <text class="section-title">资料与隐私</text>
+    <text class="paragraph">隐私相关咨询、未成年人信息处理及删除请求，请联系微信：liudexiaozhan。完整规则以微信平台展示的隐私保护指引为准。</text>
+    <view wx:for="{{privacy}}" wx:key="*this" class="bullet-row">
+      <text class="bullet-dot privacy-dot">✓</text>
+      <text class="bullet-text">{{item}}</text>
+    </view>
+  </view>
+
+  <view class="panel">
+    <text class="eyebrow">FOR STUDENTS</text>
+    <text class="section-title">适合这些申请场景</text>
+    <view class="tag-row">
+      <text class="tag">德国本科申请</text>
+      <text class="tag">德国硕士选校</text>
+      <text class="tag">转专业核验</text>
+      <text class="tag">课程模块核对</text>
+      <text class="tag">简历与动机信初稿</text>
+      <text class="tag">材料进度</text>
+    </view>
+  </view>
+
+  <view class="panel team-panel">
+    <text class="eyebrow">ABOUT THE TEAM</text>
+    <text class="section-title">关于团队</text>
+    <text class="paragraph">留德小栈由杭州智航云创科技有限公司提供产品与技术支持，围绕德国留学信息整理、申请材料准备和师生协作持续迭代。</text>
+    <text class="paragraph">我们会持续更新院校与项目信息，优化成绩单校对、院校建议、文书准备、网课学习和师生沟通体验。最终申请条件仍以学校官网和老师复核为准。</text>
+  </view>
+
+  <view class="action-row">
+    <button class="primary-button" bindtap="goConsult">联系客服</button>
+    <button class="secondary-button" bindtap="openPolicy">隐私与使用说明</button>
+  </view>
+
+  <text class="footer-note">留德小栈 · 院校建议与文书均为 AI 辅助结果</text>
+</view>

@@ -7,6 +7,7 @@ const PDFDocument = require("pdfkit");
 const localEngine = require("./local-engine");
 const { createPaymentService } = require("./payment");
 const { createCosStorage } = require("./cos-storage");
+const { createReleaseRoutes } = require("./release-routes");
 
 const PORT = Number(process.env.PORT || 3108);
 const WECHAT_APPID = process.env.WECHAT_APPID || "";
@@ -42,6 +43,7 @@ const MP_UPLOADS_FILE = process.env.MP_UPLOADS_FILE || path.join(MP_DATA_DIR, "u
 const MP_PROFILES_FILE = process.env.MP_PROFILES_FILE || path.join(MP_DATA_DIR, "profiles.jsonl");
 const MP_USAGE_FILE = process.env.MP_USAGE_FILE || path.join(MP_DATA_DIR, "usage.jsonl");
 const MP_MESSAGES_FILE = process.env.MP_MESSAGES_FILE || path.join(MP_DATA_DIR, "messages.jsonl");
+const MP_POSTS_FILE = path.join(MP_DATA_DIR, "posts.jsonl");
 const MP_STUDENT_UPLOAD_DIR = process.env.MP_STUDENT_UPLOAD_DIR || path.join(MP_DATA_DIR, "student-uploads");
 const MP_COURSE_VIDEO_DIR = process.env.MP_COURSE_VIDEO_DIR || path.join(MP_DATA_DIR, "course-videos");
 const cosStorage = createCosStorage(process.env);
@@ -324,6 +326,7 @@ function metadataFilePaths() {
       MP_PROFILES_FILE,
       MP_USAGE_FILE,
       MP_MESSAGES_FILE,
+      MP_POSTS_FILE,
       paymentService?.ordersFile,
     ].filter(Boolean))
   );
@@ -1216,6 +1219,7 @@ function recordUsage(session, action, detail = {}) {
   appendJsonlRecord(MP_USAGE_FILE, {
     id: createRecordId("use"),
     action: normalizeBookingText(action, 60),
+    actorType: isAdminSession(session) ? "admin" : session.mode === "demo" || (MP_ALLOW_DEV_LOGIN && session.openid === MP_DEV_OPENID) ? "test" : "student",
     detail,
     user: {
       openid: maskOpenid(session.openid),
@@ -1450,9 +1454,10 @@ const DEFAULT_COURSES = [
   },
   {
     id: "course_recorded_german_sample",
+    free: true,
     type: "recorded",
     title: "德语网课：入门示范课",
-    summary: "德语录播课程示范视频，课程权限绑定当前微信账号，仅支持在线播放。",
+    summary: "德语入门示范视频，免费公开学习。课程问题可通过私信反馈给老师。",
     tags: ["录播课", "德语课程"],
     status: "published",
     videoUrl: getCourseVideoPath(BUNDLED_GERMAN_COURSE_VIDEO_FILE),
@@ -1522,12 +1527,13 @@ function sanitizeCourse(course, session, admin = false, req = null) {
     summary: normalizeLongText(course.summary, 280),
     tags: Array.isArray(course.tags) ? course.tags.slice(0, 6).map((tag) => normalizeBookingText(tag, 20)) : [],
     status: course.status || "draft",
+    free: course.free === true,
     startAt: normalizeBookingText(course.startAt, 60),
     duration: normalizeBookingText(course.duration, 40),
     videoUrl: hasVideo ? videoUrl : "",
     hasVideo,
     videoConfigured: Boolean(rawVideoUrl),
-    videoStorage: localVideo.fileName ? (localVideo.bundled ? "bundled" : "local") : rawVideoUrl ? "external" : "none",
+    videoStorage: localVideo.fileName ? (localVideo.bundled ? "bundled" : cosStorage.active ? "tencent-cos" : "local") : rawVideoUrl ? "external" : "none",
     videoExists: localVideo.fileName ? localVideo.exists : Boolean(rawVideoUrl),
     liveUrl: course.liveUrl || "",
     noDownload: course.noDownload !== false,
@@ -1633,7 +1639,7 @@ function upsertProfile(session, patch) {
 }
 
 function isActiveBooking(booking) {
-  return !["cancelled", "rejected", "expired"].includes(String(booking.status || "confirmed"));
+  return !["cancelled", "rejected", "expired", "contacted", "completed"].includes(String(booking.status || "confirmed"));
 }
 
 function isBookingOwnedBySession(booking, session) {
@@ -1676,6 +1682,7 @@ function getUnavailableBookingTimes(advisorKey, date) {
 }
 
 function isPastBookingSlot(booking) {
+  if (booking.requestOnly) return false;
   return getPastBookingTimes(booking.date).includes(booking.time);
 }
 
@@ -1879,6 +1886,12 @@ async function sendWechatSubscribeMessage(openid, booking) {
 
 function buildBookingWebhookContent(booking, eventType = "created") {
   const cancelled = eventType === "cancelled";
+  if (booking.requestOnly) return [
+    cancelled ? "留德小栈咨询申请已取消" : "留德小栈收到新的待联系咨询申请",
+    "此申请未指定日期和时段，请进入后台预约管理查看联系方式并联系学生。",
+    `申请编号：${booking.id}`,
+    "群提醒不展示学生联系方式、咨询原文或文件内容。"
+  ].join("\n");
   return [
     cancelled ? "留德小栈预约已取消" : "留德小栈新预约",
     `学生：${booking.studentName}`,
@@ -2135,6 +2148,8 @@ function handleBookingConfig(req, res) {
 
 function sanitizeBookingForAdmin(booking) {
   return {
+    requestOnly: Boolean(booking.requestOnly),
+    statusText: statusTextForBooking(booking.status),
     id: booking.id,
     advisorKey: booking.advisorKey,
     advisorName: booking.advisorName,
@@ -2158,6 +2173,9 @@ function sanitizeBookingForAdmin(booking) {
 function statusTextForBooking(status) {
   const value = String(status || "confirmed");
   if (value === "confirmed") return "已确认";
+  if (value === "pending") return "待老师联系";
+  if (value === "contacted") return "老师已联系";
+  if (value === "completed") return "已处理";
   if (value === "cancelled") return "已取消";
   if (value === "expired") return "已过期";
   if (value === "rejected") return "已拒绝";
@@ -2166,6 +2184,7 @@ function statusTextForBooking(status) {
 
 function sanitizeBookingForUser(booking) {
   return {
+    requestOnly: Boolean(booking.requestOnly),
     id: booking.id,
     advisorKey: booking.advisorKey,
     advisorName: booking.advisorName,
@@ -2343,6 +2362,12 @@ async function handleAdminCourseSave(req, res) {
     const body = JSON.parse(rawBody || "{}");
     const now = new Date().toISOString();
     const id = normalizeBookingText(body.id || createRecordId("course"), 80);
+    const existingCourse = readCourseRecords().find((item) => item.id === id);
+    const free = typeof body.free === "boolean" ? body.free : existingCourse?.free === true;
+    if (free && compactStringArray(body.allowedStorageKeys || []).length) {
+      sendJson(res, 400, { error: "免费公开课不能同时限定学生名单。" });
+      return;
+    }
     const submittedVideoUrl = normalizeLongText(body.videoUrl || "", 300);
     const localVideoFile = getLocalCourseVideoFile(submittedVideoUrl);
     const videoUrl = localVideoFile ? getCourseVideoPath(localVideoFile) : submittedVideoUrl;
@@ -2362,6 +2387,7 @@ async function handleAdminCourseSave(req, res) {
       summary: normalizeLongText(body.summary || "", 500),
       tags: compactStringArray(body.tags || []).slice(0, 8),
       status: body.status === "draft" ? "draft" : "published",
+      free,
       videoUrl,
       liveUrl,
       startAt: normalizeBookingText(body.startAt || "", 80),
@@ -2785,24 +2811,45 @@ async function handleAdminCourseDelete(req, res) {
   }
 }
 
-function handleAdminCourses(req, res) {
+async function handleAdminCourses(req, res) {
   const session = requireSession(req, res);
   if (!session) return;
   if (!isAdminSession(session)) {
     sendJson(res, 403, { error: "当前微信号没有课程管理权限。" });
     return;
   }
+  const records = await Promise.all(readCourseRecords().map(async (course) => {
+    const item = sanitizeCourse(course, session, true, req);
+    if (item.videoFileName && item.videoStorage !== "bundled" && cosStorage.active) {
+      try {
+        const remote = await cosStorage.head(courseVideoCosKey(item.videoFileName));
+        item.videoStorage = remote.exists ? "tencent-cos" : "local";
+        item.videoExists = remote.exists || fs.existsSync(path.join(MP_COURSE_VIDEO_DIR, item.videoFileName));
+        item.videoSize = remote.size || item.videoSize;
+        item.storageVerified = true;
+        if (!item.videoExists) {
+          item.hasVideo = false;
+          item.videoUrl = "";
+          item.videoPreviewUrl = "";
+        }
+      } catch (_) {
+        item.videoStorage = "unverified";
+        item.storageVerified = false;
+      }
+    }
+    return item;
+  }));
   sendJson(res, 200, {
     ok: true,
     synchronized: true,
     synchronizationNote: "电脑后台与小程序课程管理使用同一后端和同一课程数据源。刷新后可看到另一端的最新修改。",
     storagePersistent: persistentStorageConfigured(),
     storageNote: cosStorage.active
-      ? "课程数据与视频已使用公司腾讯云私有 COS 持久化。"
+      ? "新上传视频写入公司私有 COS；内置示范视频仍在后端。每门课标注实际来源，COS 状态经读取核验。"
       : externalPersistentDataDirConfigured()
         ? "课程数据与本地视频已使用外部持久化目录。"
         : "当前未配置持久化存储：重新部署可能清空本地上传的视频与业务数据。",
-    records: readCourseRecords().map((course) => sanitizeCourse(course, session, true, req)),
+    records,
   });
 }
 
@@ -3163,16 +3210,6 @@ async function handleUserMessageSend(req, res) {
       return;
     }
     const profile = sanitizeProfile(getUserProfile(session) || {});
-    const missingFields = getProfileMissingFields(profile);
-    if (missingFields.length) {
-      sendJson(res, 400, {
-        error: "请先完成首次学生资料设置，再发送客服消息。",
-        requiresOnboarding: true,
-        missingFields,
-        profile,
-      });
-      return;
-    }
     const record = {
       id: createRecordId("msg"),
       direction: "user",
@@ -3305,12 +3342,13 @@ function buildAdminStats() {
   const profiles = readJsonlFile(MP_PROFILES_FILE);
   const courses = readCourseRecords();
   const messages = readJsonlFile(MP_MESSAGES_FILE);
-  const usage = readJsonlFile(MP_USAGE_FILE).sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  const usage = readJsonlFile(MP_USAGE_FILE).filter((record) => !["admin", "test"].includes(record.actorType) && !String(record.action || "").startsWith("admin.")).sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
   const activeBookings = bookings.filter(isActiveBooking);
   const today = getBookingDateKey();
   return {
     ok: true,
     generatedAt: new Date().toISOString(),
+    measurementNote: "统计来自实际保存的记录；使用次数为登录用户事件数，不是人数。活跃用户按账号去重，排除标记为管理/测试的事件；未登录浏览不计入，历史未标记身份的事件可能含内部测试。课程总数含已建档未上传课程。",
     summary: {
       bookings: bookings.length,
       activeBookings: activeBookings.length,
@@ -3663,6 +3701,7 @@ async function handleMaterialDraft(req, res) {
     const rawBody = await readBody(req);
     const body = JSON.parse(rawBody || "{}");
     const payload = localEngine.createMaterialDraft(body);
+    recordUsage(session, "document.generate", { toolKey: body.toolKey, language: body.language, translationComplete: payload.translationComplete });
     sendJson(res, 200, payload);
   } catch (error) {
     if (isJsonParseError(error)) {
@@ -4309,7 +4348,7 @@ function createLegacyMatchingTablePdf(title, matchingData, watermark, generatedA
   const pageIds = [];
   pages.forEach((commands, pageIndex) => {
     const footerNotice =
-      "AI 辅助初步筛选：课程匹配、申请条件、截止日期与录取要求须以院校官网及顾问人工核验为准。";
+      "AI生成 · 分数由背景、课程与项目条件规则比对得出，并非录取概率，不保证申请成功；具体条件与日期以官网核验为准。";
     commands.push("0.37 0.43 0.51 rg");
     commands.push("BT", "1 0 0 1 40 17 Tm", ...pdfMixedTextOperators(footerNotice, 6.2), "ET");
     const pageLabel = `Page ${pageIndex + 1} of ${pages.length}`;
@@ -4556,6 +4595,7 @@ function drawPdfKitTableRow(document, cells, widths, options = {}) {
 }
 
 function createCvTablePdf(title, content, watermark, generatedAtText, language) {
+  content = String(content || "").replace(/^\s*(?:CURRICULUM VITAE|LEBENSLAUF)\s*\n/i, "");
   const footer = documentFooterText(language, generatedAtText);
   const document = createPdfKitDocument({
     size: "A4",
@@ -4614,21 +4654,11 @@ function createCvTablePdf(title, content, watermark, generatedAtText, language) 
         }
         return;
       }
-      const rows = [];
-      let pending = [];
-      lines.forEach((line) => {
-        if (/^[•\-]/u.test(line) && pending.length) {
-          rows.push(pending.join("\n"));
-          pending = [line];
-        } else {
-          pending.push(line);
-        }
-      });
-      if (pending.length) rows.push(pending.join("\n"));
+      const rows = require("./cv-layout").groupRows(lines);
       rows.forEach((row, index) => {
-        const period = row.match(/\b(?:19|20)\d{2}\s*[–—-]\s*(?:(?:19|20)\d{2}|present|now|heute|aktuell)\b/i);
-        const left = period ? period[0] : index === 0 ? (language === "de" ? "Angaben" : "Details") : "";
-        const right = period ? row.replace(period[0], "").replace(/^[\s·,;:-]+/, "") : row;
+        const parsedRow = require("./cv-layout").splitPeriod(row);
+        const left = parsedRow.period || (index === 0 ? (language === "de" ? "Angaben" : "Details") : "");
+        const right = parsedRow.content;
         const widths = [105, usableWidth - 105];
         pdf.fontSize(8.4);
         const estimated =
@@ -4636,21 +4666,30 @@ function createCvTablePdf(title, content, watermark, generatedAtText, language) 
             pdf.heightOfString(left || "-", { width: widths[0] - 12, lineGap: 1.3 }),
             pdf.heightOfString(right || "-", { width: widths[1] - 12, lineGap: 1.3 })
           ) + 12;
-        ensurePdfKitSpace(pdf, Math.min(estimated, 390), repeatHeading);
-        drawPdfKitTableRow(pdf, [left, right], widths, {
-          fontSize: 8.4,
-          padding: 6,
-          minHeight: 28,
-          fill: index % 2 === 1 ? "#fbfdff" : "",
-          lineGap: 1.3,
-        });
+        let remaining = right;
+        while (remaining) {
+          ensurePdfKitSpace(pdf, Math.min(estimated, 80), repeatHeading);
+          pdf.fontSize(8.4);
+          const available = pdf.page.height - pdf.page.margins.bottom - 34 - pdf.y - 14;
+          let take = remaining.length;
+          if (pdf.heightOfString(remaining, {width:widths[1]-12,lineGap:1.3}) > available) {
+            let low=1, high=take;
+            while(low<high) {const mid=Math.ceil((low+high)/2);if(pdf.heightOfString(remaining.slice(0,mid),{width:widths[1]-12,lineGap:1.3})<=available)low=mid;else high=mid-1;}
+            take=low;
+            const boundary=remaining.slice(0,take).search(/\s+\S*$/);
+            if(boundary>take/2)take=boundary;
+          }
+          drawPdfKitTableRow(pdf, [left, remaining.slice(0,take)], widths, {fontSize:8.4,padding:6,minHeight:28,fill:index%2===1?"#fbfdff":"",lineGap:1.3});
+          remaining=remaining.slice(take).trimStart();
+          if(remaining) ensurePdfKitSpace(pdf, pdf.page.height, repeatHeading);
+        }
       });
     });
     addPdfKitFooters(pdf, footer, generatedAtText, "cv-table-embedded-font-v2");
   });
 }
 
-function createWatermarkedPdf(title, content, watermark, generatedAtText = formatDocumentDateTime(), language = "zh", toolKey = "") {
+function createWatermarkedPdf(title, content, watermark, generatedAtText = formatDocumentDateTime(), language = "zh", toolKey = "", pageLimit = 0) {
   if (toolKey === "cv" && ["de", "en"].includes(language)) {
     return createCvTablePdf(title, content, watermark, generatedAtText, language);
   }
@@ -4721,6 +4760,9 @@ function createWatermarkedPdf(title, content, watermark, generatedAtText = forma
           });
         pdf.moveDown(isNotice ? 0.55 : isMeta ? 0.16 : 0.42);
       });
+    if (toolKey === "motivation" && pageLimit && pdf.bufferedPageRange().count > pageLimit) {
+      throw Object.assign(new Error(`内容超过所选 ${pageLimit} 页，请精简填写内容或选择两页；系统不会截断你的经历。`), { statusCode: 400 });
+    }
     addPdfKitFooters(pdf, footer, generatedAtText);
   });
 }
@@ -4866,7 +4908,7 @@ function createMatchingTablePdf(title, matchingData, watermark, generatedAtText 
     });
     addPdfKitFooters(
       pdf,
-      "AI 辅助初步筛选：课程匹配、申请条件、截止日期与录取要求须以院校官网及顾问人工核验为准。",
+      "AI生成 · 分数由背景、课程与项目条件规则比对得出，并非录取概率，不保证申请成功；具体条件与日期以官网核验为准。",
       generatedAtText,
       MATCHING_PDF_LAYOUT_VERSION
     );
@@ -4917,6 +4959,7 @@ function prepareDocumentExport(session, body) {
     language,
     title,
     content,
+    pageLimit: toolKey === "motivation" ? Number(body.form?.pageLimit || body.pageLimit) === 1 ? 1 : 2 : 0,
     matchingData: kind === "matching" ? normalizeMatchingPdfData(body.matchingData) : null,
     preview,
     visibleContent,
@@ -4928,6 +4971,7 @@ function prepareDocumentExport(session, body) {
 function isDocumentSectionHeading(line) {
   const value = String(line || "").trim();
   if (!value) return false;
+  if (["SCHULBILDUNG", "PRIMARY AND SECONDARY EDUCATION", "ERLÄUTERUNG DER ZEITRÄUME", "EXPLANATION OF TIMELINE GAPS"].includes(value)) return true;
   if (/^\d+\.\s+\S/u.test(value) && value.length <= 72) return true;
   if (
     /^(动机申请信中文初稿|留德申请个人简历中文信息稿|课程描述初稿|个人与学习背景|为什么选择德国|为什么选择该专业|毕业后的计划|个人信息|教育背景|语言与标准考试|工作\/实习经历|研究\/项目\/毕业论文|发表论文|奖励与荣誉|课外活动\/社会实践|技能、证书与兴趣|MOTIVATION LETTER|MOTIVATIONSSCHREIBEN|CURRICULUM VITAE|LEBENSLAUF|PERSONAL DETAILS|PERSÖNLICHE DATEN|EDUCATION|AUSBILDUNG|EXCHANGE \/ SUMMER SCHOOL|AUSLANDS- \/ SOMMERSCHULERFAHRUNG|LANGUAGES AND STANDARDISED TESTS|SPRACHKENNTNISSE UND STANDARDISIERTE TESTS|PROFESSIONAL EXPERIENCE|BERUFS- UND PRAKTIKUMSERFAHRUNG|RESEARCH, PROJECTS AND THESIS|FORSCHUNG, PROJEKTE UND ABSCHLUSSARBEIT|PUBLICATIONS|PUBLIKATIONEN|HONOURS AND AWARDS|AUSZEICHNUNGEN|EXTRACURRICULAR ACTIVITIES|AUSSERUNIVERSITÄRES ENGAGEMENT|SKILLS, CERTIFICATES AND INTERESTS|KENNTNISSE, ZERTIFIKATE UND INTERESSEN)$/.test(
@@ -5187,6 +5231,7 @@ function createCvDocxCell(children, options = {}) {
 }
 
 async function createCvTableDocx(title, content, generatedAtText, language) {
+  content = String(content || "").replace(/^\s*(?:CURRICULUM VITAE|LEBENSLAUF)\s*\n/i, "");
   const brandBlue = "1F5DA8";
   const parsed = parseDocumentSections(content);
   const rows = [];
@@ -5400,7 +5445,8 @@ async function handleDocumentPdf(req, res) {
             watermark,
             generatedAtText,
             documentData.language,
-            documentData.toolKey
+            documentData.toolKey,
+            documentData.pageLimit
           );
     const usageAction =
       documentData.kind === "questionnaire"
@@ -5644,7 +5690,7 @@ function sendAdminWebAsset(res, pathname) {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "no-referrer",
-    "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' https:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; frame-src blob:; media-src 'self' https:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
   });
   fs.createReadStream(filePath).pipe(res);
 }
@@ -5665,6 +5711,8 @@ async function sendAboutPoster(req, res) {
   }
 }
 
+const releaseRoutes = createReleaseRoutes({ sendJson, readBody, requireSession, isAdminSession, getSessionStorageKey, createRecordId, readJsonlFile, writeJsonlFile, appendBookingRecord, readBookingRecords, writeBookingRecords, recordUsage, readCourseRecords, sanitizeCourse, notifyContactRequest: booking => MP_BOOKING_NOTIFY_ENABLED ? sendBookingWebhookNotifications(booking, "created") : Promise.resolve({ configured: false, notified: false }), postsFile: MP_POSTS_FILE, catalog: () => localEngine.getPublicCatalog() });
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
@@ -5672,6 +5720,8 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 204, {});
     return;
   }
+
+  if (await releaseRoutes(req, res, url)) return;
 
   if (["GET", "HEAD"].includes(req.method) && url.pathname === "/api/mp/public/about-poster.jpg") {
     await sendAboutPoster(req, res);
@@ -5689,7 +5739,7 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 200, {
       ok: true,
       service: "liude-xiaozhan-miniprogram-backend",
-      releaseVersion: "20260830-login-about",
+      releaseVersion: "20260905-review-functional-update",
       aboutPosterAvailable: fs.existsSync(path.join(__dirname, "assets", "about-us-20260830.jpg")),
       engine: "mini-program-standalone",
       transcriptEngine: "pdf-ocr-embedded-fallback-20260730",
@@ -5772,7 +5822,7 @@ const server = http.createServer(async (req, res) => {
       documentLogoWatermarkEnabled: fs.existsSync(DOCUMENT_LOGO_PATH),
       documentPdfFontEmbedded: fs.existsSync(DOCUMENT_PDF_FONT_PATH),
       documentForeignLanguageGuardEnabled: true,
-      documentDraftEngine: "privacy-safe-structured-language-v1",
+      documentDraftEngine: "factual-local-structured-draft-v2",
       documentOutputTimezone: DOCUMENT_TIMEZONE,
       documentLanguages: ["de", "en"],
       documentGermanFormatCvEnabled: true,

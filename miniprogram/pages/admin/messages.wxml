@@ -1,0 +1,31 @@
+<view class="screen-page admin-messages-page">
+  <view class="hero">
+    <text class="title">客服消息管理</text>
+    <text class="summary">共 {{count}} 个用户会话。老师、负责人和平台管理员可查看并回复。{{privacyNote}}</text>
+  </view>
+
+  <view wx:if="{{loading}}" class="empty">正在加载客服消息...</view>
+  <view wx:else class="conversation-list">
+    <view wx:for="{{conversations}}" wx:key="storageKey" class="conversation-card">
+      <view class="conversation-head">
+        <view class="student-copy">
+          <text class="student-name">{{item.studentName || '微信用户'}}</text>
+          <text class="student-meta">{{item.contact || '未填写联系方式'}}</text>
+          <text class="student-meta">{{item.school || '未填写学校'}} · {{item.major || '未填写专业'}} · {{item.applicationLevel ? '申请' + item.applicationLevel : '未填写申请层次'}}</text>
+          <text class="student-key">用户标识：{{item.storageKey}}</text>
+        </view>
+        <text class="last-time">{{item.lastTimeText}}</text>
+      </view>
+      <scroll-view class="message-list" scroll-y="true" enhanced="true" show-scrollbar="false" scroll-into-view="admin-msg-{{item.lastMessageId}}">
+        <view wx:for="{{item.messages}}" wx:for-item="message" wx:key="id" id="admin-msg-{{message.id}}" class="message {{message.direction}}">
+          <text class="sender">{{message.senderLabel}}</text>
+          <text class="content">{{message.content}}</text>
+          <text class="time">{{message.timeText}}</text>
+        </view>
+      </scroll-view>
+      <textarea placeholder-class="input-placeholder" class="reply-input" maxlength="1000" value="{{replyDrafts[item.storageKey]}}" data-storage-key="{{item.storageKey}}" bindinput="inputReply" placeholder="输入给该用户的回复..." auto-height></textarea>
+      <button class="reply-button" loading="{{replyingKey === item.storageKey}}" disabled="{{replyingKey || !replyDrafts[item.storageKey]}}" data-storage-key="{{item.storageKey}}" bindtap="replyMessage">发送回复</button>
+    </view>
+    <view wx:if="{{!conversations.length}}" class="empty">暂无用户客服消息。</view>
+  </view>
+</view>

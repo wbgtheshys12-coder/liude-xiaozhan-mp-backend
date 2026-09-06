@@ -1,0 +1,56 @@
+<view class="screen-page onboarding-page">
+  <view class="intro-card">
+    <text class="intro-tag">首次登录 · 一次设置</text>
+    <text class="intro-title">让老师更了解你</text>
+    <text class="intro-desc">只需姓名、一种联系方式和学习背景。填好后，预约与客服会自动使用，不再反复填写。</text>
+  </view>
+
+  <view wx:if="{{isLegacyLocked}}" class="legacy-note">旧资料已锁定，本次只需补充：{{missingText}}。原有内容不会被修改。</view>
+
+  <view class="form-card">
+    <label class="field">
+      <view class="field-head"><text>姓名</text><text class="required">*</text></view>
+      <input class="field-input" maxlength="40" placeholder-class="input-placeholder" value="{{draft.name}}" disabled="{{lockedFields.name}}" data-field="name" bindinput="updateDraft" placeholder="请输入真实姓名" />
+    </label>
+    <view class="field">
+      <view class="field-head"><text>联系方式</text><text class="required">*</text><text class="field-hint">选一种即可</text></view>
+      <view class="level-options">
+        <button class="level-option {{contactType == 'phone' ? 'active' : ''}}" data-type="phone" bindtap="selectContactType">手机号</button>
+        <button class="level-option {{contactType == 'email' ? 'active' : ''}}" data-type="email" bindtap="selectContactType">邮箱</button>
+      </view>
+    </view>
+    <label wx:if="{{contactType == 'phone'}}" class="field contact-field">
+      <input class="field-input" type="text" maxlength="26" placeholder-class="input-placeholder" value="{{draft.phone}}" disabled="{{lockedFields.phone}}" data-field="phone" bindinput="updateDraft" placeholder="手机号，可含国际区号 +86 / +49" />
+    </label>
+    <label wx:else class="field contact-field">
+      <input class="field-input" type="text" maxlength="100" placeholder-class="input-placeholder" value="{{draft.email}}" disabled="{{lockedFields.email}}" data-field="email" bindinput="updateDraft" placeholder="例如 name@example.com" />
+    </label>
+    <label class="field">
+      <view class="field-head"><text>当前 / 毕业学校</text><text class="required">*</text></view>
+      <input class="field-input" placeholder-class="input-placeholder" value="{{draft.school}}" disabled="{{lockedFields.school}}" data-field="school" bindinput="updateDraft" placeholder="例如：浙江大学" />
+    </label>
+    <label class="field">
+      <view class="field-head"><text>当前 / 本科专业</text><text class="required">*</text></view>
+      <input class="field-input" placeholder-class="input-placeholder" value="{{draft.major}}" disabled="{{lockedFields.major}}" data-field="major" bindinput="updateDraft" placeholder="例如：机械工程" />
+    </label>
+    <view class="field">
+      <view class="field-head"><text>申请层次</text><text class="required">*</text></view>
+      <view class="level-options">
+        <view class="level-option {{draft.applicationLevel == '本科' ? 'active' : ''}} {{lockedFields.applicationLevel ? 'disabled' : ''}}" data-value="本科" bindtap="selectLevel">申请本科</view>
+        <view class="level-option {{draft.applicationLevel == '硕士' ? 'active' : ''}} {{lockedFields.applicationLevel ? 'disabled' : ''}}" data-value="硕士" bindtap="selectLevel">申请硕士</view>
+      </view>
+    </view>
+  </view>
+
+  <view class="privacy-card">
+    <text class="privacy-title">资料使用说明</text>
+    <text class="privacy-desc">微信身份已自动绑定；联系方式用于预约和客服，当前无需验证码。请勿填写银行卡号、密码等敏感信息。</text>
+    <text class="confirm-note">请检查信息是否准确。提交后资料将绑定当前微信账号，如需更正请联系客服。</text>
+  </view>
+
+  <view wx:if="{{loadError}}" class="legacy-note">
+    <text>{{loadError}}</text>
+    <button class="retry-button" bindtap="loadProfile">重新读取</button>
+  </view>
+  <button class="submit-button" loading="{{saving}}" disabled="{{loading || saving || loadError}}" bindtap="submit">{{loading ? '正在读取资料' : '确认资料并进入'}}</button>
+</view>

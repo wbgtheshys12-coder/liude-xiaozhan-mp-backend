@@ -1,0 +1,183 @@
+<page-meta page-style="{{showBindDialog || showProfileDialog ? 'overflow:hidden;' : ''}}"></page-meta>
+<view class="screen-page me-page {{settingsClass}}">
+  <view class="me-title">我的</view>
+  <view wx:if="{{guest}}" class="student-profile-card"><text class="me-subtitle">院校、资讯和免费课程可以直接浏览。需要保存个人资料或联系老师时再登录，头像和昵称均为选填。</text><button class="primary-button" bindtap="guestLogin">自愿登录</button><button bindtap="guestHome">继续浏览首页</button></view>
+  <block wx:if="{{!guest}}">
+  <text class="me-subtitle">管理个人资料、服务记录和账户设置。</text>
+
+  <view class="member-card">
+    <view class="member-top">
+      <view class="avatar">
+        <image wx:if="{{wechatProfile.avatarUrl}}" class="avatar-image" src="{{wechatProfile.avatarUrl}}" mode="aspectFill"></image>
+        <text wx:else>留</text>
+      </view>
+      <view class="member-info">
+        <text class="member-name">{{userLabel}}</text>
+        <text class="member-badge">{{hasWechatProfile ? '微信资料已绑定' : '已登录'}}</text>
+      </view>
+      <button class="profile-bind-button" bindtap="confirmOpenBindDialog">{{hasWechatProfile ? '更新头像昵称' : '绑定头像昵称'}}</button>
+    </view>
+    <view class="member-tags">
+      <text class="member-tag">微信登录</text>
+      <text class="member-tag">{{isAdmin ? '内部管理权限' : '学生服务账户'}}</text>
+      <text class="member-tag">{{profileLocked ? '资料已锁定' : '资料待确认'}}</text>
+    </view>
+    <view class="member-footer">
+      <text>{{hasWechatProfile ? '微信资料用于小程序内身份展示' : '绑定微信头像昵称后展示更完整'}}</text>
+      <button class="detail-button" bindtap="openMember">了解详情</button>
+    </view>
+  </view>
+
+  <view class="student-profile-card">
+    <view class="profile-card-head">
+      <view>
+        <text class="profile-card-title">个人资料</text>
+        <text class="profile-card-subtitle">{{profileLocked ? '已提交并锁定，如需修改请联系顾问' : '用于预约、院校匹配和材料生成；提交后不可自行修改'}}</text>
+      </view>
+      <button class="profile-edit-button" bindtap="openProfileDialog">{{profileLocked ? '锁定说明' : '编辑'}}</button>
+    </view>
+    <view class="profile-field-row important">
+      <text class="profile-field-label">姓名</text>
+      <text class="profile-field-value {{studentProfile.name ? '' : 'empty'}}">{{studentProfile.name || '未填写'}}</text>
+    </view>
+    <view class="profile-field-grid">
+      <view class="profile-field-row">
+        <text class="profile-field-label">学校</text>
+        <text class="profile-field-value {{studentProfile.school ? '' : 'empty'}}">{{studentProfile.school || '待补充'}}</text>
+      </view>
+      <view class="profile-field-row">
+        <text class="profile-field-label">专业</text>
+        <text class="profile-field-value {{studentProfile.major ? '' : 'empty'}}">{{studentProfile.major || '待补充'}}</text>
+      </view>
+    </view>
+    <view class="profile-field-grid">
+      <view class="profile-field-row">
+        <text class="profile-field-label">手机号 / 邮箱</text>
+        <text class="profile-field-value {{studentProfile.contact ? '' : 'empty'}}">{{studentProfile.phone || studentProfile.email || studentProfile.contact || '待补充'}}</text>
+      </view>
+      <view class="profile-field-row">
+        <text class="profile-field-label">申请层次</text>
+        <text class="profile-field-value {{studentProfile.applicationLevel ? '' : 'empty'}}">{{studentProfile.applicationLevel ? '申请' + studentProfile.applicationLevel : '待补充'}}</text>
+      </view>
+    </view>
+    <view class="profile-field-row">
+      <text class="profile-field-label">微信身份</text>
+      <text class="profile-field-value">已自动绑定</text>
+    </view>
+    <button class="profile-action-button" bindtap="openProfileDialog">{{profileLocked ? '查看锁定说明' : '修改个人资料'}}</button>
+  </view>
+
+  <view class="official-follow-card">
+    <text class="official-follow-title">关注公众号获取高校资讯</text>
+    <text class="official-follow-desc">公众号与个人资料分开管理，不读取你的关注状态。微信支持时，可在下方直接关注。</text>
+    <view class="official-account-box">
+      <official-account></official-account>
+    </view>
+    <text class="official-follow-note">如未显示，请先由管理员在微信公众平台完成小程序与公众号关联。</text>
+  </view>
+
+  <view class="stats-card">
+    <view wx:for="{{stats}}" wx:key="key" class="stat-item" data-url="{{item.url}}" bindtap="openStat">
+      <view class="stat-icon">
+        <image class="stat-icon-image" src="{{item.icon}}" mode="aspectFit"></image>
+      </view>
+      <view>
+        <text class="stat-title">{{item.title}}</text>
+        <text class="stat-value">{{item.value}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view wx:for="{{menuSections}}" wx:for-item="section" wx:key="key" class="menu-section">
+    <view class="section-head">
+      <view>
+        <text class="section-title">{{section.title}}</text>
+        <text class="section-desc">{{section.desc}}</text>
+      </view>
+    </view>
+    <view class="menu-card">
+      <view wx:for="{{section.items}}" wx:key="key" class="menu-item" data-tab="{{item.tab}}" data-url="{{item.url}}" data-action="{{item.action}}" bindtap="openItem">
+        <view class="menu-icon">
+          <image class="menu-icon-image" src="{{item.icon}}" mode="aspectFit"></image>
+        </view>
+        <text class="menu-title">{{item.title}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view wx:if="{{showBindDialog}}" class="dialog-mask" style="bottom: {{dialogKeyboardHeight}}px;" catchtap="closeBindDialog">
+    <scroll-view class="bind-dialog" scroll-y="{{true}}" scroll-into-view="{{dialogScrollTarget}}" catchtap="noop">
+      <view class="dialog-head">
+        <text class="dialog-title">{{hasWechatProfile ? '更新头像和昵称' : '绑定头像和昵称'}}</text>
+        <text class="dialog-close" bindtap="closeBindDialog">×</text>
+      </view>
+      <text class="dialog-desc">请选择微信头像并填写昵称。保存后，头像和名称会用于小程序内展示你的个人资料。</text>
+
+      <view class="bind-preview">
+        <view class="bind-avatar">
+          <image wx:if="{{avatarDraft}}" class="bind-avatar-image" src="{{avatarDraft}}" mode="aspectFill"></image>
+          <text wx:else>留</text>
+        </view>
+        <view class="bind-preview-copy">
+          <text class="bind-preview-name">{{nicknameDraft || userLabel}}</text>
+          <text class="bind-preview-note">资料仅用于本小程序身份显示</text>
+        </view>
+      </view>
+
+      <button class="dialog-avatar-button" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar">获取微信头像</button>
+      <input id="dialog-field-nickname" bindfocus="onDialogFieldFocus" placeholder-class="input-placeholder" class="dialog-nickname-input" type="nickname" value="{{nicknameDraft}}" placeholder="获取/填写微信昵称" bindinput="updateNickname" adjust-position="{{false}}" bindkeyboardheightchange="onDialogKeyboardHeightChange" />
+
+      <view class="dialog-actions">
+        <button class="dialog-cancel" bindtap="closeBindDialog">取消</button>
+        <button class="dialog-confirm" bindtap="saveWechatProfile">确认绑定</button>
+      </view>
+    </scroll-view>
+  </view>
+
+  <view wx:if="{{showProfileDialog}}" class="dialog-mask" style="bottom: {{dialogKeyboardHeight}}px;" catchtap="closeProfileDialog">
+    <scroll-view class="bind-dialog" scroll-y="{{true}}" scroll-into-view="{{dialogScrollTarget}}" catchtap="noop">
+      <view class="dialog-head">
+        <text class="dialog-title">编辑个人资料</text>
+        <text class="dialog-close" bindtap="closeProfileDialog">×</text>
+      </view>
+      <text class="dialog-desc">这些资料只需填写一次，之后会自动用于预约、客服咨询和申请服务。提交后如需更正，请联系顾问。</text>
+
+      <view class="profile-form">
+        <label class="profile-input-row">
+          <text class="profile-input-label">姓名 *</text>
+          <input id="dialog-field-name" bindfocus="onDialogFieldFocus" placeholder-class="input-placeholder" class="profile-input" value="{{studentDraft.name}}" data-field="name" placeholder="例如：张同学 / 张三" bindinput="updateStudentDraft" adjust-position="{{false}}" bindkeyboardheightchange="onDialogKeyboardHeightChange" />
+        </label>
+        <label class="profile-input-row">
+          <text class="profile-input-label">当前 / 毕业学校 *</text>
+          <input id="dialog-field-school" bindfocus="onDialogFieldFocus" placeholder-class="input-placeholder" class="profile-input" value="{{studentDraft.school}}" data-field="school" placeholder="例如：浙江大学" bindinput="updateStudentDraft" adjust-position="{{false}}" bindkeyboardheightchange="onDialogKeyboardHeightChange" />
+        </label>
+        <label class="profile-input-row">
+          <text class="profile-input-label">当前 / 本科专业 *</text>
+          <input id="dialog-field-major" bindfocus="onDialogFieldFocus" placeholder-class="input-placeholder" class="profile-input" value="{{studentDraft.major}}" data-field="major" placeholder="例如：机械工程" bindinput="updateStudentDraft" adjust-position="{{false}}" bindkeyboardheightchange="onDialogKeyboardHeightChange" />
+        </label>
+        <text class="dialog-desc">手机号和邮箱至少填写一项；当前仅登记联系方式，验证码服务尚未开通。</text>
+        <label class="profile-input-row">
+          <text class="profile-input-label">手机号（至少一项）</text>
+          <input id="dialog-field-phone" bindfocus="onDialogFieldFocus" placeholder-class="input-placeholder" class="profile-input" value="{{studentDraft.phone}}" data-field="phone" placeholder="可含国际区号" bindinput="updateStudentDraft" adjust-position="{{false}}" bindkeyboardheightchange="onDialogKeyboardHeightChange" />
+        </label>
+        <label class="profile-input-row">
+          <text class="profile-input-label">邮箱（至少一项）</text>
+          <input id="dialog-field-email" bindfocus="onDialogFieldFocus" placeholder-class="input-placeholder" class="profile-input" value="{{studentDraft.email}}" data-field="email" placeholder="name@example.com" bindinput="updateStudentDraft" adjust-position="{{false}}" bindkeyboardheightchange="onDialogKeyboardHeightChange" />
+        </label>
+        <view class="profile-input-row">
+          <text class="profile-input-label">申请层次 *</text>
+          <view class="student-level-options">
+            <view class="student-level-option {{studentDraft.applicationLevel == '本科' ? 'active' : ''}}" data-value="本科" bindtap="selectStudentLevel">申请本科</view>
+            <view class="student-level-option {{studentDraft.applicationLevel == '硕士' ? 'active' : ''}}" data-value="硕士" bindtap="selectStudentLevel">申请硕士</view>
+          </view>
+        </view>
+      </view>
+
+      <view class="dialog-actions">
+        <button class="dialog-cancel" bindtap="closeProfileDialog">取消</button>
+        <button class="dialog-confirm" bindtap="saveStudentProfile">保存资料</button>
+      </view>
+    </scroll-view>
+  </view>
+  </block>
+</view>

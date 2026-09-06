@@ -1,0 +1,169 @@
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48rpx 30rpx;
+  background: #f7f9fc;
+  color: #17243a;
+}
+
+.login-card {
+  width: 100%;
+  padding: 46rpx 34rpx 38rpx;
+  border: 1rpx solid #dbe8f7;
+  border-radius: 22rpx;
+  background: #ffffff;
+  text-align: center;
+}
+
+.brand-logo {
+  width: 116rpx;
+  height: 116rpx;
+  margin: 0 auto;
+  border-radius: 24rpx;
+  background: #eef6ff;
+}
+
+.brand-name,
+.brand-desc,
+.brand-summary {
+  display: block;
+}
+
+.brand-name {
+  margin-top: 24rpx;
+  color: #17243a;
+  font-size: 40rpx;
+  font-weight: 800;
+  line-height: 1.24;
+}
+
+.brand-desc {
+  margin-top: 8rpx;
+  color: #1f58a7;
+  font-size: 27rpx;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.brand-summary {
+  margin-top: 20rpx;
+  color: #526174;
+  font-size: 26rpx;
+  font-weight: 600;
+  line-height: 1.55;
+}
+
+.mini-tags {
+  display: flex;
+  gap: 12rpx;
+  margin-top: 24rpx;
+}
+
+.mini-tag {
+  flex: 1;
+  min-width: 0;
+  padding: 10rpx 6rpx;
+  border-radius: 999rpx;
+  background: #eaf3ff;
+  color: #1f58a7;
+  font-size: 22rpx;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: normal;
+}
+
+.privacy-row {
+  margin-top: 34rpx;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  color: #526174;
+  font-size: 24rpx;
+  font-weight: 700;
+  line-height: 1.55;
+}
+
+.privacy-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8rpx;
+}
+
+.privacy-link {
+  color: #1f58a7;
+  font-weight: 800;
+}
+
+.login-page .login-button {
+  width: 100%;
+  min-height: 84rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 28rpx;
+  padding: 0 34rpx;
+  border-radius: 999rpx;
+  background: #1f58a7;
+  color: #ffffff;
+  font-size: 28rpx;
+  font-weight: 800;
+  line-height: 1.2;
+  text-align: center;
+  white-space: normal;
+}
+
+.login-button::after {
+  border: 0;
+}
+
+.login-page .login-button[disabled] {
+  border: 1rpx solid #cbd5e1;
+  background: #e7ebf0;
+  color: #34445a;
+  opacity: 1;
+}
+
+.login-loading {
+  text-align: left;
+}
+
+.login-note {
+  display: block;
+  margin-top: 20rpx;
+  color: #526174;
+  font-size: 23rpx;
+  line-height: 1.65;
+}
+
+.login-page .about-link {
+  width: 100%;
+  margin: 24rpx 0 0;
+  padding: 12rpx;
+  background: #ffffff;
+  color: #1f58a7;
+  font-size: 25rpx;
+  line-height: 1.5;
+}
+
+.about-link::after { border: 0; }
+
+.status {
+  margin-top: 20rpx;
+  padding: 18rpx 20rpx;
+  border-radius: 14rpx;
+  background: rgba(31, 88, 167, 0.08);
+  color: #183f78;
+  font-size: 25rpx;
+  font-weight: 700;
+  line-height: 1.5;
+  text-align: left;
+}
+
+.status.error {
+  background: rgba(190, 63, 63, 0.1);
+  color: #9d2f2f;
+}

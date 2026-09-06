@@ -1,0 +1,56 @@
+<view class="screen-page messages-page">
+  <view class="hero">
+    <text class="hero-tag">人工咨询</text>
+    <text class="hero-title">留德小栈客服</text>
+    <text class="hero-summary">直接在对话框中留言，老师可在小程序或电脑后台查看并回复。</text>
+  </view>
+
+  <view class="privacy-note">{{privacyNote || '消息仅当前账号和内部管理人员可见，请勿发送验证码、银行卡密码等敏感信息。'}}</view>
+
+  <view class="bound-profile-card">
+    <view class="bound-profile-head">
+      <view><text class="bound-title">本次咨询身份</text><text class="bound-desc">登录后可留言，已有资料可帮助老师理解问题，补全资料不是发送消息的前提。</text></view>
+      <text class="bound-status">{{profileComplete ? '资料已填写' : '可选补充'}}</text>
+    </view>
+    <view class="bound-profile-grid">
+      <text class="bound-item">{{profile.name || '待补充姓名'}}</text>
+      <text class="bound-item">{{profile.contact || '待补充联系方式'}}</text>
+      <text class="bound-item">{{profile.school || '待补充学校'}}</text>
+      <text class="bound-item">{{profile.major || '待补充专业'}} · {{profile.applicationLevel ? '申请' + profile.applicationLevel : '待补充层次'}}</text>
+    </view>
+  </view>
+
+  <view class="chat-shell">
+    <view class="chat-head">
+      <view class="online-copy">
+        <text class="online-dot"></text>
+        <text class="chat-title">客服对话</text>
+      </view>
+      <text class="refresh-time">{{refreshedText || '正在连接'}}</text>
+    </view>
+
+    <scroll-view class="conversation" scroll-y="true" enhanced="true" show-scrollbar="false" scroll-with-animation="true" scroll-into-view="{{scrollTarget}}">
+      <view wx:if="{{loading}}" class="empty">正在读取对话...</view>
+      <view wx:elif="{{!records.length}}" class="empty">
+        <text class="empty-title">开始第一次咨询</text>
+        <text class="empty-copy">可以询问院校匹配、网课、预约或文书材料。</text>
+      </view>
+      <view wx:for="{{records}}" wx:key="id" id="msg-{{item.id}}" class="message-row {{item.direction === 'staff' ? 'staff' : 'user'}}">
+        <view class="message-bubble">
+          <text class="message-sender">{{item.senderLabel}}</text>
+          <text class="message-content">{{item.content}}</text>
+          <text class="message-time">{{item.timeText}}</text>
+        </view>
+      </view>
+      <view id="chat-bottom" class="chat-bottom"></view>
+    </scroll-view>
+
+    <view class="composer">
+      <textarea placeholder-class="input-placeholder" class="message-input" maxlength="1000" value="{{content}}" bindinput="inputContent" placeholder="输入消息..." auto-height="true" adjust-position="true" cursor-spacing="24"></textarea>
+      <view class="composer-footer">
+        <text class="counter">{{content.length}}/1000</text>
+        <button class="send-button" loading="{{sending}}" disabled="{{sending || !content}}" bindtap="sendMessage">发送</button>
+      </view>
+    </view>
+  </view>
+</view>

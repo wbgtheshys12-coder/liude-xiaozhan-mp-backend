@@ -1,0 +1,74 @@
+<view class="screen-page settings-page {{settingsClass}}">
+  <view class="settings-hero">
+    <text class="settings-title">小程序设置</text>
+    <text class="settings-summary">调整显示、预约和本地数据偏好，设置会保存在当前设备。</text>
+  </view>
+
+  <view class="settings-section">
+    <view class="setting-row">
+      <view class="setting-copy">
+        <text class="setting-title">清晰大字</text>
+        <text class="setting-desc">提高主要页面的文字辨识度，适合手机端查看长内容。</text>
+      </view>
+      <switch checked="{{settings.largeText}}" data-key="largeText" bindchange="updateSwitch" color="#1f58a7"></switch>
+    </view>
+    <view class="setting-row">
+      <view class="setting-copy">
+        <text class="setting-title">强对比显示</text>
+        <text class="setting-desc">加深导航、辅助文字和控件颜色，减少蓝底灰字发虚。</text>
+      </view>
+      <switch checked="{{settings.highContrast}}" data-key="highContrast" bindchange="updateSwitch" color="#1f58a7"></switch>
+    </view>
+  </view>
+
+  <view class="settings-section">
+    <text class="section-label">默认预约顾问</text>
+    <view class="advisor-setting-grid">
+      <view wx:for="{{advisors}}" wx:key="key" class="advisor-setting {{settings.defaultAdvisor == item.key ? 'active' : ''}}" data-key="{{item.key}}" bindtap="selectAdvisor">
+        <text class="advisor-name">{{item.name}}</text>
+        <text class="advisor-desc">{{item.desc}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="settings-section">
+    <view class="setting-row">
+      <view class="setting-copy">
+        <text class="setting-title">预约提醒偏好</text>
+        <text class="setting-desc">提交预约时默认提醒用户联系客服确认老师时间。</text>
+      </view>
+      <switch checked="{{settings.bookingReminder}}" data-key="bookingReminder" bindchange="updateSwitch" color="#1f58a7"></switch>
+    </view>
+    <view class="setting-row">
+      <view class="setting-copy">
+        <text class="setting-title">推荐证据默认展开</text>
+        <text class="setting-desc">保留推荐结果中的专业库覆盖与证据审计展示偏好。</text>
+      </view>
+      <switch checked="{{settings.evidenceAuditExpanded}}" data-key="evidenceAuditExpanded" bindchange="updateSwitch" color="#1f58a7"></switch>
+    </view>
+  </view>
+
+  <view wx:if="{{canSubscribeBookingNotice}}" class="settings-section teacher-notice-section">
+    <view class="setting-copy">
+      <text class="setting-title">{{noticeTitle}}</text>
+      <text class="setting-desc">{{noticeDescription}}</text>
+    </view>
+    <button class="ghost-action teacher-notice-button" loading="{{noticeLoading}}" disabled="{{noticeLoading || noticeAuthorized}}" bindtap="enableTeacherBookingNotice">{{noticeLoading ? '读取配置中' : noticeButtonText}}</button>
+    <view wx:if="{{noticeLoading}}" class="loading-card compact">
+      <view class="loading-head">
+        <text class="loading-title">正在读取通知配置</text>
+        <text class="loading-percent">{{noticeProgress}}%</text>
+      </view>
+      <view class="loading-track">
+        <view class="loading-fill" style="width: {{noticeProgress}}%;"></view>
+      </view>
+      <text class="loading-desc">{{noticeProgressText || '正在连接后端配置。'}}</text>
+    </view>
+  </view>
+
+  <view class="settings-section action-section">
+    <button class="ghost-action" bindtap="resetSettings">恢复默认设置</button>
+    <button class="ghost-action" bindtap="clearLocalData">清理本地记录</button>
+    <button class="danger-action" bindtap="logout">退出登录</button>
+  </view>
+</view>
