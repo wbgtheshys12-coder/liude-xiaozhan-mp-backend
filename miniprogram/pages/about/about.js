@@ -1,5 +1,7 @@
 const env = require("../../utils/env");
 const api = require("../../utils/api");
+const OFFICIAL_ACCOUNT_USERNAME = "gh_654d500aae6b";
+const OFFICIAL_ACCOUNT_WECHAT = "liudexiaozhan01";
 
 const STRENGTHS = [
   { number: "01", title: "申请实战经验丰富", desc: "关注复杂背景与疑难申请，也为曾经申请受挫的学生梳理原因、完善材料和重新规划申请路径。" },
@@ -51,6 +53,7 @@ Page({
     strengths: STRENGTHS,
     posterUrl: `${env.API_BASE_URL}/api/mp/public/about-poster.jpg?v=20260830`,
     serviceWechat: "liudexiaozhan",
+    officialAccountUsername: OFFICIAL_ACCOUNT_USERNAME,
     letter: LETTER,
     services: SERVICES,
     boundaries: BOUNDARIES,
@@ -58,13 +61,22 @@ Page({
   },
 
   onLoad() {
-    api.getPublicConfig().then((config) => this.setData({ officialAccountUsername: config.officialAccountUsername || "" })).catch(() => {});
+    api.getPublicConfig().then((config) => {
+      const username = config && config.officialAccountUsername;
+      if (/^gh_[a-zA-Z0-9]+$/.test(username || "")) {
+        this.setData({ officialAccountUsername: username });
+      }
+    }).catch(() => {});
   },
 
   openOfficialAccount() {
-    const fallback = () => wx.showModal({ title: "关注留德小栈", content: "若当前微信版本或关联配置暂不支持直接打开，请复制“留德小栈”到微信搜索公众号，或查看下方海报二维码。", confirmText: "复制名称", success: (res) => { if (res.confirm) wx.setClipboardData({ data: "留德小栈" }); } });
+    const fallback = () => wx.showModal({ title: "关注留德小栈", content: "当前暂不支持直接打开公众号。请复制公众号微信号 liudexiaozhan01，在微信搜索中选择“公众号”查找，或查看下方海报二维码。", confirmText: "复制微信号", success: (res) => { if (res.confirm) wx.setClipboardData({ data: OFFICIAL_ACCOUNT_WECHAT }); } });
     if (!this.data.officialAccountUsername || typeof wx.openOfficialAccountProfile !== "function") return fallback();
-    wx.openOfficialAccountProfile({ username: this.data.officialAccountUsername, fail: fallback });
+    try {
+      wx.openOfficialAccountProfile({ username: this.data.officialAccountUsername, fail: fallback });
+    } catch (_) {
+      fallback();
+    }
   },
 
   goConsult() {
