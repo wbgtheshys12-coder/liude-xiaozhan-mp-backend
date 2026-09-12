@@ -54,6 +54,7 @@ Page({
     posterUrl: `${env.API_BASE_URL}/api/mp/public/about-poster.jpg?v=20260830`,
     serviceWechat: "liudexiaozhan",
     officialAccountUsername: OFFICIAL_ACCOUNT_USERNAME,
+    officialAccountWechat: OFFICIAL_ACCOUNT_WECHAT,
     letter: LETTER,
     services: SERVICES,
     boundaries: BOUNDARIES,
@@ -81,6 +82,14 @@ Page({
 
   goConsult() {
     wx.navigateTo({ url: "/pages/consult/consult" });
+  },
+
+  copyOfficialAccount() {
+    wx.setClipboardData({
+      data: OFFICIAL_ACCOUNT_WECHAT,
+      success: () => wx.showToast({ title: "已复制，请在微信搜索公众号", icon: "none" }),
+      fail: () => wx.showModal({ title: "公众号微信号", content: OFFICIAL_ACCOUNT_WECHAT + "（也可长按页面上的微信号复制）", showCancel: false })
+    });
   },
 
   copyContact(event) {

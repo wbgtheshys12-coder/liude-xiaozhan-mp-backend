@@ -50,3 +50,9 @@ for (const mode of ['missing', 'fail', 'throw']) test('safe fallback: ' + mode, 
   calls.modal.success({ confirm: false }); assert.equal(calls.clipboard, undefined);
   calls.modal.success({ confirm: true }); assert.equal(calls.clipboard, 'liudexiaozhan01');
 });
+test('independent copy entry works without profile navigation support', () => {
+  const { page, calls } = setup({}, 'missing');
+  page.copyOfficialAccount();
+  assert.equal(calls.clipboard, 'liudexiaozhan01');
+  assert.equal(page.data.officialAccountWechat, 'liudexiaozhan01');
+});

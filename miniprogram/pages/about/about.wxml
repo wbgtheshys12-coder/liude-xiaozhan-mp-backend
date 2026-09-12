@@ -33,6 +33,10 @@
       <button class="contact-button" bindtap="openOfficialAccount">前往公众号</button>
     </view>
     <view class="contact-row">
+      <view class="contact-copy"><text class="service-desc">也可在微信搜索公众号</text><text class="wechat-id" user-select="true">{{officialAccountWechat}}</text></view>
+      <button class="contact-button" bindtap="copyOfficialAccount">复制公众号</button>
+    </view>
+    <view class="contact-row">
       <view class="contact-copy"><text class="service-title">咨询微信</text><text class="wechat-id" user-select="true">{{serviceWechat}}</text></view>
       <button class="contact-button" data-value="{{serviceWechat}}" bindtap="copyContact">复制微信号</button>
     </view>

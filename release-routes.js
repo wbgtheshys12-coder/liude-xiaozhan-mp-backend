@@ -70,10 +70,10 @@ function createReleaseRoutes(ctx) {
         sendJson(res, 200, { ok: true, status: body.status });
         return true;
       }
-      const records = readJsonlFile(postsFile);
-      if (req.method === "GET") { sendJson(res, 200, { ok: true, records }); return true; }
+      if (req.method === "GET") { sendJson(res, 200, { ok: true, records: readJsonlFile(postsFile) }); return true; }
       if (req.method !== "POST") throw httpError("不支持此请求方式。", 405);
       const body = JSON.parse((await readBody(req)) || "{}");
+      const records = readJsonlFile(postsFile);
       const actor = getSessionStorageKey(session);
       const now = new Date().toISOString();
       let post = records.find((item) => item.id === body.id);
@@ -88,7 +88,9 @@ function createReleaseRoutes(ctx) {
         if (!post) throw httpError("请先保存草稿。");
         post = transitionPost(post, body.action, actor, now);
       }
-      writeJsonlFile(postsFile, [...records.filter((item) => item.id !== post.id), post]);
+      if (!writeJsonlFile(postsFile, [...records.filter((item) => item.id !== post.id), post])) {
+        throw httpError("资讯保存未成功，请稍后重试。", 503);
+      }
       recordUsage(session, `admin.post.${body.action || "save"}`, { id: post.id });
       sendJson(res, 200, { ok: true, record: post });
     } catch (error) {
