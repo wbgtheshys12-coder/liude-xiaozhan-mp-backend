@@ -28,7 +28,7 @@ function createCosStorage(env = process.env) {
     if (!enabled || !configured) return null;
     if (!client) {
       const COS = require("cos-nodejs-sdk-v5");
-      client = new COS({ SecretId: secretId, SecretKey: secretKey });
+      client = new COS({ SecretId: secretId, SecretKey: secretKey, Timeout: 60000, ChunkRetryTimes: 1, ChunkParallelLimit: 2 });
     }
     return client;
   }
@@ -64,10 +64,11 @@ function createCosStorage(env = process.env) {
 
   async function putFile(key, filePath, contentType = "application/octet-stream") {
     const Key = objectKey(key);
-    await call("putObject", {
+    await call("uploadFile", {
       Key,
-      Body: fs.createReadStream(filePath),
-      ContentLength: fs.statSync(filePath).size,
+      FilePath: filePath,
+      SliceSize: 5 * 1024 * 1024,
+      ChunkSize: 2 * 1024 * 1024,
       ContentType: contentType,
     });
     return { key: Key, provider: "tencent-cos" };

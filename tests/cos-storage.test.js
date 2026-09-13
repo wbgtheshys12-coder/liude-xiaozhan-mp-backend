@@ -1,6 +1,26 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { cleanObjectKey, createCosStorage } = require("../cos-storage");
+test('file uploads use SDK multipart and finite request timeouts', async () => {
+  const fs = require('node:fs'), vm = require('node:vm'), path = require('node:path');
+  let options, upload;
+  class FakeCOS {
+    constructor(value) { options = value; }
+    uploadFile(params, callback) { upload = params; callback(null, {}); }
+  }
+  const module = { exports: {} };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../cos-storage.js'), 'utf8'), {
+    module, process, Buffer,
+    require: name => name === 'cos-nodejs-sdk-v5' ? FakeCOS : require(name)
+  });
+  const storage = module.exports.createCosStorage({ MP_COS_ENABLED:'true', TENCENT_COS_SECRET_ID:'test', TENCENT_COS_SECRET_KEY:'test', TENCENT_COS_BUCKET:'test-123' });
+  await storage.putFile('course-videos/test.mp4', '/synthetic/test.mp4', 'video/mp4');
+  assert.equal(options.Timeout, 60000);
+  assert.equal(options.ChunkRetryTimes, 1);
+  assert.equal(upload.FilePath, '/synthetic/test.mp4');
+  assert.equal(upload.ChunkSize, 2 * 1024 * 1024);
+  assert.equal(upload.ContentType, 'video/mp4');
+});
 
 test("cleanObjectKey removes traversal and normalizes separators", () => {
   assert.equal(cleanObjectKey("/student-materials\\abc/../file.pdf"), "student-materials/abc/file.pdf");
