@@ -153,6 +153,7 @@ test("factual drafts preserve entered target-language facts and flag untranslate
   const cn=engine.createMaterialDraft({toolKey:"motivation",language:"de",form:{latinName:"Synthetic Applicant",targetProgram:"Example University",projectsInternships:"仅有课程作业，无实习"}});
   assert.equal(cn.translationComplete,false);
   assert.ok(cn.untranslatedFields.includes("projectsInternships"));
+  assert.equal(cn.sourceReview.find(item => item.key === "projectsInternships").original, "仅有课程作业，无实习");
   assert.match(cn.draft,/Originalangaben/);
   assert.doesNotMatch(cn.draft,/BIM|ANP|Praktikum absolvierte/);
 });

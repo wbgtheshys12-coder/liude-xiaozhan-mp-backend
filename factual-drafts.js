@@ -57,6 +57,7 @@ function createFactualDraft(form, language, toolKey, generatedAt) {
     for (const key of ["schoolMajor", "germanyOrigin", "germanyMajorUnderstanding", "germanEducationUnderstanding", "interestedDirections", "relevantCourses", "projectsInternships", "furtherStudyPlan", "careerPlan"]) { const fact = value(key); if (fact) lines.push(fact, ""); }
     lines.push(de ? "Mit freundlichen Grüßen" : "Yours faithfully,", name);
   }
-  return { draft: lines.join("\n"), warnings: [...new Set(warnings)], source: "factual-local-structured-draft-v2", translationComplete: warnings.length === 0 };
+  const sourceReview = [...new Set(warnings)].map(key => ({ key, label: label(key), original: String(form[key] || "").trim() }));
+  return { draft: lines.join("\n"), warnings: [...new Set(warnings)], sourceReview, source: "factual-local-structured-draft-v2", translationComplete: warnings.length === 0 };
 }
 module.exports = { createFactualDraft };

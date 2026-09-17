@@ -3220,6 +3220,7 @@ function createForeignApplicationDraft(body = {}) {
     source: factual.source,
     translationComplete: factual.translationComplete,
     untranslatedFields: factual.warnings,
+    sourceReview: factual.sourceReview,
     reviewMessage: factual.warnings.length ? "本地结构整理无法完整翻译部分内容，已在初稿中标记待翻译；原文保留在填写表中。请先补充目标语言或交由文书老师翻译，不可直接递交。" : "本次使用你填写的事实生成结构初稿；正式递交前仍需核对目标语言、学校格式和事实。",
     warnings:
       resolveLatinApplicantName(form) === "Applicant"

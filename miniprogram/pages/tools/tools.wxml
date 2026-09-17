@@ -90,7 +90,7 @@
     </view>
     <button class="primary-button" loading="{{generatingDraft}}" disabled="{{generatingDraft}}" bindtap="generateDraft">{{generatingDraft ? '生成中' : activeTool.actionLabel}}</button>
     <view class="action-divider"></view>
-    <text class="action-subtitle">完整文件</text>
+    <text class="action-subtitle">结构初稿文件（须核对翻译）</text>
     <button class="secondary-button" bindtap="exportWord">{{activeTool.wordExportLabel}}</button>
     <button class="secondary-button" bindtap="exportPdf">{{activeTool.pdfExportLabel}}</button>
     <text class="action-note">Word 可继续编辑；PDF 带留德小栈水印并嵌入字体。两种格式使用同一份所选语言结构稿，待翻译标记需由本人或老师补齐。页数限制适用于 PDF；Word 在不同编辑器中可能重新分页。</text>
@@ -114,9 +114,17 @@
   </view>
 
   <view class="draft-card">
+    <view wx:if="{{sourceReview.length}}" class="form-section">
+      <text class="form-section-title">原文核对与待翻译清单</text>
+      <text class="form-section-desc">以下内容尚未完成目标语言翻译，原文完整保留。请返回对应填写项补充德语或英语，再重新生成；也可导出填写内容交由文书老师处理。</text>
+      <view wx:for="{{sourceReview}}" wx:key="key" class="form-field">
+        <text class="field-label">{{item.label}}</text>
+        <text class="document-paragraph" selectable="true">{{item.original}}</text>
+      </view>
+    </view>
     <text wx:if="{{generationReview}}" class="language-review">{{generationReview}}</text>
     <view class="draft-head">
-      <text class="draft-title">专业排版预览 · AI生成</text>
+      <text class="draft-title">{{translationComplete === false ? '外语结构预览 · 翻译待补全' : '结构初稿预览 · AI辅助'}}</text>
       <button class="copy-button" bindtap="copyDraft">复制</button>
     </view>
     <view wx:if="{{draftLocked}}" class="preview-lock">收费功能待开发：当前账号仅展示完整内容前 20%，可导出同等范围的 Word 或水印 PDF。</view>
