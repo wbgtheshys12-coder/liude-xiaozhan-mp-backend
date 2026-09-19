@@ -2533,10 +2533,12 @@ function buildStandaloneRecommendation(profile, transcriptSummary) {
   };
   context.transcriptAreaProfile = buildTranscriptAreaProfile(context);
   const seenPrograms = new Set();
+  // Catalog sources may append a degree to the same master's programme name.
+  const programKey = (program) => normalizeText(`${program.university || ""}|${String(program.programDisplayName || program.programTitle || program.program || "").replace(/\s*[,(-]?\s*(?:Master of Science|M\.?\s?Sc\.?)\s*\)?\s*$/i, "")}`);
   const curatedFallbackPrograms = FALLBACK_PROGRAMS.map((program) => ({ ...program, sourceTier: "curated-fallback" }));
   const programMap = new Map();
   [...EXTERNAL_PROGRAMS, ...curatedFallbackPrograms].forEach((program) => {
-    const key = normalizeText(`${program.university || ""}|${program.programDisplayName || program.programTitle || program.program || ""}`);
+    const key = programKey(program);
     if (!key) return;
     const existing = programMap.get(key);
     if (!existing) {
@@ -2553,7 +2555,7 @@ function buildStandaloneRecommendation(profile, transcriptSummary) {
     }
   });
   const programs = Array.from(programMap.values()).filter((program) => {
-    const key = normalizeText(`${program.university || ""}|${program.programDisplayName || program.programTitle || program.program || ""}`);
+    const key = programKey(program);
     if (!key || seenPrograms.has(key)) return false;
     seenPrograms.add(key);
     return true;
@@ -2594,7 +2596,7 @@ function buildStandaloneRecommendation(profile, transcriptSummary) {
     },
     accuracyNotes: [
       "小程序后端已独立完成成绩单解析和院校推荐，不再转发到网页版。",
-      "当照片/PDF版式或图片质量影响自动整理时，系统会保留可编辑课程表，并继续根据已填信息生成保守推荐。",
+      "可选填与申请方向相关的重点课程；系统结合已填信息生成参考推荐，具体课程要求以院校官方信息为准。",
       "政治敏感课程/人物信息会自动隐藏，不进入对外展示和推荐报告。",
     ],
     recommendationQuality: {

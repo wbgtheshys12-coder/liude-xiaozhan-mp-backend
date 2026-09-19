@@ -64,7 +64,7 @@ const LANGUAGE_TEST_TYPES = [
   { type: "GMAT", placeholder: "例如 680" }
 ];
 
-const DEFAULT_FILE_HINT = "成绩单为可选项。上传照片或 PDF 后系统会整理成可校对表格；也可以直接补充核心课程。";
+const DEFAULT_FILE_HINT = "成绩单为可选项，支持照片或 PDF；重点课程也可按需填写。";
 const EMPTY_TRANSCRIPT_ROW = { course: "", grade: "", credits: "", term: "", note: "" };
 
 function createTranscriptRow(row = {}) {
@@ -219,15 +219,15 @@ function normalizePreviewTranscriptRows(rows, fallbackRows) {
   const normalized = (Array.isArray(rows) ? rows : [])
     .map((row) =>
       createTranscriptRow({
-        course: cleanText(row.course),
+        course: /^(待校对课程|待补充课程|请补充核心课程)$/.test(cleanText(row.course)) ? "" : cleanText(row.course),
         grade: cleanText(row.grade),
         credits: cleanText(row.credits),
         term: cleanText(row.term),
-        note: cleanText(row.note)
+        note: /^(待校对课程|待补充课程|请补充核心课程)$/.test(cleanText(row.course)) ? "" : cleanText(row.note)
       })
     )
-    .filter((row) => cleanText([row.course, row.grade, row.credits, row.term, row.note].join(" ")));
-  return normalized.length ? normalized.slice(0, 50) : fallbackRows;
+    .filter((row) => cleanText(row.course));
+  return normalized.slice(0, 50);
 }
 
 function hasTranscriptEvidence(files, rows) {
@@ -239,7 +239,7 @@ function hasTranscriptEvidence(files, rows) {
 }
 
 function buildTranscriptNote(rows, reviewed) {
-  const filledRows = (rows || []).filter((row) => cleanText([row.course, row.grade, row.credits, row.term, row.note].join(" ")));
+  const filledRows = (rows || []).filter((row) => cleanText(row.course) && !/待校对课程|待补充课程|请补充核心课程/.test(row.course));
   if (!filledRows.length) return "";
   const table = filledRows
     .slice(0, 20)
@@ -252,7 +252,7 @@ function buildTranscriptNote(rows, reviewed) {
       return `${index + 1}. ${course}｜${grade}｜${credits}｜${term}${note}`;
     })
     .join("；");
-  return `学生已${reviewed ? "确认" : "填写"}课程信息表：${table}`;
+  return `${reviewed ? "学生已确认课程" : "课程参考信息（含自动整理内容，未经逐项确认）"}：${table}`;
 }
 
 function buildSubmissionProfile(profile, files, transcriptRows, transcriptReviewed) {
@@ -274,6 +274,7 @@ Page({
   data: {
     formSteps: FORM_STEPS,
     currentStep: 0,
+    showKeyCourses: false,
     profile: defaultProfile(),
     ...buildLocationState(defaultProfile()),
     recommendationCount: 6,
@@ -397,14 +398,11 @@ Page({
   },
 
   nextStep() {
-    if (this.data.currentStep === 3 && !this.data.transcriptReviewed) {
-      this.setData({
-        message: "请先确认课程信息表；如果暂未上传成绩单，也可以填写匹配度调查表后确认。",
-        isError: true
-      });
-      return;
-    }
     this.setData({ currentStep: Math.min(FORM_STEPS.length - 1, this.data.currentStep + 1) });
+  },
+
+  toggleKeyCourses() {
+    this.setData({ showKeyCourses: !this.data.showKeyCourses });
   },
 
   prevStep() {
@@ -487,7 +485,7 @@ Page({
           fileHint:
             this.data.files.length + files.length > 3
               ? "最多保留 3 个文件，已自动保留前 3 个。"
-              : "文件已加入，请先核对下方成绩单表格，确认后再生成推荐。",
+              : "文件已加入。重点课程为选填项，可直接进入下一步。",
           message: "成绩单已加入，正在整理课程、成绩和学分...",
           isError: false
         });
@@ -512,18 +510,20 @@ Page({
   },
 
   previewTranscriptRows(files, fallbackRows) {
-    api
+    const requestId = this.transcriptRequestId = (this.transcriptRequestId || 0) + 1;
+    return api
       .previewTranscript({
         files,
         profile: this.data.profile
       })
       .then((result) => {
+        if (requestId !== this.transcriptRequestId) return;
         const transcriptRows = normalizePreviewTranscriptRows(result.rows, fallbackRows);
         const summary = result.transcriptSummary || {};
         const extractedScoreText = cleanText(summary.extractedScoreText);
         const extractedMajor = cleanText(summary.extractedMajor);
         const profileUpdates = {};
-        if (extractedScoreText && extractedScoreText !== cleanText(this.data.profile.gpa)) {
+        if (extractedScoreText && !cleanText(this.data.profile.gpa)) {
           profileUpdates["profile.gpa"] = extractedScoreText;
         }
         if (extractedMajor && !cleanText(this.data.profile.major)) {
@@ -536,7 +536,7 @@ Page({
           timerKey: "transcriptProgressTimer",
           progressKey: "transcriptProgress",
           textKey: "transcriptProgressText",
-          text: hasRecognizedRows ? "课程信息已整理，请对照原件核对。" : "未提取到有效课程，请选择成绩页重试或手动填写。"
+          text: hasRecognizedRows ? "课程信息已整理，请对照原件核对。" : "请补充课程信息，完善匹配依据。"
         });
         this.setData({
           ...profileUpdates,
@@ -544,30 +544,27 @@ Page({
           transcriptPreviewLoading: false,
           transcriptPreviewSummary: summary,
           transcriptNeedsManualEntry: !hasRecognizedRows,
-          message: hasRecognizedRows
-            ? extractedScoreText
-              ? `已整理课程并将 GPA/均分更新为 ${extractedScoreText}。请核对后确认，内容有误可直接修改。`
-              : "已根据成绩单整理课程信息。请逐行核对，内容有误可直接修改。"
-            : "本次未提取到有效课程。请上传清晰的成绩表页面重试，或手动填写关键课程；原文件已保留。",
+          message: "",
           isError: false
         });
       })
       .catch((error) => {
+        if (requestId !== this.transcriptRequestId) return;
         progress.finish(this, {
           timerKey: "transcriptProgressTimer",
           progressKey: "transcriptProgress",
           textKey: "transcriptProgressText",
-          text: "自动识别未完成，原文件和可编辑课程表已保留。"
+          text: "课程表可继续编辑，也可重新整理文件。"
         });
         this.setData({
-          transcriptRows: fallbackRows,
+          transcriptRows: [],
           transcriptPreviewLoading: false,
           transcriptPreviewSummary: {
             confidence: "低",
             summary: "已保留可编辑课程表。补充关键课程，或手动补充课程后即可继续。"
           },
           transcriptNeedsManualEntry: true,
-          message: error.statusCode === 413 ? error.message : "自动识别未完成，请重试或仅上传成绩表页面。也可手动填写课程，不会把空表视为已识别。",
+          message: error.statusCode === 413 ? error.message : "",
           isError: error.statusCode === 413
         });
       });
@@ -584,6 +581,7 @@ Page({
       confirmColor: "#d93025",
       success: (res) => {
         if (!res.confirm) return;
+        this.transcriptRequestId = (this.transcriptRequestId || 0) + 1;
         const files = this.data.files.filter((_, itemIndex) => itemIndex !== index);
         progress.reset(this, {
           timerKey: "transcriptProgressTimer",
@@ -592,15 +590,20 @@ Page({
         });
         this.setData({
           files,
+          transcriptRows: [],
           fileHint: buildFileHint(files),
           transcriptReviewed: false,
           transcriptWarningAccepted: false,
           transcriptPreviewLoading: false,
           transcriptPreviewSummary: files.length ? this.data.transcriptPreviewSummary : null,
           transcriptNeedsManualEntry: files.length ? this.data.transcriptNeedsManualEntry : false,
-          message: files.length ? "已删除该文件，剩余文件仍会用于推荐。" : "已删除全部成绩单文件，可继续手动维护课程表后生成初步推荐。",
+          message: "",
           isError: false
         });
+        if (files.length) {
+          this.setData({transcriptPreviewLoading: true});
+          this.previewTranscriptRows(files, []);
+        }
       }
     });
   },
@@ -721,19 +724,20 @@ Page({
     if (this.data.submitting) return;
     const now = Date.now();
 
-    if (!this.data.transcriptReviewed) {
+    if (this.data.transcriptPreviewLoading) {
       this.setData({
         currentStep: 3,
-        message: "请先在“课程信息”步骤确认当前资料；不上传成绩单也可按现有信息继续。",
+        message: "成绩单仍在处理中，请稍候再生成推荐。",
         isError: true
       });
       return;
     }
 
+    const usableRows = (this.data.transcriptRows || []).filter(row => cleanText(row.course) && !/待校对课程|待补充课程|请补充核心课程/.test(row.course));
     const submissionProfile = buildSubmissionProfile(
       this.data.profile,
       this.data.files,
-      this.data.transcriptRows,
+      usableRows,
       this.data.transcriptReviewed
     );
 
@@ -748,7 +752,7 @@ Page({
       cityPreference: submissionProfile.cityPreference || this.data.selectedCities.join("、"),
       statePreference: submissionProfile.statePreference || this.data.selectedStates.join("、"),
       recommendationCount: String(this.data.recommendationCount),
-      transcriptRows: this.data.transcriptRows,
+      transcriptRows: usableRows,
       transcriptReviewed: this.data.transcriptReviewed,
       transcriptFileCount: this.data.files.length,
       files: []
@@ -756,7 +760,7 @@ Page({
 
     this.setData({
       submitting: true,
-      message: this.data.files.length ? "正在结合已确认的成绩与课程信息生成推荐..." : "正在根据已填信息和院校数据库生成推荐...",
+      message: "正在结合申请背景、课程信息和院校数据库生成推荐...",
       isError: false
     });
     progress.start(this, {
@@ -766,7 +770,7 @@ Page({
       from: 10,
       cap: 92,
       step: 4,
-      text: this.data.files.length ? "正在整合已确认课程、申请目标和专业库数据；无需重复上传成绩单。" : "正在基于已填写信息和专业数据库生成初步推荐。"
+      text: "正在整合课程信息、申请目标和专业库数据。"
     });
     api
       .recommend(payload)

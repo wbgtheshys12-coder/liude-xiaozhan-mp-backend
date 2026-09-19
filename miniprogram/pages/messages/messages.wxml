@@ -32,7 +32,7 @@
     <scroll-view class="conversation" scroll-y="true" enhanced="true" show-scrollbar="false" scroll-with-animation="true" scroll-into-view="{{scrollTarget}}">
       <view wx:if="{{loading}}" class="empty">正在读取对话...</view>
       <view wx:elif="{{!records.length}}" class="empty">
-        <text class="empty-title">开始第一次咨询</text>
+        <text class="empty-title">{{historyCleared ? '本机历史对话已清理' : '开始第一次咨询'}}</text>
         <text class="empty-copy">可以询问院校匹配、网课、预约或文书材料。</text>
       </view>
       <view wx:for="{{records}}" wx:key="id" id="msg-{{item.id}}" class="message-row {{item.direction === 'staff' ? 'staff' : 'user'}}">

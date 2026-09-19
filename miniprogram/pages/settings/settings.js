@@ -106,10 +106,15 @@ Page({
   clearLocalData() {
     wx.showModal({
       title: "清理本地记录",
-      content: "会清理最近推荐、材料草稿和预约记录，不会退出登录，也不会删除当前设置。",
+      content: "会清理最近推荐、材料草稿、预约记录，并在本机隐藏当前账号此前的客服聊天记录。后台咨询记录仍保留，新消息正常接收；不会退出登录或删除设置。",
       confirmText: "清理",
       success: (result) => {
         if (!result.confirm) return;
+        require('../../utils/message-history').clear();
+        const pages = typeof getCurrentPages === 'function' ? getCurrentPages() : [];
+        pages.forEach(page => {
+          if (page.route === 'pages/messages/messages') page.setData({ records: [], count: 0, content: '', scrollTarget: '', historyCleared: true });
+        });
         wx.removeStorageSync(env.STORAGE_KEYS.latestProfile);
         wx.removeStorageSync(env.STORAGE_KEYS.latestRecommendation);
         wx.removeStorageSync(env.STORAGE_KEYS.materials);

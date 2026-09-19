@@ -119,54 +119,20 @@
       <view class="loading-track">
         <view class="loading-fill" style="width: {{transcriptProgress}}%;"></view>
       </view>
-      <text class="loading-desc">{{transcriptProgressText || '正在读取文件并生成校对表，整理后仍可手动修改每一行。'}}</text>
+      <text class="loading-desc">正在处理成绩单，可先补充重点课程或继续填写申请信息。</text>
       <text class="hint">扫描件需逐页识别，可能需要约 1–2 分钟。请勿重复提交；只上传成绩表页面可缩短等待。</text>
     </view>
-    <view wx:elif="{{transcriptPreviewSummary && transcriptPreviewSummary.summary}}" class="preview-summary">
-      <text class="preview-title">整理摘要</text>
-      <text>{{transcriptPreviewSummary.summary}}</text>
-      <text wx:for="{{transcriptPreviewSummary.warnings}}" wx:key="*this" class="preview-note">{{item}}</text>
-      <text wx:if="{{transcriptPreviewSummary.sensitiveHidden}}" class="preview-note">已隐藏政治敏感课程/人物信息。</text>
-    </view>
-    <view wx:if="{{transcriptNeedsManualEntry}}" class="manual-entry-callout">
-      <text class="manual-entry-title">请按成绩单补充关键课程</text>
-      <text class="manual-entry-desc">请在下方直接补充课程名称、成绩和学分，识别有误可以修改。识别结果需要本人核对，不会作为学校认证成绩。</text>
-    </view>
-
     <view class="transcript-toolbar">
       <view class="review-heading">
-        <text class="label">课程与成绩核对 *</text>
-        <text class="review-guide">逐行检查课程名、成绩、学分和学期；有误可直接修改，也可新增或删除课程。</text>
+        <text class="label">重点课程（选填）</text>
+        <text class="review-guide">可以补充与申请方向相关的课程，也可以直接进入下一步。</text>
       </view>
-      <button class="mini-button" bindtap="rebuildTranscriptRows">重新生成</button>
+      <button class="mini-button" bindtap="toggleKeyCourses">{{showKeyCourses ? '收起' : '填写重点课程'}}</button>
     </view>
-    <view class="transcript-table">
-      <view wx:for="{{transcriptRows}}" wx:key="id" class="transcript-edit-card">
-        <view class="transcript-field">
-          <text class="transcript-label">课程 / 项目</text>
-          <auto-textarea class="transcript-course" strong="{{true}}" value="{{item.course}}" data-index="{{index}}" data-field="course" bindinput="onTranscriptInput" placeholder="课程名称"></auto-textarea>
-        </view>
-        <view class="transcript-row">
-          <label class="transcript-field"><text class="transcript-label">成绩</text><input placeholder-class="input-placeholder" class="transcript-input" value="{{item.grade}}" data-index="{{index}}" data-field="grade" bindinput="onTranscriptInput" placeholder="成绩"></input></label>
-          <label class="transcript-field"><text class="transcript-label">学分</text><input placeholder-class="input-placeholder" class="transcript-input" value="{{item.credits}}" data-index="{{index}}" data-field="credits" bindinput="onTranscriptInput" placeholder="学分"></input></label>
-        </view>
-        <view class="transcript-row second">
-          <label class="transcript-field"><text class="transcript-label">学期 / Semester</text><input placeholder-class="input-placeholder" class="transcript-input term" value="{{item.term}}" data-index="{{index}}" data-field="term" bindinput="onTranscriptInput" placeholder="学期"></input></label>
-          <view class="transcript-field"><text class="transcript-label">备注</text><auto-textarea class="transcript-note" value="{{item.note}}" data-index="{{index}}" data-field="note" bindinput="onTranscriptInput" placeholder="待确认、需复核等"></auto-textarea></view>
-        </view>
-        <view class="transcript-card-actions">
-          <button class="row-delete" data-index="{{index}}" bindtap="removeTranscriptRow">删除此行</button>
-        </view>
-      </view>
-    </view>
-    <view class="transcript-actions">
-      <button class="secondary-button" bindtap="addTranscriptRow">新增课程行</button>
-      <button class="primary-button" disabled="{{transcriptPreviewLoading}}" bindtap="confirmTranscriptReview">{{transcriptReviewed ? (transcriptNeedsManualEntry ? '已选择初步推荐' : '已确认课程信息') : '确认课程信息'}}</button>
-    </view>
-    <view class="review-status {{transcriptReviewed && !transcriptNeedsManualEntry ? 'ok' : ''}}">
-      {{transcriptReviewed ? (transcriptNeedsManualEntry ? '当前按基础背景进行初步推荐，尚无完整课程成绩依据。' : '课程表已由你确认，后续匹配将结合课程、专业和申请目标。') : '请核对课程、成绩和学分；文件上传成功不代表识别成功。'}}
-    </view>
-    <view wx:if="{{message}}" class="status {{isError ? 'error' : ''}}">{{message}}</view>
+    <label wx:if="{{showKeyCourses}}" class="field">
+      <textarea class="textarea" value="{{profile.courses}}" data-field="courses" bindinput="onFieldInput" placeholder="例如：高等数学、线性代数、电路理论。可按需补充成绩、学分或希望强调的课程内容。" />
+    </label>
+    <view wx:if="{{message && isError}}" class="status error">{{message}}</view>
   </view>
 
   <view class="panel" wx:if="{{currentStep == 4}}">
@@ -175,7 +141,7 @@
     <label class="field"><text class="label">目标学校特殊要求</text><textarea class="textarea" value="{{profile.targetSchoolRequirements}}" data-field="targetSchoolRequirements" bindinput="onFieldInput" /></label>
     <label class="field"><text class="label">补充说明</text><textarea class="textarea" value="{{profile.notes}}" data-field="notes" bindinput="onFieldInput" /></label>
     <view class="match-readiness {{transcriptReviewed ? 'ready' : ''}}">
-      <text>{{transcriptReviewed ? '当前课程与申请信息已确认，可以生成推荐。' : '请先返上一步确认当前课程信息。'}}</text>
+      <text>重点课程为选填项，推荐将结合已提供的申请信息生成，结果仅供参考。</text>
     </view>
     <button class="primary-button" style="margin-top: 26rpx;" loading="{{submitting}}" disabled="{{submitting}}" bindtap="submitProfile">生成学校和专业推荐</button>
     <view wx:if="{{submitting}}" class="loading-card">

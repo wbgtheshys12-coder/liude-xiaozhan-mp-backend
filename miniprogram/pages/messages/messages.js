@@ -1,5 +1,6 @@
 const api = require("../../utils/api");
 const studentProfile = require("../../utils/profile");
+const messageHistory = require("../../utils/message-history");
 
 function formatTime(value) {
   if (!value) return "";
@@ -19,6 +20,7 @@ Page({
     loading: true,
     sending: false,
     records: [],
+    historyCleared: false,
     content: "",
     count: 0,
     privacyNote: "",
@@ -29,6 +31,12 @@ Page({
   },
 
   onShow() {
+    const token = getApp().globalData.token;
+    const cutoff = messageHistory.clearedBefore();
+    const resetDraft = (this.visibleToken !== undefined && this.visibleToken !== token) || (this.visibleCutoff !== undefined && this.visibleCutoff !== cutoff);
+    this.visibleToken = token;
+    this.visibleCutoff = cutoff;
+    this.setData({records: [], count: 0, ...(resetDraft ? {content:''} : {}), historyCleared: Boolean(cutoff)});
     if (!getApp().globalData.token) { this.setData({ loading: false }); return; }
     this.loadMessages();
     this.stopPolling();
@@ -55,16 +63,19 @@ Page({
   },
 
   loadMessages(silent = false) {
+    const accountToken = getApp().globalData.token;
     if (!silent) this.setData({ loading: true });
     return api
       .getMessages()
       .then((result) => {
-        const records = (result.records || []).map((record) => ({ ...record, timeText: formatTime(record.createdAt) }));
+        if (accountToken !== getApp().globalData.token) return;
+        const records = messageHistory.visible(result.records).map((record) => ({ ...record, timeText: formatTime(record.createdAt) }));
         const profile = studentProfile.store(result.profile || studentProfile.getStored());
         const profileComplete = Boolean(result.complete || studentProfile.isComplete(profile));
         this.setData({
           records,
-          count: result.count || 0,
+          count: records.length,
+          historyCleared: Boolean(messageHistory.clearedBefore()),
           privacyNote: result.privacyNote || "",
           profile,
           profileComplete,

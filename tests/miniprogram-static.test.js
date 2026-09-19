@@ -95,8 +95,8 @@ test("mini program pages, bindings, JSON, layout guards and package size", miniP
   const advisorCopy = `${read("pages/advisor/advisor.wxml")}\n${read("pages/advisor/advisor.js")}`;
   assert.match(advisorCopy, /语言考试（可多选）/);
   assert.match(advisorCopy, /EDUCATION_STATUS_OPTIONS/);
-  assert.match(advisorCopy, /请按成绩单补充关键课程/);
-  assert.match(advisorCopy, /课程与成绩核对 \*/);
+  assert.match(advisorCopy, /重点课程（选填）/);
+  assert.doesNotMatch(read("pages/advisor/advisor.wxml"), /课程与成绩核对|transcript-table|未提取/);
   assert.match(advisorCopy, /成绩单为可选项/);
   assert.match(advisorCopy, /按现有信息推荐/);
   assert.match(read("pages/advisor/advisor.js"), /transcriptFileCount: this\.data\.files\.length/);
