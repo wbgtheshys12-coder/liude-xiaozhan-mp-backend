@@ -120,10 +120,12 @@
         <view class="loading-fill" style="width: {{transcriptProgress}}%;"></view>
       </view>
       <text class="loading-desc">{{transcriptProgressText || '正在读取文件并生成校对表，整理后仍可手动修改每一行。'}}</text>
+      <text class="hint">扫描件需逐页识别，可能需要约 1–2 分钟。请勿重复提交；只上传成绩表页面可缩短等待。</text>
     </view>
     <view wx:elif="{{transcriptPreviewSummary && transcriptPreviewSummary.summary}}" class="preview-summary">
       <text class="preview-title">整理摘要</text>
       <text>{{transcriptPreviewSummary.summary}}</text>
+      <text wx:for="{{transcriptPreviewSummary.warnings}}" wx:key="*this" class="preview-note">{{item}}</text>
       <text wx:if="{{transcriptPreviewSummary.sensitiveHidden}}" class="preview-note">已隐藏政治敏感课程/人物信息。</text>
     </view>
     <view wx:if="{{transcriptNeedsManualEntry}}" class="manual-entry-callout">
@@ -159,10 +161,10 @@
     </view>
     <view class="transcript-actions">
       <button class="secondary-button" bindtap="addTranscriptRow">新增课程行</button>
-      <button class="primary-button" bindtap="confirmTranscriptReview">{{transcriptReviewed ? '已确认课程信息' : '确认课程信息'}}</button>
+      <button class="primary-button" disabled="{{transcriptPreviewLoading}}" bindtap="confirmTranscriptReview">{{transcriptReviewed ? (transcriptNeedsManualEntry ? '已选择初步推荐' : '已确认课程信息') : '确认课程信息'}}</button>
     </view>
-    <view class="review-status {{transcriptReviewed ? 'ok' : ''}}">
-      {{transcriptReviewed ? '已确认：后续匹配会结合当前表格、专业和申请目标。' : '请确认当前课程信息；没有课程时也可按现有信息继续。'}}
+    <view class="review-status {{transcriptReviewed && !transcriptNeedsManualEntry ? 'ok' : ''}}">
+      {{transcriptReviewed ? (transcriptNeedsManualEntry ? '当前按基础背景进行初步推荐，尚无完整课程成绩依据。' : '课程表已由你确认，后续匹配将结合课程、专业和申请目标。') : '请核对课程、成绩和学分；文件上传成功不代表识别成功。'}}
     </view>
     <view wx:if="{{message}}" class="status {{isError ? 'error' : ''}}">{{message}}</view>
   </view>

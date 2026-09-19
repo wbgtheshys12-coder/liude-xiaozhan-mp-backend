@@ -231,7 +231,11 @@ function normalizePreviewTranscriptRows(rows, fallbackRows) {
 }
 
 function hasTranscriptEvidence(files, rows) {
-  return Boolean(files.length || (rows || []).some((row) => cleanText([row.course, row.grade, row.credits, row.term].join(" "))));
+  // An attachment or placeholder is not a recognized course result.
+  return (rows || []).some((row) => {
+    const course = cleanText(row.course);
+    return course && !/待(?:校对|补充)课程|综合成绩|GPA/i.test(course) && cleanText(row.grade) && Number(row.credits) > 0;
+  });
 }
 
 function buildTranscriptNote(rows, reviewed) {
@@ -525,12 +529,14 @@ Page({
         if (extractedMajor && !cleanText(this.data.profile.major)) {
           profileUpdates["profile.major"] = extractedMajor;
         }
-        const hasRecognizedRows = transcriptRows.some((row) => cleanText(row.course) && !/待(?:校对|补充)课程/.test(row.course));
+        const hasRecognizedRows = typeof result.recognizedCourseCount === "number"
+          ? result.recognizedCourseCount > 0
+          : hasTranscriptEvidence([], transcriptRows);
         progress.finish(this, {
           timerKey: "transcriptProgressTimer",
           progressKey: "transcriptProgress",
           textKey: "transcriptProgressText",
-          text: "课程信息已整理，正在生成可校对表格。"
+          text: hasRecognizedRows ? "课程信息已整理，请对照原件核对。" : "未提取到有效课程，请选择成绩页重试或手动填写。"
         });
         this.setData({
           ...profileUpdates,
@@ -542,7 +548,7 @@ Page({
             ? extractedScoreText
               ? `已整理课程并将 GPA/均分更新为 ${extractedScoreText}。请核对后确认，内容有误可直接修改。`
               : "已根据成绩单整理课程信息。请逐行核对，内容有误可直接修改。"
-            : "已为你准备好手动课程表。补充关键课程或手动补充课程后即可继续推荐。",
+            : "本次未提取到有效课程。请上传清晰的成绩表页面重试，或手动填写关键课程；原文件已保留。",
           isError: false
         });
       })
@@ -551,7 +557,7 @@ Page({
           timerKey: "transcriptProgressTimer",
           progressKey: "transcriptProgress",
           textKey: "transcriptProgressText",
-          text: "已准备手动课程表，可继续完成匹配。"
+          text: "自动识别未完成，原文件和可编辑课程表已保留。"
         });
         this.setData({
           transcriptRows: fallbackRows,
@@ -561,7 +567,7 @@ Page({
             summary: "已保留可编辑课程表。补充关键课程，或手动补充课程后即可继续。"
           },
           transcriptNeedsManualEntry: true,
-          message: error.statusCode === 413 ? error.message : "已保留手动课程表；补充关键课程或匹配度调查表后即可继续推荐。",
+          message: error.statusCode === 413 ? error.message : "自动识别未完成，请重试或仅上传成绩表页面。也可手动填写课程，不会把空表视为已识别。",
           isError: error.statusCode === 413
         });
       });
@@ -676,6 +682,10 @@ Page({
   },
 
   confirmTranscriptReview() {
+    if (this.data.transcriptPreviewLoading) {
+      wx.showToast({title: "成绩单仍在识别，请稍候", icon: "none"});
+      return;
+    }
     if (!hasTranscriptEvidence(this.data.files, this.data.transcriptRows)) {
       wx.showModal({
         title: "补充课程信息",
@@ -687,6 +697,7 @@ Page({
           this.setData({
             transcriptReviewed: true,
             transcriptWarningAccepted: true,
+            transcriptNeedsManualEntry: true,
             message: "已确认使用现有信息，本次会生成带依据说明的初步推荐。",
             isError: false
           });
@@ -697,6 +708,7 @@ Page({
     this.setData({
       transcriptReviewed: true,
       transcriptWarningAccepted: true,
+      transcriptNeedsManualEntry: false,
       message: "课程信息表已确认，可以进入下一步生成推荐。",
       isError: false
     });

@@ -65,6 +65,7 @@ function rawRequest(options) {
       url: `${env.API_BASE_URL}${options.url}`,
       method: options.method || "GET",
       data: options.data || {},
+      timeout: options.timeout || 60000,
       header: {
         "Content-Type": "application/json; charset=utf-8",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -184,6 +185,7 @@ function previewTranscript(payload) {
   return request({
     url: "/api/mp/transcript-preview",
     method: "POST",
+    timeout: 120000,
     data: payload
   });
 }

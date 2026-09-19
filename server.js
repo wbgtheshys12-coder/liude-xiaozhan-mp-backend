@@ -3628,8 +3628,8 @@ async function handleTranscriptPreview(req, res) {
     const body = JSON.parse(rawBody || "{}");
     const payload = await localEngine.createTranscriptPreview(body);
     recordUsage(session, "transcript.preview", {
-      rows: Array.isArray(payload.rows) ? payload.rows.length : 0,
-      ok: Boolean(payload.ok),
+      rows: payload.recognizedCourseCount || 0,
+      ok: payload.recognitionStatus === "needs_review",
     });
     sendJson(res, 200, payload);
   } catch (error) {

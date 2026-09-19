@@ -11,7 +11,7 @@ const MAX_EXTRACTED_TRANSCRIPT_ROWS = 100;
 const EXTERNAL_PROGRAMS_FILE = path.join(__dirname, "data", "external-programs.json");
 const OCR_ALLOW_REMOTE_TESSDATA = process.env.OCR_ALLOW_REMOTE_TESSDATA === "true";
 const OCR_TESSDATA_DIR = process.env.OCR_TESSDATA_DIR || path.join(__dirname, "tessdata");
-const MAX_PDF_OCR_PAGES = Math.max(1, Math.min(Number(process.env.OCR_MAX_PDF_PAGES || 3), 6));
+const MAX_PDF_OCR_PAGES = Math.max(1, Math.min(Number(process.env.OCR_MAX_PDF_PAGES || 8), 12));
 const LOCAL_RUNTIME_NODE_MODULES =
   process.platform === "win32"
     ? path.join(os.homedir(), ".cache", "codex-runtimes", "codex-primary-runtime", "dependencies", "node", "node_modules")
@@ -400,6 +400,7 @@ function getPdfJsResourceOptions() {
       cMapUrl: asPdfJsResourcePath(cMapTarget),
       cMapPacked: true,
       standardFontDataUrl: asPdfJsResourcePath(standardFontTarget),
+      wasmUrl: asPdfJsResourcePath(path.join(packageRoot, "wasm")),
     };
     return pdfJsResourceOptions;
   } catch (error) {
@@ -496,6 +497,7 @@ function extractTextFromPdfWithPdfJsText(buffer) {
           cMapUrl: asPdfJsResourcePath(cMapTarget),
           cMapPacked: true,
           standardFontDataUrl: asPdfJsResourcePath(fontTarget),
+          wasmUrl: asPdfJsResourcePath(path.join(pdfjsRoot, "wasm")),
         }).promise;
         const chunks = [];
         const maxPages = Math.min(pdf.numPages, Math.max(1, Math.min(maxPagesArg, 12)));
@@ -571,7 +573,7 @@ function renderPdfPagesToImageFiles(buffer) {
       (async () => {
         const pdfPath = process.argv[1];
         const outDir = process.argv[2];
-        const maxPages = Math.max(1, Math.min(Number(process.argv[3] || 3), 6));
+        const maxPages = Math.max(1, Math.min(Number(process.argv[3] || 8), 12));
         const { createCanvas } = require("@napi-rs/canvas");
         const pdfjsRoot = path.dirname(require.resolve("pdfjs-dist/package.json"));
         const assetRoot = path.join(os.tmpdir(), "liude-xiaozhan-pdfjs-assets");
@@ -590,13 +592,14 @@ function renderPdfPagesToImageFiles(buffer) {
           cMapUrl: asPdfJsResourcePath(cMapTarget),
           cMapPacked: true,
           standardFontDataUrl: asPdfJsResourcePath(fontTarget),
+          wasmUrl: asPdfJsResourcePath(path.join(pdfjsRoot, "wasm")),
         }).promise;
         const paths = [];
         const count = Math.min(pdf.numPages, maxPages);
         for (let pageIndex = 1; pageIndex <= count; pageIndex += 1) {
           const page = await pdf.getPage(pageIndex);
           const baseViewport = page.getViewport({ scale: 1 });
-          const scale = Math.min(2.8, Math.max(1.6, 2400 / Math.max(baseViewport.width, baseViewport.height)));
+          const scale = Math.min(4, Math.max(2, 3400 / Math.max(baseViewport.width, baseViewport.height)));
           const viewport = page.getViewport({ scale });
           const width = Math.max(1, Math.ceil(viewport.width));
           const height = Math.max(1, Math.ceil(viewport.height));
@@ -704,18 +707,57 @@ async function extractTextFromPdfWithPageOcr(buffer) {
     fs.rmSync(tempDir, { recursive: true, force: true });
     return "";
   }
-  const chunks = [];
   try {
-    for (const imagePath of paths) {
-      const imageBuffer = fs.readFileSync(imagePath);
-      const text = await extractTextFromImage(imageBuffer);
-      if (text) chunks.push(text);
-      if (scoreOcrText(chunks.join(" ")) >= 540) break;
-    }
+    return await extractScannedPdfPages(paths);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
-  return cleanText(chunks.join(" "));
+}
+
+async function extractScannedPdfPages(paths) {
+  const config = getLocalTesseractLangConfig();
+  if (!config) return "";
+  // One worker per document; do not stop on a wordy cover or notarization page.
+  const script = `
+    const fs = require('fs'), sharp = require('sharp');
+    const { createWorker } = require('tesseract.js');
+    (async () => {
+      const worker = await createWorker('chi_sim+eng', 1, JSON.parse(process.argv[2]));
+      await worker.setParameters({ tessedit_pageseg_mode: '6' });
+      try {
+        for (const file of JSON.parse(process.argv[1])) {
+          const full = (await worker.recognize(file)).data.text || '';
+          const compact = full.replace(/\\s/g, '');
+          if ((compact.match(/必修|选修|选读|必读/g) || []).length >= 8) {
+            const headings = full.split(/\\r?\\n/).filter(line => /专业.*学制|GPA|平均.*分/i.test(line.replace(/\\s/g, '')));
+            process.stdout.write(JSON.stringify(headings.join('\\n')) + '\\n');
+            const m = await sharp(file).metadata();
+            for (const side of [0, 1]) {
+              const left = side ? Math.floor(m.width / 2) : 0;
+              const image = await sharp(file).extract({left, top:0, width: side ? m.width-left : Math.floor(m.width/2), height:m.height}).normalize().toBuffer();
+              const text = (await worker.recognize(image)).data.text || '';
+              process.stdout.write(JSON.stringify(text) + '\\n');
+            }
+          } else {
+            process.stdout.write(JSON.stringify(full) + '\\n');
+          }
+        }
+      } finally { await worker.terminate(); }
+    })().catch(() => process.exit(2));
+  `;
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, ['-e', script, JSON.stringify(paths), JSON.stringify({...config, cacheMethod:'none', cachePath:config.langPath})], {cwd:__dirname, stdio:['ignore','pipe','ignore']});
+    let output = '';
+    child.stdout.on('data', chunk => { output += chunk.toString('utf8'); });
+    const timer = setTimeout(() => child.kill(), 100000);
+    const finish = () => {
+      clearTimeout(timer);
+      const texts = output.split('\n').filter(Boolean).flatMap(line => { try { return [JSON.parse(line)]; } catch { return []; } });
+      resolve(texts.join('\n').replace(/\r?\n/g, ' § '));
+    };
+    child.on('close', finish);
+    child.on('error', finish);
+  });
 }
 
 async function extractTextFromPdf(buffer) {
@@ -1022,7 +1064,7 @@ function extractScoreFromTranscript(text) {
 
 function extractMajorFromText(text) {
   const compact = compactChineseSpacing(text);
-  const match = compact.match(/专业[:：\s]*([\u4e00-\u9fa5A-Za-z0-9（）()·\- ]{2,34})/);
+  const match = compact.match(/专业(?:和学制|及学制|名称)?\s*[:：;；]\s*([\u4e00-\u9fa5A-Za-z0-9（）()·\- ]{2,34})/);
   if (match) {
     const candidate = cleanText(match[1])
       .replace(/^specialty\s*/i, "")
@@ -1141,6 +1183,23 @@ function looksLikeValidTranscriptRow(row) {
 }
 
 function extractTranscriptRowsFromText(text) {
+  const columnRows = [];
+  const columnSeen = new Set();
+  let semester = '';
+  for (const line of String(text || '').split(/§|\r?\n/)) {
+    const compact = compactChineseSpacing(line).trim();
+    const term = compact.match(/(20\d{2})\s*[-—]\s*(20\d{2})\s*学年第\s*([12一二])\s*学期/);
+    if (term) { semester = `${term[1]}-${term[2]} 第${term[3]}学期`; continue; }
+    const match = compact.match(/^\s*[|｜]*\s*(.{2,60}?)\s*(公共选修|专业选修|必修|选修|任选|限选|选读|必读)\s+(\d{1,2}(?:\.\d+)?)\s+((?:100|\d{1,2})(?:\.\d+)?|[A-F][+-]?|合格|及格|优秀|良好|中等)\s*[.。|｜]*\s*$/);
+    if (!match) continue;
+    const course = cleanText(match[1]).replace(/^[\]】|｜.,，。\s]+/, '');
+    const row = {course, credits: match[3], grade:match[4], term:semester, note:`扫描成绩单分栏识别（${match[2]}），请对照原件核对，尤其是课程名及罗马数字`};
+    if (!/[\u4e00-\u9fa5]/.test(course) && !/[A-Za-z]{4}/.test(course)) continue;
+    if (!looksLikeValidTranscriptRow(row)) continue;
+    const key = `${row.course}|${row.credits}|${row.grade}|${row.term}`;
+    if (!columnSeen.has(key)) { columnRows.push(row); columnSeen.add(key); }
+  }
+  if (columnRows.length >= 3) return columnRows.slice(0, MAX_EXTRACTED_TRANSCRIPT_ROWS);
   const rows = [];
   const seen = new Set();
   const source = stripTranscriptPreamble(compactChineseSpacing(text))
@@ -1400,7 +1459,8 @@ function buildTranscriptSummary(parsedFiles, profile = {}) {
   const sensitiveHidden = transcriptText.includes(SENSITIVE_TEXT_REPLACEMENT) || parsedFiles.some((file) => file.templateSensitiveHidden);
   const usableCourseRowCount = Math.max(templateRows.length, profileRows.length, ocrRows.length);
   let confidence = "低";
-  if (templateRows.length >= 6 || profileRows.length >= 6 || ocrRows.length >= 6) confidence = "高";
+  if (templateRows.length >= 6 || profileRows.length >= 6) confidence = "高";
+  else if (ocrRows.length >= 6) confidence = "中";
   else if (usableCourseRowCount >= 2 || scoreInfo?.raw || major) confidence = "中";
 
   const summaryBits = [];
@@ -1516,6 +1576,7 @@ async function createTranscriptPreview(body = {}) {
   const transcriptSummary = buildTranscriptSummary(parsedFiles, body.profile || {});
   const rows = buildTranscriptPreviewRows(transcriptSummary);
   const warnings = [];
+  if (transcriptSummary.rowsFromOcr.length) warnings.push(`自动识别结果可能有错字或漏行，请对照原件核对。扫描 PDF 最多检查前 ${MAX_PDF_OCR_PAGES} 页，表格展示最多 50 行代表课程。`);
   if (transcriptSummary.sensitiveHidden) warnings.push("政治敏感课程/人物信息已自动隐藏，推荐仍会继续。");
   if (transcriptSummary.usableCourseRowCount < 2) {
     warnings.push("已读取现有专业和成绩信息，请在校对表补充 3-6 门核心课程，或填写匹配度调查表后继续。");
@@ -1537,6 +1598,8 @@ async function createTranscriptPreview(body = {}) {
   return {
     ok: true,
     source: "mini-program-standalone-transcript",
+    recognizedCourseCount: transcriptSummary.rowsFromOcr.length + transcriptSummary.rowsFromTemplate.length,
+    recognitionStatus: transcriptSummary.rowsFromOcr.length || transcriptSummary.rowsFromTemplate.length ? "needs_review" : "manual_required",
     rows,
     transcriptSummary: summary,
     transcriptPreview: {
