@@ -1,4 +1,5 @@
 <view class="screen-page page">
+  <view class="ai-review-notice"><text class="ai-review-title">AI生成 · 申请材料初稿</text><text class="ai-review-description">本页“生成初稿”提供人工智能辅助生成内容，可能存在错误或遗漏，正式使用前请人工核对。学生上传的原始文件不属于 AI 生成内容。</text></view>
   <view class="brand-card">
     <text class="eyebrow">申请材料助手</text>
     <text class="title">{{progress.percent}}%</text>
@@ -68,7 +69,7 @@
         </view>
         <text class="loading-desc">{{draftProgressText || '正在整理当前材料内容。'}}</text>
       </view>
-      <view wx:if="{{material.generatedDraft}}" class="draft-box">{{material.generatedDraft}}</view>
+      <view wx:if="{{material.generatedDraft}}" class="draft-box"><text class="ai-generated-badge">AI生成 · 人工智能生成初稿</text>{{material.generatedDraft}}</view>
     </view>
     <view wx:if="{{!materialsByCategory[item.key].length}}" class="empty">当前分类暂无材料项。</view>
   </view>

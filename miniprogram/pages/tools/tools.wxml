@@ -1,6 +1,6 @@
 <view class="screen-page page tools-page">
   <view class="tool-hero">
-    <text class="ai-generated-badge">AI生成 · 人工智能生成初稿</text>
+    <view class="ai-review-notice"><text class="ai-review-title">AI生成 · 人工智能生成</text><text class="ai-review-description">本页动机信、简历及材料初稿由人工智能辅助生成，可能存在错误或遗漏，不是人工审定的最终文书。请核对事实、语言和院校要求后再使用。</text></view>
     <text class="tool-eyebrow">文书与课程材料</text>
     <text class="tool-title">{{activeTool.title}}</text>
     <text class="tool-summary">{{activeTool.summary}}</text>
@@ -114,6 +114,7 @@
   </view>
 
   <view class="draft-card">
+    <view class="ai-review-notice"><text class="ai-review-title">AI生成内容预览</text><text class="ai-review-description">以下为人工智能生成初稿，不代表录取承诺；正式提交前请人工核对。</text></view>
     <view wx:if="{{sourceReview.length}}" class="form-section">
       <text class="form-section-title">原文核对与待翻译清单</text>
       <text class="form-section-desc">以下内容尚未完成目标语言翻译，原文完整保留。请返回对应填写项补充德语或英语，再重新生成；也可导出填写内容交由文书老师处理。</text>
