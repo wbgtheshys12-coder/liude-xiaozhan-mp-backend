@@ -21,6 +21,21 @@ async function json(route, token="", body) {
   return {status:response.status, data:await response.json()};
 }
 const admin = "synthetic-release-admin";
+test("hidden courses retain files but revoke public and old signed playback", async () => {
+  const initial = (await json('/api/mp/public/courses')).data.records.find(c => c.hasVideo);
+  assert.ok(initial);
+  const original = (await json('/api/mp/admin/courses', admin)).data.records.find(c => c.id === initial.id);
+  assert.equal((await json('/api/mp/admin/course-hide', student, {id:initial.id})).status,403);
+  assert.equal((await json('/api/mp/admin/course-hide', admin, {id:initial.id})).status,200);
+  assert.ok(!(await json('/api/mp/public/courses')).data.records.some(c => c.id === initial.id));
+  assert.ok(!(await json('/api/mp/courses', student)).data.records.some(c => c.id === initial.id));
+  assert.equal((await fetch(initial.videoUrl)).status,404);
+  const hidden = (await json('/api/mp/admin/courses', admin)).data.records.find(c => c.id === initial.id);
+  assert.equal(hidden.status,'draft');
+  assert.equal(hidden.videoUrl,original.videoUrl);
+  assert.equal((await fetch(hidden.videoPreviewUrl,{headers:{Range:'bytes=0-31'}})).status,206);
+  assert.equal((await json('/api/mp/admin/courses',admin,{...original,status:'published'})).status,200);
+});
 
 test("guests can browse catalog and free video, but cannot read private modules", async () => {
   for (const endpoint of ["config","catalog","courses","posts"]) assert.equal((await json("/api/mp/public/" + endpoint)).status,200);

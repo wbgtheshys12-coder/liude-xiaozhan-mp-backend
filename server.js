@@ -1308,7 +1308,7 @@ function courseVideoSignature(fileName, storageKey, expires) {
 function publicCourseVideoUrl(req, fileName, session) {
   const proto = (req.headers["x-forwarded-proto"] || (req.socket?.encrypted ? "https" : "http")).split(",")[0].trim() || "https";
   const host = req.headers["x-forwarded-host"] || req.headers.host;
-  const storageKey = getSessionStorageKey(session);
+  const storageKey = (isAdminSession(session) ? "admin-preview:" : "") + getSessionStorageKey(session);
   const expires = Math.floor(Date.now() / 1000) + MP_MEDIA_URL_TTL_SECONDS;
   const signature = courseVideoSignature(fileName, storageKey, expires);
   return `${proto}://${host}${getCourseVideoPath(fileName)}?u=${encodeURIComponent(storageKey)}&e=${expires}&s=${signature}`;
@@ -1335,6 +1335,12 @@ async function sendCourseVideo(req, res, fileName, url) {
   }
   if (!validCourseVideoSignature(safeName, url)) {
     sendJson(res, 403, { error: "课程播放链接已过期或不属于当前微信账号，请返回课程页重新打开。" });
+    return;
+  }
+  // Check current publication state on every request, including previously signed URLs.
+  if (!String(url.searchParams.get("u") || "").startsWith("admin-preview:") &&
+      !readCourseRecords().some(course => course.status === "published" && getLocalCourseVideoFile(course.videoUrl) === safeName)) {
+    sendJson(res, 404, { error: "课程已下架或尚未发布。" });
     return;
   }
   const videoInfo = resolveCourseVideoFile(safeName);
@@ -2392,7 +2398,7 @@ async function handleAdminCourseSave(req, res) {
       title: normalizeBookingText(body.title || "未命名课程", 80),
       summary: normalizeLongText(body.summary || "", 500),
       tags: compactStringArray(body.tags || []).slice(0, 8),
-      status: body.status === "draft" ? "draft" : "published",
+      status: ["draft", "published"].includes(body.status) ? body.status : (existingCourse?.status || "draft"),
       free,
       videoUrl,
       liveUrl,
@@ -5985,6 +5991,20 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "POST" && url.pathname === "/api/mp/admin/courses") {
     handleAdminCourseSave(req, res);
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/api/mp/admin/course-hide") {
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (!isAdminSession(session)) { sendJson(res, 403, { error: "需要管理员权限。" }); return; }
+    try {
+      const body = JSON.parse(await readBody(req) || "{}");
+      const course = readCourseRecords().find(item => item.id === body.id);
+      if (!course) { sendJson(res, 404, { error: "课程不存在。" }); return; }
+      writeCourseRecord({ ...course, status: "draft", updatedAt: new Date().toISOString() });
+      recordUsage(session, "admin.course.hide", { id: course.id });
+      sendJson(res, 200, { ok: true });
+    } catch (error) { sendJson(res, 400, { error: "下架失败，请刷新后重试。" }); }
     return;
   }
 

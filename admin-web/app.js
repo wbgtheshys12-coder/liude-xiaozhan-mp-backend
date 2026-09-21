@@ -68,7 +68,7 @@
           ? `视频已配置${course.videoSize ? ` · ${formatBytes(course.videoSize)}` : ""}`
           : "视频待配置";
     const preview = course.videoPreviewUrl ? `<button class="ghost preview-course" data-id="${escapeHtml(course.id)}" type="button">测试播放</button>` : "";
-    return `<article class="card"><div class="card-head"><h3>${escapeHtml(course.title)}</h3><span class="badge">${course.type === "live" ? "直播" : "录播"} · ${escapeHtml(course.status)}</span></div><p class="meta">${escapeHtml(course.summary || "暂无简介")}</p><p class="meta">${escapeHtml(course.startAt || course.duration || "")}</p><p class="media-line ${course.videoStorage === "local" && !course.videoExists ? "missing" : ""}">${escapeHtml(mediaText)} · ${escapeHtml(({bundled:"后端内置（不在腾讯云）","tencent-cos":"腾讯云 COS",local:"服务器本地",external:"外部链接",none:"未上传"})[course.videoStorage] || "待核实")} · ${course.free ? "免费公开" : "登录 / 授权课程"}</p><div class="card-actions"><button class="ghost edit-course" data-id="${escapeHtml(course.id)}" type="button">编辑</button>${preview}<button class="danger-button delete-course" data-id="${escapeHtml(course.id)}" type="button">删除课程</button></div></article>`;
+    return `<article class="card"><div class="card-head"><h3>${escapeHtml(course.title)}</h3><span class="badge">${course.type === "live" ? "直播" : "录播"} · ${escapeHtml(course.status)}</span></div><p class="meta">${escapeHtml(course.summary || "暂无简介")}</p><p class="meta">${escapeHtml(course.startAt || course.duration || "")}</p><p class="media-line ${course.videoStorage === "local" && !course.videoExists ? "missing" : ""}">${escapeHtml(mediaText)} · ${escapeHtml(({bundled:"后端内置（不在腾讯云）","tencent-cos":"腾讯云 COS",local:"服务器本地",external:"外部链接",none:"未上传"})[course.videoStorage] || "待核实")} · ${course.free ? "免费公开" : "登录 / 授权课程"}</p><div class="card-actions"><button class="ghost edit-course" data-id="${escapeHtml(course.id)}" type="button">编辑</button>${preview}${course.status === "published" ? `<button class="ghost hide-course" data-id="${escapeHtml(course.id)}" type="button">下架（保留视频）</button>` : `<span class="badge">仅后台可见</span>`}<button class="danger-button delete-course" data-id="${escapeHtml(course.id)}" type="button">删除课程</button></div></article>`;
   }
 
   async function loadCourses() {
@@ -151,7 +151,7 @@
     $("courseTitle").value = course.title || "";
     $("courseSummary").value = course.summary || "";
     $("courseTags").value = (course.tags || []).join(", ");
-    $("courseStatus").value = course.status || "published";
+    $("courseStatus").value = course.status || "draft";
     $("courseVideoUrl").value = course.videoUrl || "";
     $("courseLiveUrl").value = course.liveUrl || "";
     $("courseStartAt").value = course.startAt || "";
@@ -368,6 +368,12 @@
     const refresh = event.target.closest(".refresh");
     if (refresh) loadResource(refresh.dataset.resource);
     const edit = event.target.closest(".edit-course");
+    const hide = event.target.closest(".hide-course");
+    if (hide && confirm("下架后所有小程序用户均不可见，已上传视频保留，后台仍可预览。恢复公开前请确认已具备对应服务类目和资质。是否下架？")) {
+      api("/api/mp/admin/course-hide", { method: "POST", body: JSON.stringify({ id: hide.dataset.id }) })
+        .then(async () => { await loadCourses(); setMessage("已下架，视频保留且仅后台可见。", true); })
+        .catch(error => setMessage(error.message));
+    }
     if (edit) editCourse(edit.dataset.id);
     const preview = event.target.closest(".preview-course");
     if (preview) {

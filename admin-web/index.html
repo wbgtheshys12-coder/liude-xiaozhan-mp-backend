@@ -48,7 +48,7 @@
               <label>课程名称 *<input id="courseTitle" required maxlength="80" /></label>
               <label>课程简介<textarea id="courseSummary" maxlength="500"></textarea></label>
               <label>标签（逗号分隔）<input id="courseTags" placeholder="留德基础, 申请规划" /></label>
-              <label>状态<select id="courseStatus"><option value="published">已发布</option><option value="draft">草稿</option></select></label>
+              <label>状态<select id="courseStatus"><option value="draft">未发布／已下架（仅后台可见，保留视频）</option><option value="published">公开发布（需具备对应类目及资质）</option></select></label>
               <label><input id="courseFree" type="checkbox" checked /> 免费公开课程（无需登录；不能同时限定学生）</label>
               <p class="fine-print">建课 → 上传视频 / 填直播入口 → 测试播放 → 保存发布。无视频或直播入口的课程不会作为已就绪课程公开。</p>
               <label>录播视频地址<input id="courseVideoUrl" type="text" placeholder="可填写 https://...，或在下方上传" /></label>
