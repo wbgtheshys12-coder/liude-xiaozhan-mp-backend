@@ -4,7 +4,7 @@ const progress = require("../../utils/progress");
 const experience = require("../../utils/experience");
 
 const FORM_KEY_PREFIX = "liude_user_tool_form";
-const TOOL_SCHEMA_VERSION = "20260905-factual-structured-v6";
+const TOOL_SCHEMA_VERSION = "20260927-shared-experience-v7";
 
 const TOOL_DEFS = [
   {
@@ -138,7 +138,7 @@ function formatDocumentTimestamp(date = new Date(), language = "de") {
 
 function draftNotice(language = "de") {
   if (language === "en") {
-    return "Note: This AI-assisted draft is intended for application preparation only. Verify all facts and the target programme's official requirements before submission.";
+    return "Note: This template-based draft is intended for application preparation only. Verify all facts and the target programme's official requirements before submission.";
   }
   return "Hinweis: Dieser KI-gestützte Entwurf dient nur der Vorbereitung der Bewerbung. Bitte prüfen Sie vor der Einreichung alle Angaben und die offiziellen Anforderungen des Zielstudiengangs.";
 }
@@ -493,9 +493,15 @@ Page({
   toggleExperience() { this.setData({ showExperience: !this.data.showExperience }); },
   applyExperience(event) {
     const value = event.detail.value;
-    this.setData({ experienceData: value });
+    const previous = experience.toForm(this.data.experienceData || {}, this.data.outputLanguage);
+    const baseForm = { ...this.data.form };
     const reusable = experience.toForm(value, this.data.outputLanguage);
-    const form = { ...this.data.form, ...(this.data.activeTool.key === "cv" ? reusable : { projectsInternships: [reusable.researchProjects, reusable.professionalExperience].filter(Boolean).join("\n") || this.data.form.projectsInternships }) };
+    if (this.data.activeTool.key === "cv") Object.keys(previous).forEach(key => {
+      if (!reusable[key]) baseForm[key] = "";
+    });
+    experience.save(value);
+    this.setData({ experienceData: value });
+    const form = { ...baseForm, ...(this.data.activeTool.key === "cv" ? reusable : { projectsInternships: [reusable.researchProjects, reusable.professionalExperience].filter(Boolean).join("\n") || this.data.form.projectsInternships }) };
     this.refresh(this.data.activeTool, form, "");
     this.persistCurrent(form, "");
   },
@@ -538,21 +544,29 @@ Page({
 
   refresh(activeTool, form, draft, outputLanguage = this.data.outputLanguage) {
     const activeSections = withValues(activeTool, form);
+    const sharedKeys = new Set((experience.GROUPS || []).map(group => group.key).concat('gapExplanation'));
+    const structured = activeTool.key === 'cv' ? experience.toForm(this.data.experienceData || {}, outputLanguage) : {};
+    const visibleSections = activeTool.key !== 'cv' ? activeSections : activeSections.map(section => ({
+      ...section,
+      fields: section.fields.filter(field => !sharedKeys.has(field.key) || (clean(form[field.key]) && !structured[field.key]))
+        .map(field => sharedKeys.has(field.key) ? { ...field, label: `${field.label}（已复用的历史信息）` } : field)
+    })).filter(section => section.fields.length);
     const totalFields = flattenFields(activeSections).length;
     const filledCount = countFilled(activeSections);
     const displayDraft = buildPreviewDraft(draft, this.data.materialAccessAllowed, outputLanguage);
     const languageReviewMessage = hasChineseInput(form)
-      ? "可直接使用中文填写：系统在本地按填写内容整理结构，不会调用外部翻译平台；不能完整翻译的内容会明确标记待补全。可填写目标语言原文或请文书老师翻译。"
+      ? "可使用中文填写。经授权后由 OpenAI 翻译成所选语言，再按模板整理；请老师核对全部事实及专有名词。"
       : "当前填写内容会按所选语言生成；正式提交前仍需核对专有名词、项目要求和全部事实。";
     this.setData({
       activeTool,
       activeSections,
+      visibleSections,
       form,
       draft,
       outputLanguage,
       displayDraft,
       draftParagraphs: displayDraft.split(/\n\s*\n/).filter(Boolean),
-      sourceReview: draft ? flattenFields(activeSections).filter(field => /[\u3400-\u9fff]/.test(String(form[field.key] || ""))).map(field => ({ key: field.key, label: field.label, original: String(form[field.key]).trim() })) : [],
+      sourceReview: [],
       draftLocked: Boolean(draft && !this.data.materialAccessAllowed),
       totalFields,
       filledCount,
@@ -607,12 +621,18 @@ Page({
     return false;
   },
 
-  requestForeignDraft() {
+  async requestForeignDraft() {
+    if (!this.documentTranslationConsent) {
+      const consent = await new Promise(resolve => wx.showModal({ title: "文书翻译授权", content: "生成文书需要将你填写的姓名、教育与经历等文书内容发送至 OpenAI 进行 AI 辅助翻译（境外服务）。邮箱和电话由服务器本地填入，不发送给模型。请勿填写证件号码等无关敏感信息。是否同意本次使用？", confirmText: "同意翻译", success: result => resolve(result.confirm), fail: () => resolve(false) }));
+      if (!consent) throw new Error("已取消翻译，填写内容仍保留。");
+      this.documentTranslationConsent = true;
+    }
     return api
       .generateMaterialDraft({
         toolKey: this.data.activeTool.key,
         language: this.data.outputLanguage,
-        form: this.data.form
+        form: this.data.form,
+        documentTranslationConsent: true
       })
       .then((result) => {
         const draft = clean(result && result.draft);
@@ -638,7 +658,7 @@ Page({
       cap: 88,
       step: 10,
       interval: 220,
-      text: "正在按你填写的事实整理结构，无法翻译的部分会标记待补全。"
+      text: "正在翻译你填写的内容并整理文书，请稍候。"
     });
     this.requestForeignDraft()
       .then(() => {
@@ -646,7 +666,7 @@ Page({
           timerKey: "draftProgressTimer",
           progressKey: "draftProgress",
           textKey: "draftProgressText",
-          text: "结构初稿已生成，请核对翻译提示及全部事实。"
+          text: "文书初稿已生成，请由老师核对翻译及全部事实。"
         });
         wx.showToast({ title: "已生成", icon: "success" });
       })
@@ -715,7 +735,8 @@ Page({
           title: buildDocumentTitle(this.data.activeTool.key, this.data.outputLanguage),
           fileName: `${fileBase}.docx`,
           content: draft,
-          form: this.data.form
+          form: this.data.form,
+          documentTranslationConsent: true
         })
       )
       .then((result) =>
@@ -746,7 +767,8 @@ Page({
           title: buildDocumentTitle(this.data.activeTool.key, this.data.outputLanguage),
           fileName: `${fileBase}-watermark.pdf`,
           content: draft,
-          form: this.data.form
+          form: this.data.form,
+          documentTranslationConsent: true
         })
       )
       .then((result) =>

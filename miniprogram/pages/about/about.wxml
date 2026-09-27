@@ -74,7 +74,7 @@
   </view>
 
   <view class="panel">
-    <text class="eyebrow">AI / REVIEW</text>
+    <text class="eyebrow">METHOD / REVIEW</text>
     <text class="section-title">结果怎么理解</text>
     <view wx:for="{{boundaries}}" wx:key="*this" class="bullet-row">
       <text class="bullet-dot">•</text>
@@ -117,5 +117,5 @@
     <button class="secondary-button" bindtap="openPolicy">隐私与使用说明</button>
   </view>
 
-  <text class="footer-note">留德小栈 · 院校建议与文书均为 AI 辅助结果</text>
+  <text class="footer-note">留德小栈 · 院校建议采用规则匹配，文书采用模板整理</text>
 </view>

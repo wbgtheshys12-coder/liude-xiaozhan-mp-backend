@@ -4,7 +4,7 @@ const userSettings = require("../../utils/settings");
 const schoolData = require("../../utils/schools");
 const { chineseDates } = require("../../utils/catalog");
 
-const AI_NOTICE = "AI 辅助生成说明：本报告由留德小栈根据用户提交的信息和本地院校专业数据库自动整理，仅供初步筛选与沟通参考；最终申请条件、课程匹配和录取要求以院校官网及顾问人工核验为准。";
+const AI_NOTICE = "规则匹配说明：本报告由留德小栈根据用户提交的信息和本地院校专业数据库自动整理，仅供初步筛选与沟通参考；最终申请条件、课程匹配和录取要求以院校官网及顾问人工核验为准。";
 
 function decorateRecommendationLocations(items) {
   const schools = schoolData.getSchools();
@@ -145,7 +145,7 @@ function buildMatchingTableData(profile, recommendation) {
 function buildMatchingReport(profile, recommendation) {
   const items = decorateRecommendationLocations(recommendation.recommendations);
   const lines = [
-    "留德小栈院校专业匹配报告（AI 辅助）",
+    "留德小栈院校专业匹配报告（规则匹配参考）",
     "",
     AI_NOTICE,
     "",

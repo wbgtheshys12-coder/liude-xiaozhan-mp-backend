@@ -2,7 +2,7 @@ const env = require("./env");
 const KEY = "liude-shared-experience-v1";
 const GROUPS = [
   { key: "education", title: "大学及交换经历", dated: true, fields: [["name", "学校"], ["major", "专业 / 辅修"], ["degree", "学位 / 交换类型"], ["score", "总均分 / 专业均分 / 排名"], ["details", "核心课程与补充说明"]] },
-  { key: "schooling", title: "中小学经历（单独填写）", dated: true, fields: [["name", "学校名称"], ["degree", "小学 / 初中 / 高中"], ["details", "补充说明"]] },
+  { key: "schooling", title: "中小学经历", dated: true, fields: [["name", "学校名称"], ["degree", "小学 / 初中 / 高中"], ["details", "补充说明"]] },
   { key: "tests", title: "语言与标准化考试", fields: [["name", "考试类型"], ["start", "考试日期 / 计划日期"], ["score", "总分及各科成绩"]] },
   { key: "professionalExperience", title: "工作与实习经历", dated: true, fields: [["name", "单位名称"], ["location", "工作城市"], ["role", "职位 / 全职或实习"], ["details", "职责、具体成果与收获"]] },
   { key: "researchProjects", title: "科研、项目与毕业论文", dated: true, fields: [["name", "项目名称"], ["role", "本人角色"], ["details", "研究方法、实施过程、成果与收获"]] },

@@ -1,5 +1,5 @@
 <view class="screen-page page">
-  <view class="ai-review-notice"><text class="ai-review-title">AI生成 · 申请材料初稿</text><text class="ai-review-description">本页“生成初稿”提供人工智能辅助生成内容，可能存在错误或遗漏，正式使用前请人工核对。学生上传的原始文件不属于 AI 生成内容。</text></view>
+  <view class="ai-review-notice"><text class="ai-review-title">模板整理 · 申请材料初稿</text><text class="ai-review-description">本页“生成初稿”根据填写信息和预设模板整理内容，不提供完整自动翻译，可能存在错误或遗漏，正式使用前请人工核对。学生上传的原始文件保持原样。</text></view>
   <view class="brand-card">
     <text class="eyebrow">申请材料助手</text>
     <text class="title">{{progress.percent}}%</text>
@@ -57,7 +57,7 @@
         <picker mode="selector" range="{{statusOptions}}" data-id="{{material.id}}" bindchange="changeStatus">
           <view class="secondary-button" style="min-height: 70rpx; padding: 16rpx 24rpx;">{{material.status}}</view>
         </picker>
-        <button wx:if="{{material.canAutoGenerate}}" class="secondary-button" data-id="{{material.id}}" loading="{{draftingId == material.id}}" disabled="{{blocked || draftingId == material.id}}" bindtap="generateDraft">{{blocked ? '权限未开通' : (draftingId == material.id ? 'AI 生成中' : '生成初稿')}}</button>
+        <button wx:if="{{material.canAutoGenerate}}" class="secondary-button" data-id="{{material.id}}" loading="{{draftingId == material.id}}" disabled="{{blocked || draftingId == material.id}}" bindtap="generateDraft">{{blocked ? '权限未开通' : (draftingId == material.id ? '正在整理' : '生成初稿')}}</button>
       </view>
       <view wx:if="{{draftingId == material.id}}" class="loading-card compact">
         <view class="loading-head">
@@ -69,7 +69,7 @@
         </view>
         <text class="loading-desc">{{draftProgressText || '正在整理当前材料内容。'}}</text>
       </view>
-      <view wx:if="{{material.generatedDraft}}" class="draft-box"><text class="ai-generated-badge">AI生成 · 人工智能生成初稿</text>{{material.generatedDraft}}</view>
+      <view wx:if="{{material.generatedDraft}}" class="draft-box"><text class="ai-generated-badge">模板整理初稿 · 请人工核对</text>{{material.generatedDraft}}</view>
     </view>
     <view wx:if="{{!materialsByCategory[item.key].length}}" class="empty">当前分类暂无材料项。</view>
   </view>

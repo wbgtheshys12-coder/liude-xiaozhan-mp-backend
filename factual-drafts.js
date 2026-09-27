@@ -26,7 +26,7 @@ const LABELS = {
   skills: ["KENNTNISSE, ZERTIFIKATE UND INTERESSEN", "SKILLS, CERTIFICATES AND INTERESTS"],
   gapExplanation: ["ERLÄUTERUNG DER ZEITRÄUME", "EXPLANATION OF TIMELINE GAPS"]
 };
-function createFactualDraft(form, language, toolKey, generatedAt) {
+function createFactualDraft(form, language, toolKey, generatedAt, options = {}) {
   const de = language === "de", warnings = [];
   const label = (key) => LABELS[key]?.[de ? 0 : 1] || key;
   function value(key, properName = false) {
@@ -36,7 +36,7 @@ function createFactualDraft(form, language, toolKey, generatedAt) {
     const cjk = /[\u3400-\u9fff]/u.test(source);
     const english = !properName && /\b(the|my|and|with|have|research|experience|skills)\b.*\b(the|my|and|with|have|for|in|to)\b/is.test(source);
     const german = !properName && /\b(ich|mein|meine|und|mit|für|habe|Studium)\b.*\b(der|die|das|und|mit|in|zu)\b/is.test(source);
-    if (cjk || de && english && !german || !de && german && !english) {
+    if (cjk || !options.translated && (de && english && !german || !de && german && !english)) {
       warnings.push(key);
       // Source stays intact in the questionnaire; a visible placeholder prevents invented translations.
       return de ? `[${label(key)}: Originalangaben aus dem Fragebogen vollständig ins Deutsche übertragen und prüfen.]` : `[${label(key)}: translate the original questionnaire response into English and verify it.]`;

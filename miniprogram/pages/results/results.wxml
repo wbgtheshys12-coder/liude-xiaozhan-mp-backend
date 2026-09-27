@@ -1,5 +1,8 @@
-<view class="screen-page"><text class="ai-generated-badge">AI生成 · 匹配结果仅供参考</text><text style="display:block;font-size:24rpx;line-height:1.8;color:#52647c">匹配度是系统依据填写的专业方向、核对后的课程与成绩、语言信息和院校专业库规则计算的参考评分，不是录取概率，不代表一定申请成功。资料缺失或识别错误会影响评分；每项建议的具体依据和不足见下方匹配理由及证据。申请季和截止时间请以学校官网当期公告为准。</text></view>
 <view class="screen-page page {{settingsClass}}">
+  <view class="results-disclaimer">
+    <text class="ai-generated-badge">规则匹配建议 · 结果仅供参考</text>
+    <text class="results-disclaimer-text">匹配度是系统依据填写的专业方向、核对后的课程与成绩、语言信息和院校专业库规则计算的参考评分，不是录取概率，不代表一定申请成功。资料缺失或识别错误会影响评分；每项建议的具体依据和不足见下方匹配理由及证据。申请季和截止时间请以学校官网当期公告为准。</text>
+  </view>
   <view class="brand-card">
     <text class="eyebrow">推荐结果</text>
     <text class="title">匹配总览</text>

@@ -1,6 +1,6 @@
 <view class="screen-page page">
   <view class="brand-card">
-    <text class="ai-generated-badge">AI生成 · 院校建议不是录取承诺</text>
+    <text class="ai-generated-badge">规则匹配建议 · 不是录取承诺</text>
     <text class="title">院校专业匹配</text>
     <view class="subtext">按步骤填写真实资料，生成德国院校推荐、专业匹配和证据审计。成绩单可选，上传后推荐会更准确。</view>
   </view>
@@ -89,7 +89,7 @@
     <text class="section-title">课程与经历</text><text class="hint">原有文字已保留。下方分项表与留德简历共用，无需重复填写；没有的经历可留空。</text><experience-form value="{{experienceData}}" bindchange="onExperienceChange" />
     <label class="field"><text class="label">实习 / 科研 / 项目经历</text><textarea placeholder-class="input-placeholder" class="textarea" value="{{profile.experience}}" data-field="experience" bindinput="onFieldInput" placeholder="填写相关经历" /></label>
     <label class="field"><text class="label">主要课程 / 课程关键词</text><textarea placeholder-class="input-placeholder" class="textarea" value="{{profile.courses}}" data-field="courses" bindinput="onFieldInput" placeholder="数据结构、统计学、控制理论等" /></label>
-    <label class="field"><text class="label">毕业论文 / Abschlussarbeit 题目</text><input placeholder-class="input-placeholder" class="input" value="{{profile.thesisTopic}}" data-field="thesisTopic" bindinput="onFieldInput" placeholder="基于机器学习的用户行为预测" /></label>
+    <text wx:if="{{profile.thesisTopic}}" class="hint">此前填写的毕业论文题目：{{profile.thesisTopic}}（已保留，无需重复填写）</text>
     <label class="field"><text class="label">项目经历补充</text><textarea class="textarea" value="{{profile.projects}}" data-field="projects" bindinput="onFieldInput" /></label>
     <label class="field"><text class="label">实习经历补充</text><textarea class="textarea" value="{{profile.internships}}" data-field="internships" bindinput="onFieldInput" /></label>
   </view>

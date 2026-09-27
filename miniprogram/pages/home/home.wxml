@@ -1,6 +1,6 @@
 <view class="screen-page home-shell {{settingsClass}}">
   <view class="top-panel">
-    <view class="top-title">留德小栈 AI</view>
+    <view class="top-title">留德小栈</view>
     <view class="search-pill">
       <image class="search-icon" src="/assets/home/icon-search.png" mode="aspectFit" bindtap="openSearch"></image>
       <input placeholder-class="input-placeholder" class="search-input" value="{{searchQuery}}" placeholder="搜索院校、专业、文书材料" confirm-type="search" bindinput="updateSearch" bindconfirm="openSearch"></input>

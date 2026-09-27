@@ -1,3 +1,18 @@
+.results-disclaimer {
+  min-width: 0;
+  margin-bottom: 24rpx;
+}
+
+.results-disclaimer-text {
+  display: block;
+  font-size: 24rpx;
+  line-height: 1.8;
+  color: #52647c;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .button-row button {
   flex: 1 1 260rpx;
 }

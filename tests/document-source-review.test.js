@@ -11,7 +11,8 @@ test('source review preserves Chinese inputs and clears when inputs invalidate t
   page.setData = values => Object.assign(page.data, values);
   const form = {latinName:'Demo Student', projectsInternships:'仅有课程作业，无实习'};
   page.refresh(page.data.tools[0], form, 'MOTIVATION LETTER\nStructured draft');
-  assert.equal(page.data.sourceReview.find(row => row.key === 'projectsInternships').original, form.projectsInternships);
+  assert.equal(page.data.sourceReview.length, 0);
+  assert.equal(page.data.form.projectsInternships, form.projectsInternships);
   page.refresh(page.data.tools[0], form, '');
   assert.equal(page.data.sourceReview.length, 0);
 });

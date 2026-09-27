@@ -30,6 +30,14 @@ process.env.MP_BOOKING_TEMPLATE_FIELDS_JSON = JSON.stringify({
 process.env.MP_MEDIA_SIGNING_SECRET = "test-only-media-signing-secret-not-for-production";
 process.env.MP_TRANSCRIPT_TEMPLATES_FILE = path.join(testDataDir, "transcript-templates.private.json");
 
+process.env.OPENAI_API_KEY = "test-only-not-a-real-key";
+const originalFetch = global.fetch;
+global.fetch = async (url, options) => {
+  if (url !== "https://api.openai.com/v1/responses") return originalFetch(url, options);
+  const input = JSON.parse(JSON.parse(options.body).input);
+  const translated = Object.fromEntries(Object.keys(input.fields).map(key => [key, key === "latinName" ? input.fields[key] : "Test fact 2020-2024"]));
+  return { ok: true, json: async () => ({ status: "completed", output: [{ content: [{ type: "output_text", text: JSON.stringify(translated) }] }] }) };
+};
 const server = require("../server");
 const localEngine = require("../local-engine");
 
@@ -804,16 +812,17 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
       toolKey: "motivation",
       language: "de",
       form: germanDraftForm,
+      documentTranslationConsent: true,
     },
   });
   assert.equal(germanDraft.response.status, 200);
   assert.equal(germanDraft.payload.foreignLanguageReady, true);
-  assert.equal(germanDraft.payload.source, "factual-local-structured-draft-v2");
+  assert.equal(germanDraft.payload.source, "openai-factual-translation-v1");
   assert.doesNotMatch(germanDraft.payload.draft, /[\u3400-\u9fff]/u);
   assert.match(germanDraft.payload.draft, /MOTIVATIONSSCHREIBEN/);
-  assert.equal(germanDraft.payload.translationComplete, false);
-  assert.ok(germanDraft.payload.untranslatedFields.length > 0);
-  assert.match(germanDraft.payload.draft, /Originalangaben/);
+  assert.equal(germanDraft.payload.translationComplete, true);
+  assert.equal(germanDraft.payload.untranslatedFields.length, 0);
+  assert.doesNotMatch(germanDraft.payload.draft, /Originalangaben/);
 
   const germanPdf = await requestJson("/api/mp/document/pdf", {
     token: userToken,
@@ -825,12 +834,13 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
       fileName: "motivationsschreiben-de.pdf",
       content: "这是旧版混合语言内容，后端必须忽略并使用结构化表单重新生成。",
       form: germanDraftForm,
+      documentTranslationConsent: true,
     },
   });
   assert.equal(germanPdf.response.status, 200);
   assert.equal(germanPdf.payload.language, "de");
   assert.equal(germanPdf.payload.templateVersion, "liude-doc-template-20260731-embedded-font-v2");
-  assert.equal(germanPdf.payload.generationSource, "factual-local-structured-draft-v2");
+  assert.equal(germanPdf.payload.generationSource, "openai-factual-translation-v1");
   assert.equal(germanPdf.payload.pdfFontEmbedded, true);
   assert.match(germanPdf.payload.generatedAtText, /^\d{2}\.\d{2}\.\d{4}.*\d{2}:\d{2}:\d{2} \(China Standard Time\)$/);
   const germanPdfBuffer = Buffer.from(germanPdf.payload.contentBase64, "base64");
@@ -852,6 +862,7 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
       language: "en",
       title: "Curriculum Vitae",
       fileName: "cv-en.docx",
+      documentTranslationConsent: true,
       content: "Curriculum Vitae\n\nPERSONAL DETAILS\nTest Applicant\n\nEDUCATION\nBachelor of Engineering\n\nPRACTICAL EXPERIENCE\nEngineering internship\n\nLANGUAGE SKILLS\nEnglish C1\nGerman B2",
       form: {
         name: "测试学生",
@@ -872,7 +883,7 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
   assert.equal(englishCvWord.response.status, 200);
   assert.equal(englishCvWord.payload.language, "en");
   assert.equal(englishCvWord.payload.templateVersion, "liude-doc-template-20260731-embedded-font-v2");
-  assert.equal(englishCvWord.payload.generationSource, "factual-local-structured-draft-v2");
+  assert.equal(englishCvWord.payload.generationSource, "openai-factual-translation-v1");
   const englishCvBuffer = Buffer.from(englishCvWord.payload.contentBase64, "base64");
   assert.equal(englishCvBuffer.slice(0, 2).toString("ascii"), "PK");
   assert.ok(englishCvBuffer.length > 5000);

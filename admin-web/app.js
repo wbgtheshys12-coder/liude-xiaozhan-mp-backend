@@ -393,6 +393,16 @@
     if (reply) replyMessage(reply.dataset.storageKey).catch((error) => setMessage(error.message));
   });
 
+  $("testTranslationButton").addEventListener("click", async () => {
+    const button = $("testTranslationButton");
+    button.disabled = true;
+    $("translationTestResult").textContent = "正在测试，仅发送固定虚构资料，请稍候……";
+    try {
+      const result = await api("/api/mp/admin/document-translation-test", { method: "POST", body: "{}" });
+      $("translationTestResult").textContent = `翻译测试通过（${result.source}）\n${result.draft}`;
+    } catch (error) { $("translationTestResult").textContent = error.message; }
+    finally { button.disabled = false; }
+  });
   if (state.token) {
     api("/api/mp/session").then((session) => {
       if (!session.authenticated || !session.isAdmin) throw new Error("管理员登录已失效");

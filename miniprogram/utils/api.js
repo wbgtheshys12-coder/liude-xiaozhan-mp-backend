@@ -196,6 +196,7 @@ function checkMaterialAccess() {
 
 function generateMaterialDraft(payload) {
   return request({
+    timeout: 120000,
     url: "/api/mp/material-draft",
     method: "POST",
     data: payload

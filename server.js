@@ -5,6 +5,7 @@ const path = require("path");
 const docx = require("docx");
 const PDFDocument = require("pdfkit");
 const localEngine = require("./local-engine");
+const documentTranslator = require("./document-translation").createDocumentTranslator();
 const { createPaymentService } = require("./payment");
 const { createCosStorage } = require("./cos-storage");
 const { createReleaseRoutes } = require("./release-routes");
@@ -3712,7 +3713,7 @@ async function handleMaterialDraft(req, res) {
   try {
     const rawBody = await readBody(req);
     const body = JSON.parse(rawBody || "{}");
-    const payload = localEngine.createMaterialDraft(body);
+    const payload = await documentTranslator.generate(body, session.openid);
     recordUsage(session, "document.generate", { toolKey: body.toolKey, language: body.language, translationComplete: payload.translationComplete });
     sendJson(res, 200, payload);
   } catch (error) {
@@ -3720,7 +3721,7 @@ async function handleMaterialDraft(req, res) {
       sendBadJson(res);
       return;
     }
-    sendJson(res, error.statusCode || 502, { error: "材料初稿暂未生成，请检查必填内容后重试。" });
+    sendJson(res, error.statusCode || 502, { error: error.statusCode ? error.message : "材料初稿暂未生成，请检查必填内容后重试。" });
   }
 }
 
@@ -4927,7 +4928,7 @@ function createMatchingTablePdf(title, matchingData, watermark, generatedAtText 
   });
 }
 
-function prepareDocumentExport(session, body) {
+async function prepareDocumentExport(session, body) {
   const kind = ["questionnaire", "matching"].includes(body.kind) ? body.kind : "draft";
   const toolKey = body.toolKey === "cv" ? "cv" : body.toolKey === "motivation" ? "motivation" : "";
   const requestedLanguage = String(body.language || "zh").trim().toLowerCase();
@@ -4936,7 +4937,7 @@ function prepareDocumentExport(session, body) {
   const title = normalizeBookingText(body.title || defaultTitle, 80);
   const canonicalDraft =
     kind === "draft" && toolKey && ["de", "en"].includes(language) && body.form && typeof body.form === "object"
-      ? localEngine.createMaterialDraft({ toolKey, language, form: body.form })
+      ? await documentTranslator.generate({ toolKey, language, form: body.form, documentTranslationConsent: body.documentTranslationConsent }, session.openid)
       : null;
   const rawContent = normalizeLongText(canonicalDraft?.draft || body.content || "", 30000);
   if (kind === "draft" && ["de", "en"].includes(language) && /[\u3400-\u9fff]/u.test(rawContent)) {
@@ -5425,7 +5426,7 @@ async function handleDocumentPdf(req, res) {
   try {
     const rawBody = await readBody(req);
     const body = JSON.parse(rawBody || "{}");
-    const documentData = prepareDocumentExport(session, body);
+    const documentData = await prepareDocumentExport(session, body);
     if (!documentData.content && !documentData.matchingData) {
       sendJson(res, 400, { error: "没有可导出的文书内容。" });
       return;
@@ -5512,7 +5513,7 @@ async function handleDocumentWord(req, res) {
   try {
     const rawBody = await readBody(req);
     const body = JSON.parse(rawBody || "{}");
-    const documentData = prepareDocumentExport(session, body);
+    const documentData = await prepareDocumentExport(session, body);
     if (!documentData.content) {
       sendJson(res, 400, { error: "没有可导出的文书内容。" });
       return;
@@ -5991,6 +5992,16 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "POST" && url.pathname === "/api/mp/admin/courses") {
     handleAdminCourseSave(req, res);
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/api/mp/admin/document-translation-test") {
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (!isAdminSession(session)) { sendJson(res, 403, { error: "需要管理员权限。" }); return; }
+    try {
+      const result = await documentTranslator.generate({ toolKey: "motivation", language: "de", documentTranslationConsent: true, form: { latinName: "TEST Applicant", schoolMajor: "我于2024年完成机械工程本科学习。", targetProgram: "机械工程硕士", germanyOrigin: "我希望学习机械设计。" } }, session.openid);
+      sendJson(res, 200, { ok: true, draft: result.draft, source: result.source });
+    } catch (error) { sendJson(res, error.statusCode || 503, { error: error.statusCode ? error.message : "测试失败，请稍后重试。" }); }
     return;
   }
   if (req.method === "POST" && url.pathname === "/api/mp/admin/course-hide") {

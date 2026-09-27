@@ -76,7 +76,7 @@ test("mini program pages, bindings, JSON, layout guards and package size", miniP
   assert.doesNotMatch(documentToolSource, /课程描述生成|courseDescription/);
   assert.match(documentToolSource, /德语或英语/);
   assert.match(documentToolSource, /德语 \/ 英语初稿免费/);
-  assert.match(documentToolSource, /AI 辅助/);
+  assert.match(documentToolSource, /模板整理/);
   assert.match(documentToolSource, /动机信填写建议/);
   assert.match(documentToolSource, /不能未经检查直接作为最终申请文书提交/);
   assert.match(documentToolSource, /学校要求/);
