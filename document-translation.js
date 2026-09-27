@@ -68,6 +68,7 @@ function createDocumentTranslator({ env = process.env, fetchImpl = fetch, now = 
       for (const key of keys) {
         if (typeof translated[key] !== "string" || !translated[key].trim() || /[\u3400-\u9fff]/u.test(translated[key])) throw fail("部分内容未完成目标语言翻译，请重试。");
       }
+      if (source.latinName && !/[\u3400-\u9fff]/u.test(source.latinName)) translated.latinName = source.latinName;
       const factual = createFactualDraft({ ...translated, ...contact }, body.language, body.toolKey, new Date(now()).toISOString().slice(0, 10), { translated: true });
       return { ok: true, draft: factual.draft, language: body.language, toolKey: body.toolKey, source: "openai-factual-translation-v1", foreignLanguageReady: true, translationComplete: true, untranslatedFields: [], sourceReview: [], warnings: [], reviewMessage: "AI 辅助翻译并按模板整理。请由老师核对姓名拼写、学校名称、日期、成绩和全部事实后再提交。" };
     } catch (error) {

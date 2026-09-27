@@ -4,7 +4,7 @@ const progress = require("../../utils/progress");
 const experience = require("../../utils/experience");
 
 const FORM_KEY_PREFIX = "liude_user_tool_form";
-const TOOL_SCHEMA_VERSION = "20260927-shared-experience-v7";
+const TOOL_SCHEMA_VERSION = "20260927-translated-facts-v8";
 
 const TOOL_DEFS = [
   {
