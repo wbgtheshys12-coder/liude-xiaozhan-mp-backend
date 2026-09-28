@@ -1,4 +1,5 @@
 const env = require("./env");
+const DRAFT_KEY = "liude-shared-profile-draft-v1";
 
 const APPLICATION_LEVELS = ["本科", "硕士"];
 const REQUIRED_FIELDS = ["name", "contact", "school", "major", "applicationLevel"];
@@ -55,7 +56,7 @@ function getStored() {
     const hasAccountScope = Boolean(session.user?.storageKey);
     if (!hasAccountScope) return normalize({});
     const scoped = wx.getStorageSync(env.scopedKey(env.STORAGE_KEYS.latestProfile));
-    return normalize(scoped || {});
+    return normalize({ ...(scoped || {}), ...(wx.getStorageSync(env.scopedKey(DRAFT_KEY)) || {}) });
   } catch (error) {
     return normalize({});
   }
@@ -63,13 +64,37 @@ function getStored() {
 
 function store(profile) {
   const current = getStored();
-  const next = normalize({ ...current, ...(profile || {}) });
+  const draft = wx.getStorageSync(env.scopedKey(DRAFT_KEY)) || {};
+  const next = normalize({ ...current, ...(profile || {}), ...draft });
   wx.setStorageSync(env.scopedKey(env.STORAGE_KEYS.latestProfile), next);
   wx.setStorageSync(env.STORAGE_KEYS.latestProfile, next);
   try {
     getApp().globalData.latestProfile = next;
   } catch (error) {}
   return next;
+}
+
+// Device-local edits take precedence over delayed server/profile responses.
+// Account scoping prevents another student's form from being reused.
+function saveLocal(fields = {}) {
+  const session = wx.getStorageSync(env.STORAGE_KEYS.session) || {};
+  if (!session.user?.storageKey) return normalize({});
+  const previous = wx.getStorageSync(env.scopedKey(DRAFT_KEY)) || {};
+  const next = { ...previous, ...fields };
+  if (Object.prototype.hasOwnProperty.call(fields, "phone") || Object.prototype.hasOwnProperty.call(fields, "email")) {
+    const combined = { ...getStored(), ...next };
+    next.contact = String(combined.phone || combined.email || "").trim();
+  }
+  if (Object.prototype.hasOwnProperty.call(fields, "applicationLevel")) next.targetDegree = fields.applicationLevel;
+  if (Object.prototype.hasOwnProperty.call(fields, "targetDegree")) next.applicationLevel = fields.targetDegree;
+  wx.setStorageSync(env.scopedKey(DRAFT_KEY), next);
+  const merged = getStored();
+  try { getApp().globalData.latestProfile = merged; } catch (_) {}
+  return merged;
+}
+function getLocalEdits() {
+  const session = wx.getStorageSync(env.STORAGE_KEYS.session) || {};
+  return session.user?.storageKey ? wx.getStorageSync(env.scopedKey(DRAFT_KEY)) || {} : {};
 }
 
 function isInternalSession(session = {}) {
@@ -100,5 +125,7 @@ module.exports = {
   isComplete,
   getStored,
   store,
+  saveLocal,
+  getLocalEdits,
   isInternalSession
 };

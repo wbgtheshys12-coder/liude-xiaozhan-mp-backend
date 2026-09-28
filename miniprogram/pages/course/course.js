@@ -36,7 +36,7 @@ Page({
 
   showDiagnosis() {
     const app = getApp();
-    const profile = app.globalData.latestProfile || wx.getStorageSync(env.scopedKey(env.STORAGE_KEYS.latestProfile)) || {};
+    const profile = require("../../utils/profile").getStored();
     const recommendation = app.globalData.latestRecommendation || wx.getStorageSync(env.scopedKey(env.STORAGE_KEYS.latestRecommendation)) || {};
     const targetText = [profile.targetField, profile.major, profile.thesisTopic, profile.courses].join(" ").toLowerCase();
     const recommendations = recommendation.recommendations || [];

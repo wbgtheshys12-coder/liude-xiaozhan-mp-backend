@@ -420,6 +420,7 @@ Page({
           .saveProfile(payload)
           .then((response) => {
             const profile = normalizeStudentProfile(response.profile || payload);
+            studentProfileUtils.saveLocal(payload);
             studentProfileUtils.store(profile);
             this.applyStudentProfile(profile);
             this.setData({ showProfileDialog: false, profileLocked: true });

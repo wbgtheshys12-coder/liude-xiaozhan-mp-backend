@@ -52,7 +52,7 @@ Page({
 
   onLoad() {
     const app = getApp();
-    const profile = app.globalData.token ? app.globalData.latestProfile || wx.getStorageSync(env.scopedKey(env.STORAGE_KEYS.latestProfile)) || {} : {};
+    const profile = app.globalData.token ? require("../../utils/profile").getStored() : {};
     const recommendation = app.globalData.token ? app.globalData.latestRecommendation || wx.getStorageSync(env.scopedKey(env.STORAGE_KEYS.latestRecommendation)) || {} : {};
     const workspace = materials.buildWorkspace(profile, recommendation);
     this.refresh(workspace);
@@ -119,7 +119,7 @@ Page({
           .then((files) => {
             if (!files.length) return [];
             const app = getApp();
-            const profile = app.globalData.latestProfile || wx.getStorageSync(env.scopedKey(env.STORAGE_KEYS.latestProfile)) || {};
+            const profile = require("../../utils/profile").getStored();
             return Promise.all(
               files.map((file) =>
                 api.uploadStudentMaterial({

@@ -104,7 +104,7 @@ Page({
     const groupJoined = Boolean(wx.getStorageSync("liude_group_joined"));
     const wishlist = wx.getStorageSync("liude_mall_wishlist") || [];
     const inviteCode = getInviteCode(session);
-    const profile = wx.getStorageSync(env.scopedKey(env.STORAGE_KEYS.latestProfile)) || {};
+    const profile = require("../../utils/profile").getStored();
     const recommendation = wx.getStorageSync(env.scopedKey(env.STORAGE_KEYS.latestRecommendation)) || {};
 
     const builders = {

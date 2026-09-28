@@ -49,12 +49,7 @@
     </view>
   </view>
 
-  <view wx:if="{{activeTool.key == 'cv'}}" class="form-section">
-    <text class="form-section-title">课程与经历 · 与院校匹配共用</text>
-    <text class="form-section-desc">自动复用院校匹配第三步已保存的分项信息，无需重复填写。修改会同步到共用经历表；个人信息和其他补充项在后面。</text>
-    <experience-form value="{{experienceData}}" bindchange="applyExperience" />
-  </view>
-  <block wx:for="{{visibleSections}}" wx:for-item="section" wx:key="title">
+  <block wx:for="{{visibleSections}}" wx:for-item="section" wx:for-index="sectionIndex" wx:key="title">
     <view class="form-section">
       <text class="form-section-title">{{section.title}}</text>
       <text wx:if="{{section.desc}}" class="form-section-desc">{{section.desc}}</text>
@@ -84,6 +79,11 @@
           />
         </view>
       </block>
+    </view>
+    <view wx:if="{{activeTool.key == 'cv' && sectionIndex == 0}}" class="form-section">
+      <text class="form-section-title">课程与经历 · 与院校匹配共用</text>
+      <text class="form-section-desc">自动复用院校匹配第三步已保存的分项信息，无需重复填写。修改会同步到共用经历表；只需核对已有内容并补充缺失信息。</text>
+      <experience-form value="{{experienceData}}" bindchange="applyExperience" />
     </view>
   </block>
 

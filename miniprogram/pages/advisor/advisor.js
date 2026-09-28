@@ -301,9 +301,10 @@ Page({
   },
 
   onLoad() {
+    this.profileScope = env.scopedKey("");
     const app = getApp();
     const session = app.globalData.session || wx.getStorageSync(env.STORAGE_KEYS.session) || {};
-    const storedProfile = app.globalData.latestProfile || studentProfile.getStored();
+    const storedProfile = studentProfile.getStored();
     const profile = {
       ...defaultProfile(),
       ...storedProfile,
@@ -323,9 +324,24 @@ Page({
     this.setData({ experienceData: value, "profile.experience": [fields.professionalExperience, fields.researchProjects, fields.activities].filter(Boolean).join("\n"), "profile.projects": fields.researchProjects || this.data.profile.projects, "profile.internships": fields.professionalExperience || this.data.profile.internships });
   },
 
+  onShow() {
+    const scope = env.scopedKey("");
+    const changedAccount = this.profileScope && this.profileScope !== scope;
+    const profile = { ...defaultProfile(), ...studentProfile.getStored() };
+    this.profileScope = scope;
+    this.setData({ profile, experienceData: experience.load(), ...(changedAccount ? { files: [], transcriptRows: [], transcriptReviewed: false, currentStep: 0 } : {}), ...buildLocationState(profile), ...buildSelectionState(profile) });
+  },
+
   onUnload() {
+    this.saveReusableProfile();
     progress.stop(this, "transcriptProgressTimer");
     progress.stop(this, "submitProgressTimer");
+  },
+
+  onHide() { this.saveReusableProfile(); },
+  saveReusableProfile() {
+    if (this.profileScope !== env.scopedKey("")) return;
+    if (studentProfile.saveLocal) studentProfile.saveLocal(this.data.profile);
   },
 
   onFieldInput(event) {
@@ -335,6 +351,7 @@ Page({
       [`profile.${field}`]: event.detail.value,
       ...(transcriptFields.includes(field) ? { transcriptReviewed: false, transcriptWarningAccepted: false } : {})
     });
+    if (studentProfile.saveLocal) studentProfile.saveLocal({ [field]: event.detail.value });
   },
 
   onEducationStatusChange(event) {

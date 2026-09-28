@@ -133,6 +133,7 @@ Page({
     return api
           .saveProfile(payload)
           .then((response) => {
+            studentProfile.saveLocal(payload);
             studentProfile.store(response.profile || payload);
             wx.showToast({ title: "资料设置完成", icon: "success" });
             wx.switchTab({ url: "/pages/home/home" });

@@ -1,5 +1,13 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const experience=require('../miniprogram/utils/experience');
+test('CV personal fields precede shared experience and supplementary fields',()=>{
+  const view=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/tools/tools.wxml'),'utf8');
+  assert.ok(view.indexOf('section.fields') < view.indexOf('课程与经历 · 与院校匹配共用'));
+  assert.match(view,/activeTool.key == 'cv' && sectionIndex == 0/);
+  let page;
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../miniprogram/pages/tools/tools.js'),'utf8'),{require:()=>({}),Page:p=>page=p,console});
+  assert.equal(page.data.tools.find(t=>t.key==='cv').sections[0].title,'个人信息');
+});
 test('CV uses shared structured rows without duplicate text fields and clears removed rows',()=>{
   let page;
   vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../miniprogram/pages/tools/tools.js'),'utf8'),{

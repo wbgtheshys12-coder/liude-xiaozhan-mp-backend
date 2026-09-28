@@ -150,7 +150,7 @@ function storageKey(toolKey) {
 function getProfileContext() {
   const app = getApp();
   if (!app.globalData.token) return { profile: {}, targets: "" };
-  const profile = app.globalData.latestProfile || wx.getStorageSync(env.scopedKey(env.STORAGE_KEYS.latestProfile)) || {};
+  const profile = require("../../utils/profile").getStored();
   const recommendation = app.globalData.latestRecommendation || wx.getStorageSync(env.scopedKey(env.STORAGE_KEYS.latestRecommendation)) || {};
   const targets = (recommendation.recommendations || [])
     .slice(0, 3)
@@ -485,6 +485,7 @@ Page({
 
   onShow() {
     if (!getApp().globalData.token) return;
+    this.setActiveTool(this.data.activeTool.key);
     api.checkMaterialAccess().then((result) => { this.setData({ materialAccessAllowed: result.allowed !== false, materialAccessMessage: result.message || "生成与导出可用" }); this.refresh(this.data.activeTool, this.data.form, this.data.draft); }).catch(() => {});
     const value = experience.load();
     if (Object.keys(value).length && JSON.stringify(value) !== JSON.stringify(this.data.experienceData)) this.applyExperience({ detail: { value } });
@@ -533,7 +534,10 @@ Page({
     delete savedForm.citizenshipPassport;
     delete savedForm.emergencyContact;
     const shared = getApp().globalData.token ? wx.getStorageSync(env.scopedKey("liude-shared-personal-v1")) || {} : {};
-    const form = { ...prefillForm(activeTool.key), ...shared, ...Object.fromEntries(Object.entries(savedForm).filter(([, value]) => value !== "")) };
+    const form = { ...prefillForm(activeTool.key), ...Object.fromEntries(Object.entries(savedForm).filter(([, value]) => value !== "")), ...shared };
+    const personal = require("../../utils/profile").getStored();
+    const edits = require("../../utils/profile").getLocalEdits();
+    ["name", "latinName", "phone", "email", "currentCity", "citizenship", "birthInfo"].forEach(key => { if (personal[key] || Object.prototype.hasOwnProperty.call(edits, key)) form[key] = personal[key]; });
     const experienceData = experience.load();
     if (activeTool.key === "cv") Object.assign(form, experience.toForm(experienceData, saved.outputLanguage === "en" ? "en" : "de"));
     this.setData({ experienceData, pageLimit: Number(form.pageLimit) === 1 ? 1 : 2 });
@@ -577,6 +581,7 @@ Page({
 
   updateField(event) {
     const key = event.currentTarget.dataset.key;
+    if (["name", "latinName", "phone", "email", "currentCity", "citizenship", "birthInfo"].includes(key)) require("../../utils/profile").saveLocal({ [key]: event.detail.value });
     const form = {
       ...this.data.form,
       [key]: event.detail.value
@@ -589,7 +594,7 @@ Page({
     if (!getApp().globalData.token) return;
     const keys = ["name", "latinName", "phone", "email", "currentCity", "citizenship", "birthInfo"];
     const shared = wx.getStorageSync(env.scopedKey("liude-shared-personal-v1")) || {};
-    keys.forEach((key) => { if (form[key]) shared[key] = form[key]; });
+    keys.forEach((key) => { if (Object.prototype.hasOwnProperty.call(form, key)) shared[key] = form[key]; });
     wx.setStorageSync(env.scopedKey("liude-shared-personal-v1"), shared);
     wx.setStorageSync(storageKey(this.data.activeTool.key), {
       schemaVersion: TOOL_SCHEMA_VERSION,

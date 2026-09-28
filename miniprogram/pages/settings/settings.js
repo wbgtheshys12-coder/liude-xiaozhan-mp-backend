@@ -119,6 +119,11 @@ Page({
         wx.removeStorageSync(env.STORAGE_KEYS.latestRecommendation);
         wx.removeStorageSync(env.STORAGE_KEYS.materials);
         wx.removeStorageSync("booking_records");
+        const suffix = env.scopedKey("");
+        const localKeys = wx.getStorageInfoSync ? wx.getStorageInfoSync().keys : [];
+        localKeys.filter(key => key.endsWith(suffix) && (key.startsWith("liude-shared-") || key.startsWith("liude_user_tool_form_") || key.startsWith(env.STORAGE_KEYS.latestProfile) || key.startsWith(env.STORAGE_KEYS.latestRecommendation) || key.startsWith(env.STORAGE_KEYS.materials))).forEach(key => wx.removeStorageSync(key));
+        getApp().globalData.latestProfile = null;
+        getApp().globalData.latestRecommendation = null;
         wx.showToast({ title: "已清理", icon: "success" });
       }
     });
