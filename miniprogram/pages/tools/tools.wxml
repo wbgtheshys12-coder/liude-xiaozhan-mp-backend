@@ -1,6 +1,6 @@
 <view class="screen-page page tools-page">
   <view class="tool-hero">
-    <view class="ai-review-notice"><text class="ai-review-title">AI 辅助翻译 · 模板文书初稿</text><text class="ai-review-description">经你同意后，将填写的文书信息交由 OpenAI 翻译，再按模板整理动机信和简历。不添加未经确认的经历或能力。内容可能存在错误，须由老师核对事实、语言和院校要求后再使用。</text></view>
+    <view class="ai-review-notice"><text class="ai-review-title">智能辅助翻译 · 人工智能生成初稿</text><text class="ai-review-description">经你同意后，将填写的文书信息交由 OpenAI 翻译，再按模板整理动机信和简历。不添加未经确认的经历或能力。内容可能存在错误，须由老师核对事实、语言和院校要求后再使用。</text></view>
     <text class="tool-eyebrow">文书与课程材料</text>
     <text class="tool-title">{{activeTool.title}}</text>
     <text class="tool-summary">{{activeTool.summary}}</text>
@@ -119,7 +119,7 @@
   </view>
 
   <view class="draft-card">
-    <view class="ai-review-notice"><text class="ai-review-title">模板整理初稿预览 · AI 辅助翻译</text><text class="ai-review-description">以下内容由填写信息翻译并按模板整理，不代表录取承诺；正式提交前请老师核对。</text></view>
+    <view class="ai-review-notice"><text class="ai-review-title">模板整理初稿预览 · 人工智能生成</text><text class="ai-review-description">以下内容由填写信息翻译并按模板整理，不代表录取承诺；正式提交前请老师核对。</text></view>
     <view wx:if="{{activeTool.key != 'motivation' && sourceReview.length}}" class="form-section">
       <text class="form-section-title">原文核对与待翻译清单</text>
       <text class="form-section-desc">以下内容尚未完成目标语言翻译，原文完整保留。请返回对应填写项补充德语或英语，再重新生成；也可导出填写内容交由文书老师处理。</text>

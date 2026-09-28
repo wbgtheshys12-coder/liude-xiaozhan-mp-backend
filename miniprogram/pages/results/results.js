@@ -232,7 +232,7 @@ Page({
       .exportDocumentPdf({
         kind: "matching",
         title: "院校选校与匹配汇总报告",
-        fileName: "liude-matching-report-ai-watermark.pdf",
+        fileName: "liude-matching-report-watermark.pdf",
         content: buildMatchingReport(this.data.profile, this.data.recommendation),
         matchingData: buildMatchingTableData(this.data.profile, this.data.recommendation)
       })

@@ -3,7 +3,7 @@ const env = require("../../utils/env");
 const MODULES = [
   {
     title: "数学与统计",
-    desc: "线性代数、概率统计、优化、数值方法是工程、数据、AI 方向常见核验项。",
+    desc: "线性代数、概率统计、优化、数值方法是工程、数据、人工智能方向常见核验项。",
     level: "高频缺口"
   },
   {

@@ -628,7 +628,7 @@ Page({
 
   async requestForeignDraft() {
     if (!this.documentTranslationConsent) {
-      const consent = await new Promise(resolve => wx.showModal({ title: "文书翻译授权", content: "生成文书需要将你填写的姓名、教育与经历等文书内容发送至 OpenAI 进行 AI 辅助翻译（境外服务）。邮箱和电话由服务器本地填入，不发送给模型。请勿填写证件号码等无关敏感信息。是否同意本次使用？", confirmText: "同意翻译", success: result => resolve(result.confirm), fail: () => resolve(false) }));
+      const consent = await new Promise(resolve => wx.showModal({ title: "文书翻译授权", content: "生成文书需要将你填写的姓名、教育与经历等文书内容发送至 OpenAI 进行人工智能辅助翻译（境外服务）。邮箱和电话由服务器本地填入，不发送给模型。请勿填写证件号码等无关敏感信息。是否同意本次使用？", confirmText: "同意翻译", success: result => resolve(result.confirm), fail: () => resolve(false) }));
       if (!consent) throw new Error("已取消翻译，填写内容仍保留。");
       this.documentTranslationConsent = true;
     }

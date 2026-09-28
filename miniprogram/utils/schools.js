@@ -68,7 +68,7 @@ const SCHOOLS = [
     type: "工程与应用科学强校",
     website: "https://www.student.uni-stuttgart.de/en/study-programs/",
     summary: "斯图加特地区工业基础强，机械、汽车、航天、软件、数据和工程控制方向很有代表性。",
-    strengths: ["机械、汽车、航空航天、工程控制", "软件工程、AI 与数据科学", "与巴登-符腾堡工业生态关联密切"],
+    strengths: ["机械、汽车、航空航天、工程控制", "软件工程、人工智能与数据科学", "与巴登-符腾堡工业生态关联密切"],
     programs: ["Artificial Intelligence and Data Science", "Software Engineering", "Mechanical Engineering", "Engineering Cybernetics", "Materials Science"],
     fitFor: ["机械/车辆/控制背景", "软件和数据方向", "希望连接德国工业就业"],
     application: "申请材料通常包含成绩单、语言、课程/模块信息，部分项目会核验专业匹配。",
@@ -333,10 +333,10 @@ const SCHOOLS = [
     state: "Saarland",
     type: "综合大学，计算机方向突出",
     website: "https://www.uni-saarland.de/en/study/programmes.html",
-    summary: "萨尔大学在计算机、语言技术、AI、网络安全和欧洲研究方向具有特色。",
-    strengths: ["计算机、AI、语言技术、网络安全", "靠近法国，欧洲化特色明显", "适合计算机方向申请池"],
+    summary: "萨尔大学在计算机、语言技术、人工智能、网络安全和欧洲研究方向具有特色。",
+    strengths: ["计算机、人工智能、语言技术、网络安全", "靠近法国，欧洲化特色明显", "适合计算机方向申请池"],
     programs: ["Computer Science", "Data Science and Artificial Intelligence", "Visual Computing", "Cybersecurity", "Language Science and Technology"],
-    fitFor: ["AI/CS", "NLP/语言技术", "网络安全", "跨国区域兴趣"],
+    fitFor: ["人工智能/计算机科学", "NLP/语言技术", "网络安全", "跨国区域兴趣"],
     application: "计算机方向项目通常重视算法、数学、编程和项目经历。",
     language: "英语计算机项目较多，也有德语项目。",
     materialTips: ["项目经历要写清技术栈", "算法、数学、系统课程要突出", "NLP 方向可强调语言和数据经验"]
@@ -559,15 +559,15 @@ const SCHOOLS = [
     germanName: "Eberhard Karls Universität Tübingen",
     city: "Tübingen",
     state: "Baden-Württemberg",
-    type: "研究型综合大学，AI、生命科学、人文社科强",
+    type: "研究型综合大学，人工智能、生命科学、人文社科强",
     website: "https://uni-tuebingen.de/en/study/finding-a-course/degree-programs-available/",
     summary: "图宾根大学在人工智能、机器学习、神经科学、生命科学、医学和人文社科方向很有特色。",
-    strengths: ["AI、机器学习、神经科学、生命科学", "医学与认知科学研究氛围强", "适合数据与生命科学交叉背景"],
+    strengths: ["人工智能、机器学习、神经科学、生命科学", "医学与认知科学研究氛围强", "适合数据与生命科学交叉背景"],
     programs: ["Machine Learning", "Data Science", "Neuroscience", "Molecular Cell Biology and Immunology", "Computational Linguistics"],
-    fitFor: ["AI/机器学习", "神经科学", "生命科学", "计算语言"],
-    application: "AI 和生命科学项目竞争强，需核验数学、编程、实验或科研背景。",
+    fitFor: ["人工智能/机器学习", "神经科学", "生命科学", "计算语言"],
+    application: "人工智能和生命科学项目竞争强，需核验数学、编程、实验或科研背景。",
     language: "英语硕士较多，德语项目也需要提前确认。",
-    materialTips: ["AI 项目要突出数学、算法和项目代码", "生命科学要突出实验方法", "动机信应具体到研究方向和课程模块"]
+    materialTips: ["人工智能项目要突出数学、算法和项目代码", "生命科学要突出实验方法", "动机信应具体到研究方向和课程模块"]
   },
   {
     id: "wuerzburg",
@@ -600,12 +600,12 @@ const SCHOOLS = [
     type: "研究型大学，医学、工程、数据和金融数学特色",
     website: "https://www.uni-ulm.de/en/study/study-programmes/",
     summary: "乌尔姆大学在医学、生命科学、数据科学、人工智能、通信、能源和金融数学方向有特色，学校规模相对精干。",
-    strengths: ["数据科学、AI、通信、医学工程", "金融数学、能源、生命科学", "南德中小城市环境"],
+    strengths: ["数据科学、人工智能、通信、医学工程", "金融数学、能源、生命科学", "南德中小城市环境"],
     programs: ["Cognitive Systems", "Communications Technology", "Energy Science and Technology", "Finance", "Molecular Medicine"],
     fitFor: ["AI认知系统", "通信能源", "金融数学", "医学生命"],
     application: "项目往往要求较清晰的数学、工程或生命科学基础。",
     language: "英语和德语项目都有。",
-    materialTips: ["AI/通信方向要突出数学与编程", "金融方向要准备概率统计和金融课程", "医学生命方向需写清实验和科研"]
+    materialTips: ["人工智能/通信方向要突出数学与编程", "金融方向要准备概率统计和金融课程", "医学生命方向需写清实验和科研"]
   },
   {
     id: "duisburg-essen",
