@@ -22,7 +22,9 @@ function run(args) {
 try {
   run([
     "-m", "pip", "install", "--disable-pip-version-check", "--no-cache-dir", "--target", ".offline-deps",
-    "ctranslate2==4.8.2", "sentencepiece==0.2.2", "numpy==2.5.3", "pyyaml==6.0.3"
+    // Render currently provides Python 3.11 to this Node service; pin a
+    // NumPy release available for that runtime instead of the unreleased 2.5.x.
+    "ctranslate2==4.8.2", "sentencepiece==0.2.2", "numpy==2.3.5", "pyyaml==6.0.3"
   ]);
   run(["scripts/install_offline_translation.py"]);
   console.log("Offline translation runtime and SHA-256-pinned models are ready.");
