@@ -101,7 +101,6 @@
     <text class="action-note">Word 可继续编辑；PDF 带留德小栈水印并嵌入字体。两种格式使用同一份翻译初稿，须由老师核对。页数限制适用于 PDF；Word 在不同编辑器中可能重新分页。</text>
     <view class="action-divider"></view>
     <text class="action-subtitle">填写内容</text>
-    <button class="secondary-button" bindtap="saveForm">保存填写内容</button>
     <button class="secondary-button" bindtap="exportQuestionnairePdf">导出填写内容 PDF（水印）</button>
     <button class="service-button" bindtap="goMessages">联系文书老师人工校对</button>
     <button class="ghost-button" bindtap="clearForm">清空重填</button>
@@ -136,5 +135,10 @@
     <view wx:if="{{draftLocked}}" class="preview-lock">收费功能待开发：当前账号仅展示完整内容前 20%，可导出同等范围的 Word 或水印 PDF。</view>
     <view wx:if="{{displayDraft}}" class="document-preview"><text class="preview-running-head">{{activeTool.key == 'cv' ? 'LEBENSLAUF / CV' : 'MOTIVATION LETTER'}}</text><text wx:for="{{draftParagraphs}}" wx:key="index" class="document-paragraph">{{item}}</text><text class="preview-running-head">模板整理初稿 · 正式递交前须核对。最终分页以导出 PDF 为准。</text></view>
     <view wx:else class="empty-draft">填写上方调查表后，点击“生成初稿”。</view>
+  </view>
+  <view class="action-card">
+    <button class="secondary-button" bindtap="saveForm">保存草稿</button>
+    <button class="secondary-button" bindtap="exitForm">退出填写</button>
+    <text class="action-note">退出填写可选择保存或放弃本次修改。草稿保存在当前账号的本机，取消弹窗可继续填写。</text>
   </view>
 </view>

@@ -14,7 +14,7 @@ const GROUPS = [
 function load() { return getApp().globalData.session?.user?.storageKey ? wx.getStorageSync(env.scopedKey(KEY)) || {} : {}; }
 function save(value) { if (getApp().globalData.session?.user?.storageKey) wx.setStorageSync(env.scopedKey(KEY), value); }
 function month(value) { const match = String(value || "").match(/^(\d{4})-(0[1-9]|1[0-2])$/); return match ? Number(match[1]) * 12 + Number(match[2]) - 1 : NaN; }
-function validate(value = {}, now = new Date()) {
+function validate(value = {}, now = new Date(), options = {}) {
   const errors = [], spans = [];
   const current = now.getFullYear() * 12 + now.getMonth();
   GROUPS.filter((group) => group.dated).forEach((group) => (value[group.key] || []).forEach((row, index) => {
@@ -23,7 +23,7 @@ function validate(value = {}, now = new Date()) {
     else if (["education", "schooling", "professionalExperience"].includes(group.key)) spans.push({ start, end });
   }));
   spans.sort((a, b) => a.start - b.start);
-  if (spans.length) {
+  if (spans.length && !options.ignoreGaps) {
     let end = spans[0].end;
     const gaps = [];
     spans.slice(1).forEach((span) => { if (span.start > end + 1) gaps.push(span.start - end - 1); end = Math.max(end, span.end); });
@@ -42,4 +42,26 @@ function toForm(value = {}, language = "de") {
   if (value.gapExplanation) form.gapExplanation = value.gapExplanation;
   return form;
 }
-module.exports = { GROUPS, load, save, validate, toForm, month };
+function recommendationFields(value = {}) {
+  const fields = toForm(value);
+  return {
+    experience: [fields.professionalExperience, fields.researchProjects, fields.activities].filter(Boolean).join("\n"),
+    projects: fields.researchProjects || "",
+    internships: fields.professionalExperience || ""
+  };
+}
+// Remove only exact legacy auto-copies; preserve independently written notes.
+function independentNotes(profile = {}, value = {}) {
+  const copy = { ...profile }, generated = recommendationFields(value);
+  Object.keys(generated).forEach(key => {
+    if (generated[key] && String(copy[key] || "").trim() === generated[key].trim()) copy[key] = "";
+  });
+  return copy;
+}
+function forRecommendation(profile = {}, value = {}) {
+  const notes = independentNotes(profile, value), generated = recommendationFields(value);
+  return { ...notes, ...Object.fromEntries(Object.keys(generated).map(key =>
+    [key, [generated[key], notes[key]].filter(Boolean).join("\n")]
+  )) };
+}
+module.exports = { GROUPS, load, save, validate, toForm, month, independentNotes, forRecommendation };

@@ -2,6 +2,7 @@ const env = require("../../utils/env");
 const api = require("../../utils/api");
 const progress = require("../../utils/progress");
 const experience = require("../../utils/experience");
+const formExit = require("../../utils/form-exit");
 
 const FORM_KEY_PREFIX = "liude_user_tool_form";
 const TOOL_SCHEMA_VERSION = "20260927-translated-facts-v8";
@@ -162,6 +163,9 @@ function getProfileContext() {
 
 function prefillForm(toolKey) {
   const { profile, targets } = getProfileContext();
+  const sharedExperience = experience.load();
+  const notes = experience.independentNotes(profile, sharedExperience);
+  const sharedFields = experience.toForm(sharedExperience);
   if (toolKey === "motivation") {
     return {
       name: profile.name || "",
@@ -173,7 +177,7 @@ function prefillForm(toolKey) {
       applicationLevel: profile.applicationLevel || profile.targetDegree || "",
       targetProgram: targets || profile.targetField || "",
       relevantCourses: profile.courses || "",
-      projectsInternships: profile.projects || profile.experience || "",
+      projectsInternships: [...new Set([sharedFields.researchProjects, sharedFields.professionalExperience, sharedFields.activities, notes.projects, notes.internships, notes.experience].filter(Boolean))].join("\n"),
       interestedDirections: profile.targetField || "",
       careerPlan: profile.careerPlan || ""
     };
@@ -458,6 +462,7 @@ Page({
   },
 
   onLoad(options) {
+    formExit.begin(this);
     this.setActiveTool(options.tool || "motivation");
     if (!getApp().globalData.token) { this.setData({ materialAccessAllowed: true, materialAccessMessage: "可先浏览表单；保存个人资料、生成和导出时再自愿登录。" }); return; }
     api
@@ -514,8 +519,13 @@ Page({
   },
 
   setActive(event) {
-    this.persistCurrent();
-    this.setActiveTool(event.currentTarget.dataset.key);
+    const key = event.currentTarget.dataset.key;
+    if (key === this.data.activeTool.key) return;
+    if (this.data.generatingDraft) return;
+    formExit.choose(this, () => this.persistCurrent(), () => {
+      this.setActiveTool(key);
+      formExit.begin(this);
+    });
   },
 
   selectLanguage(event) {
@@ -591,6 +601,7 @@ Page({
   },
 
   persistCurrent(form = this.data.form, draft = this.data.draft) {
+    if (this.discardingDraft) return;
     if (!getApp().globalData.token) return;
     const keys = ["name", "latinName", "phone", "email", "currentCity", "citizenship", "birthInfo"];
     const shared = wx.getStorageSync(env.scopedKey("liude-shared-personal-v1")) || {};
@@ -607,13 +618,19 @@ Page({
   saveForm() {
     if (!api.ensureLogin()) return;
     this.persistCurrent();
+    formExit.begin(this);
     wx.showToast({ title: "已保存", icon: "success" });
+  },
+
+  exitForm() {
+    if (this.data.generatingDraft) { wx.showToast({ title: "请等待生成完成再退出", icon: "none" }); return; }
+    formExit.choose(this, () => { if (!getApp().globalData.token) throw new Error("login"); this.persistCurrent(); }, formExit.leave);
   },
 
   validateRequiredFields() {
     if (!api.ensureLogin()) return false;
     if (this.data.activeTool.key === "cv") {
-      const errors = experience.validate(this.data.experienceData);
+      const errors = experience.validate(this.data.experienceData, new Date(), { ignoreGaps: true });
       if (errors.length) { wx.showModal({ title: "请核对经历时间", content: errors.join("\n"), showCancel: false }); return false; }
     }
     const missing = missingRequired(this.data.activeTool, this.data.form);
@@ -675,7 +692,15 @@ Page({
         });
         wx.showToast({ title: "已生成", icon: "success" });
       })
-      .catch((error) => wx.showToast({ title: error.message || "初稿生成失败", icon: "none" }))
+      .catch((error) => {
+        this.persistCurrent();
+        wx.showModal({
+          title: "文书暂未生成",
+          content: error.message || "服务暂时不可用，填写内容已保留，请稍后重试。",
+          showCancel: false,
+          confirmText: "知道了"
+        });
+      })
       .finally(() => {
         this.setData({ generatingDraft: false });
         progress.reset(this, {

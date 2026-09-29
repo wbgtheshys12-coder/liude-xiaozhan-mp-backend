@@ -59,7 +59,17 @@ function createDocumentTranslator({ env = process.env, fetchImpl = fetch, now = 
             schema: { type: "object", properties: Object.fromEntries(keys.map(key => [key, { type: "string" }])), required: keys, additionalProperties: false } } }
         })
       });
-      if (!response.ok) throw fail(response.status === 401 ? "翻译服务密钥无效，请联系管理员。" : response.status === 429 ? "翻译服务额度或速率受限，请稍后重试或联系管理员。" : "翻译服务暂不可用，请稍后重试。");
+      if (!response.ok) {
+        let detail = {};
+        try { detail = (await response.json()).error || {}; } catch (_) {}
+        // Never expose the upstream message, which may contain account identifiers.
+        const quota = /quota|billing|credit|usage_limit|spend_limit/.test(String(detail.code || "") + " " + String(detail.type || ""));
+        if (response.status === 429 && quota) throw fail("翻译服务账户额度不足或已达到用量上限，请管理员检查 OpenAI API 账单与限额。反复重试不能解决，填写内容已保留。");
+        if (response.status === 429) throw fail("翻译服务请求暂时受限，请稍后重试；若持续出现，请管理员检查 API 项目限流设置。填写内容已保留。");
+        if (response.status === 401) throw fail("翻译服务密钥无效，请联系管理员。");
+        if (response.status === 403) throw fail("翻译服务访问权限受限，请管理员检查 API 项目与模型权限。");
+        throw fail("翻译服务暂不可用，请稍后重试。");
+      }
       const result = await response.json();
       if (result.status !== "completed") throw fail("翻译尚未完整完成，请精简内容后重试。");
       const text = (result.output || []).flatMap(item => item.content || []).filter(item => item.type === "output_text").map(item => item.text).join("");

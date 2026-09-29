@@ -2,6 +2,15 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createDocumentTranslator } = require('../document-translation');
 const input = { toolKey: 'motivation', language: 'de', documentTranslationConsent: true, form: { latinName: 'TEST Applicant', schoolMajor: '我于2024年毕业。', email: 'private@example.com' } };
+
+test('quota and rate limits give distinct actionable errors without leaking upstream details', async () => {
+  for (const [code, pattern] of [['insufficient_quota', /账户额度不足/], ['rate_limit_exceeded', /请求暂时受限/]]) {
+    const service = createDocumentTranslator({ env: { OPENAI_API_KEY: 'fake' }, fetchImpl: async () => ({
+      ok: false, status: 429, json: async () => ({ error: { code, message: 'SECRET upstream account details' } })
+    }) });
+    await assert.rejects(service.generate(input, 'test'), error => pattern.test(error.message) && !error.message.includes('SECRET'));
+  }
+});
 test('translation preserves template, excludes contact details and caches preview/export', async () => {
   let calls = 0;
   const service = createDocumentTranslator({ env: { OPENAI_API_KEY: 'fake' }, fetchImpl: async (url, options) => {

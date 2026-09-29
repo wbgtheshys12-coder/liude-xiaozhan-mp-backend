@@ -2,6 +2,18 @@
   margin-bottom: 24rpx;
 }
 
+.required-mark {
+  display: inline-block;
+  margin-left: 12rpx;
+  padding: 6rpx 12rpx;
+  border-radius: 999rpx;
+  background: #eaf3ff;
+  color: #1f58a7;
+  font-size: 22rpx;
+  font-weight: 900;
+  vertical-align: middle;
+}
+
 .picker-control {
   display: flex;
   align-items: center;

@@ -3,6 +3,8 @@ const experience = require("../../utils/experience");
 const env = require("../../utils/env");
 const progress = require("../../utils/progress");
 const studentProfile = require("../../utils/profile");
+const formExit = require("../../utils/form-exit");
+const ADVISOR_DRAFT = "liude-shared-advisor-draft-v1";
 
 function defaultProfile() {
   return {
@@ -301,16 +303,18 @@ Page({
   },
 
   onLoad() {
+    formExit.begin(this);
     this.profileScope = env.scopedKey("");
     const app = getApp();
     const session = app.globalData.session || wx.getStorageSync(env.STORAGE_KEYS.session) || {};
-    const storedProfile = studentProfile.getStored();
+    const storedProfile = experience.independentNotes(studentProfile.getStored(), experience.load());
     const profile = {
       ...defaultProfile(),
       ...storedProfile,
       targetDegree: storedProfile.targetDegree || storedProfile.applicationLevel || "硕士"
     };
     this.setData({
+      ...(wx.getStorageSync(env.scopedKey(ADVISOR_DRAFT)) || {}),
       experienceData: experience.load(),
       countOptions: buildCountOptions(session.entitlements || {}),
       profile,
@@ -320,14 +324,16 @@ Page({
   },
 
   onExperienceChange(event) {
-    const value = event.detail.value, fields = experience.toForm(value);
-    this.setData({ experienceData: value, "profile.experience": [fields.professionalExperience, fields.researchProjects, fields.activities].filter(Boolean).join("\n"), "profile.projects": fields.researchProjects || this.data.profile.projects, "profile.internships": fields.professionalExperience || this.data.profile.internships });
+    const value = event.detail.value;
+    const profile = experience.independentNotes(this.data.profile, this.data.experienceData);
+    experience.save(value);
+    this.setData({ experienceData: value, profile });
   },
 
   onShow() {
     const scope = env.scopedKey("");
     const changedAccount = this.profileScope && this.profileScope !== scope;
-    const profile = { ...defaultProfile(), ...studentProfile.getStored() };
+    const profile = { ...defaultProfile(), ...experience.independentNotes(studentProfile.getStored(), experience.load()) };
     this.profileScope = scope;
     this.setData({ profile, experienceData: experience.load(), ...(changedAccount ? { files: [], transcriptRows: [], transcriptReviewed: false, currentStep: 0 } : {}), ...buildLocationState(profile), ...buildSelectionState(profile) });
   },
@@ -340,8 +346,34 @@ Page({
 
   onHide() { this.saveReusableProfile(); },
   saveReusableProfile() {
+    if (this.discardingDraft) return;
     if (this.profileScope !== env.scopedKey("")) return;
     if (studentProfile.saveLocal) studentProfile.saveLocal(this.data.profile);
+    if (getApp().globalData.session?.user?.storageKey) wx.setStorageSync(env.scopedKey(ADVISOR_DRAFT), {
+      currentStep: this.data.currentStep,
+      files: (this.data.files || []).filter(file => file.materialId).map(file => ({
+        id: file.id, materialId: file.materialId, name: file.name, size: file.size,
+        type: file.type, displaySize: file.displaySize, restored: true
+      })),
+      transcriptRows: this.data.transcriptRows || [],
+      transcriptReviewed: this.data.transcriptReviewed,
+      fileHint: "已恢复上次保存的成绩单记录；原件可在学生资料库查看。",
+      recommendationCount: this.data.recommendationCount
+    });
+  },
+
+  saveDraft() {
+    if (!api.ensureLogin()) return;
+    this.saveReusableProfile();
+    formExit.begin(this);
+    wx.showToast({ title: "草稿已保存", icon: "success" });
+  },
+
+  exitForm() {
+    if (this.data.submitting || this.data.transcriptPreviewLoading) {
+      wx.showToast({ title: "请等待处理完成再退出", icon: "none" }); return;
+    }
+    formExit.choose(this, () => { if (!getApp().globalData.token) throw new Error("login"); this.saveReusableProfile(); }, formExit.leave);
   },
 
   onFieldInput(event) {
@@ -410,12 +442,21 @@ Page({
     });
   },
 
+  changeStep(index) {
+    if (!Number.isInteger(index)) return;
+    const currentStep = Math.max(0, Math.min(FORM_STEPS.length - 1, index));
+    this.setData({ currentStep }, () => {
+      // Scroll after the new step has rendered, not against the previous layout.
+      wx.pageScrollTo({ scrollTop: 0, duration: 0 });
+    });
+  },
+
   goStep(event) {
-    this.setData({ currentStep: Number(event.currentTarget.dataset.index) });
+    this.changeStep(Number(event.currentTarget.dataset.index));
   },
 
   nextStep() {
-    this.setData({ currentStep: Math.min(FORM_STEPS.length - 1, this.data.currentStep + 1) });
+    this.changeStep(this.data.currentStep + 1);
   },
 
   toggleKeyCourses() {
@@ -423,7 +464,7 @@ Page({
   },
 
   prevStep() {
-    this.setData({ currentStep: Math.max(0, this.data.currentStep - 1) });
+    this.changeStep(this.data.currentStep - 1);
   },
 
   toggleCity(event) {
@@ -527,10 +568,16 @@ Page({
   },
 
   previewTranscriptRows(files, fallbackRows) {
+    // Restored entries are server material references, not valid temporary file bodies.
+    const inputFiles = files.filter(file => !file.restored);
+    if (!inputFiles.length) {
+      this.setData({ transcriptPreviewLoading: false });
+      return Promise.resolve();
+    }
     const requestId = this.transcriptRequestId = (this.transcriptRequestId || 0) + 1;
     return api
       .previewTranscript({
-        files,
+        files: inputFiles,
         profile: this.data.profile
       })
       .then((result) => {
@@ -564,6 +611,7 @@ Page({
           message: "",
           isError: false
         });
+        this.saveReusableProfile();
       })
       .catch((error) => {
         if (requestId !== this.transcriptRequestId) return;
@@ -584,6 +632,7 @@ Page({
           message: error.statusCode === 413 ? error.message : "",
           isError: error.statusCode === 413
         });
+        this.saveReusableProfile();
       });
   },
 
@@ -736,7 +785,7 @@ Page({
 
   submitProfile() {
     if (!api.ensureLogin()) return;
-    const missing = [["school", "当前学校"], ["major", "当前专业"], ["targetField", "目标专业方向"]].filter(([key]) => !String(this.data.profile[key] || "").trim()).map(([, label]) => label);
+    const missing = [["school", "当前学校"], ["major", "当前专业"], ["targetDegree", "目标学历"], ["targetField", "目标专业方向"]].filter(([key]) => !String(this.data.profile[key] || "").trim()).map(([, label]) => label);
     if (missing.length) { this.setData({ message: `请填写必填项：${missing.join("、")}`, isError: true, currentStep: !this.data.profile.targetField && this.data.profile.school && this.data.profile.major ? 1 : 0 }); return; }
     if (this.data.submitting) return;
     const now = Date.now();
@@ -752,7 +801,7 @@ Page({
 
     const usableRows = (this.data.transcriptRows || []).filter(row => cleanText(row.course) && !/待校对课程|待补充课程|请补充核心课程/.test(row.course));
     const submissionProfile = buildSubmissionProfile(
-      this.data.profile,
+      experience.forRecommendation(this.data.profile, this.data.experienceData),
       this.data.files,
       usableRows,
       this.data.transcriptReviewed
@@ -799,9 +848,11 @@ Page({
           text: "推荐已生成，正在打开结果页。"
         });
         const app = getApp();
-        app.globalData.latestProfile = payload;
+        const reusableProfile = { ...payload, experience: this.data.profile.experience, projects: this.data.profile.projects, internships: this.data.profile.internships };
+        studentProfile.saveLocal(reusableProfile);
+        app.globalData.latestProfile = reusableProfile;
         app.globalData.latestRecommendation = recommendation;
-        wx.setStorageSync(env.scopedKey(env.STORAGE_KEYS.latestProfile), payload);
+        wx.setStorageSync(env.scopedKey(env.STORAGE_KEYS.latestProfile), reusableProfile);
         wx.setStorageSync(env.scopedKey(env.STORAGE_KEYS.latestRecommendation), recommendation);
         wx.navigateTo({ url: "/pages/results/results" });
       })

@@ -8,7 +8,7 @@ test('electrical engineering recommendations do not repeat a programme with degr
 function page(file,modules={}) {
   let result;
   vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../miniprogram/pages',file),'utf8'),{
-    require:name=>modules[name]||{},Page:p=>{result=p},Date,console,
+    require:name=>modules[name]||(name==='../../utils/env'?{scopedKey:key=>key+'_test'}:{}),Page:p=>{result=p},Date,console,
     getApp:()=>({globalData:{token:'test'}}),setInterval:()=>1,clearInterval(){},
     wx:{showModal:o=>o.success({confirm:true}),nextTick:f=>f(),showToast(){}}
   });
