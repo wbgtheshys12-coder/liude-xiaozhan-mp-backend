@@ -71,3 +71,15 @@ test("offline draft generation queues quickly, is owner-scoped, and never return
   assert.match(status.data.error, /尚未部署/);
   assert.doesNotMatch(JSON.stringify(status.data), new RegExp(privateMarker));
 });
+
+test("legacy mini-program receives an update instruction instead of an unusable queued response", async () => {
+  const privateMarker = "PRIVATE-LEGACY-DRAFT";
+  const response = await request("/api/mp/material-draft", {
+    toolKey: "motivation", language: "de", documentTranslationConsent: true,
+    form: { latinName: "TEST Applicant", schoolMajor: privateMarker }
+  });
+  assert.equal(response.status, 409);
+  assert.match(response.data.error, /更新小程序/);
+  assert.equal(response.data.jobId, undefined);
+  assert.doesNotMatch(JSON.stringify(response.data), new RegExp(privateMarker));
+});

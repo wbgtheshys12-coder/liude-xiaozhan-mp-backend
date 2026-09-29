@@ -451,6 +451,8 @@ Page({
     totalFields: 0,
     completion: 0,
     outputLanguage: "de",
+    translationConsentChecked: false,
+    translationConsentError: "",
     pageLimit: 2,
     experienceData: {},
     showExperience: false,
@@ -627,6 +629,11 @@ Page({
     formExit.choose(this, () => { if (!getApp().globalData.token) throw new Error("login"); this.persistCurrent(); }, formExit.leave);
   },
 
+  onTranslationConsentChange(event) {
+    const checked = (event.detail.value || []).includes("yes");
+    this.setData({ translationConsentChecked: checked, translationConsentError: "" });
+  },
+
   validateRequiredFields() {
     if (!api.ensureLogin()) return false;
     if (this.data.activeTool.key === "cv") {
@@ -634,21 +641,23 @@ Page({
       if (errors.length) { wx.showModal({ title: "请核对经历时间", content: errors.join("\n"), showCancel: false }); return false; }
     }
     const missing = missingRequired(this.data.activeTool, this.data.form);
-    if (!missing.length) return true;
-    wx.showModal({
-      title: "请先补全必填信息",
-      content: `以下带 * 的内容尚未填写：${missing.join("、")}。补全后才能生成或导出文书。`,
-      showCancel: false
-    });
-    return false;
+    if (missing.length) {
+      wx.showModal({
+        title: "请先补全必填信息",
+        content: `以下带 * 的内容尚未填写：${missing.join("、")}。补全后才能生成或导出文书。`,
+        showCancel: false
+      });
+      return false;
+    }
+    if (!this.data.translationConsentChecked) {
+      this.setData({ translationConsentError: "请先勾选下方的文书处理确认，再生成或导出。" });
+      return false;
+    }
+    return true;
   },
 
   async requestForeignDraft() {
-    if (!this.documentTranslationConsent) {
-      const consent = await new Promise(resolve => wx.showModal({ title: "本地翻译授权", content: "生成文书时，你填写的姓名、教育与经历等文书内容将由小程序后台部署的本地翻译程序处理，不会发送至第三方在线翻译服务。翻译结果可能存在错误，正式使用前必须由老师核对。请勿填写与文书无关的证件号码等敏感信息。是否同意本次处理？", confirmText: "同意并生成", success: result => resolve(result.confirm), fail: () => resolve(false) }));
-      if (!consent) throw new Error("已取消翻译，填写内容仍保留。");
-      this.documentTranslationConsent = true;
-    }
+    if (!this.data.translationConsentChecked) throw new Error("请先确认文书内容的处理方式，填写内容仍保留。");
     const initial = await api
       .generateMaterialDraft({
         toolKey: this.data.activeTool.key,

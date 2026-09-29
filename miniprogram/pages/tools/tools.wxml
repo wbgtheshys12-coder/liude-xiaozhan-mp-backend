@@ -93,6 +93,13 @@
       <text class="action-title">生成与导出</text>
       <text class="action-badge">德语 / 英语初稿免费</text>
     </view>
+    <checkbox-group class="translation-consent" bindchange="onTranslationConsentChange">
+      <label class="translation-consent-label">
+        <checkbox value="yes" checked="{{translationConsentChecked}}" color="#1f58a7" />
+        <text>我同意将本次填写的文书内容交由小程序后台翻译程序处理；译文须由老师核对。</text>
+      </label>
+    </checkbox-group>
+    <text wx:if="{{translationConsentError}}" class="translation-consent-error">{{translationConsentError}}</text>
     <button class="primary-button" loading="{{generatingDraft}}" disabled="{{generatingDraft}}" bindtap="generateDraft">{{generatingDraft ? '生成中' : activeTool.actionLabel}}</button>
     <view class="action-divider"></view>
     <text class="action-subtitle">结构初稿文件（须核对翻译）</text>

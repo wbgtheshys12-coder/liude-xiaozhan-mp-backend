@@ -3724,6 +3724,10 @@ async function handleMaterialDraft(req, res) {
     const rawBody = await readBody(req);
     const body = JSON.parse(rawBody || "{}");
     if (OFFLINE_DOCUMENT_TRANSLATION) {
+      if (body.translationProvider !== "offline") {
+        sendJson(res, 409, { error: "当前小程序版本尚不支持新版文书翻译，请在微信中更新小程序后重试；已填写内容仍保留。" });
+        return;
+      }
       const now = Date.now();
       for (const [id, job] of offlineDraftJobs) if (now - job.createdAt > 15 * 60 * 1000) offlineDraftJobs.delete(id);
       if ([...offlineDraftJobs.values()].filter((job) => job.status === "pending").length >= 5) {

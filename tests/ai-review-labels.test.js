@@ -14,3 +14,14 @@ test('template disclosures are visible and state translation limits', () => {
   assert.match(materials, /class="draft-box"><text class="ai-generated-badge">模板整理初稿/);
   assert.match(read('app.wxss'), /\.ai-review-title\{[^}]*font-size:32rpx/);
 });
+
+test('document translation consent is inline instead of a blocking popup', () => {
+  const read = p => fs.readFileSync(path.join(__dirname, '../miniprogram', p), 'utf8');
+  const markup = read('pages/tools/tools.wxml');
+  const logic = read('pages/tools/tools.js');
+  assert.match(markup, /checkbox-group[^>]*bindchange="onTranslationConsentChange"/);
+  assert.match(logic, /translationConsentChecked: false/);
+  assert.doesNotMatch(logic, /title: "本地翻译授权"|title: "文书翻译授权"/);
+  assert.match(logic, /translationProvider: "offline"/);
+  assert.match(logic, /getDocumentDraftJob\(initial\.jobId\)/);
+});
