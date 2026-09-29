@@ -4,6 +4,7 @@
   "private": true,
   "description": "WeChat Mini Program adapter for Liude Xiaozhan",
   "scripts": {
+    "postinstall": "node scripts/install_render_translation.js",
     "start": "node server.js",
     "test": "node --test --test-concurrency=1 tests/*.test.js"
   },

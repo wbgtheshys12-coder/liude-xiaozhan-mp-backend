@@ -203,6 +203,10 @@ function generateMaterialDraft(payload) {
   });
 }
 
+function getDocumentDraftJob(jobId) {
+  return request({ url: `/api/mp/document-draft-jobs/${encodeURIComponent(jobId)}`, timeout: 30000 });
+}
+
 function submitBooking(payload) {
   return request({
     url: "/api/mp/booking",
@@ -924,6 +928,7 @@ module.exports = {
   previewTranscript,
   checkMaterialAccess,
   generateMaterialDraft,
+  getDocumentDraftJob,
   submitBooking,
   getBookingSlots,
   getBookingConfig,

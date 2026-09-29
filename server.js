@@ -6,6 +6,16 @@ const docx = require("docx");
 const PDFDocument = require("pdfkit");
 const localEngine = require("./local-engine");
 const documentTranslator = require("./document-translation").createDocumentTranslator();
+const offlineDocumentTranslator = require("./offline-document-translation").createOfflineTranslator();
+const OFFLINE_MODEL_DIR = process.env.MP_OFFLINE_MODEL_DIR || path.join(__dirname, ".offline-models");
+const OFFLINE_DOCUMENT_TRANSLATION = process.env.MP_DOCUMENT_TRANSLATION_MODE === "offline" || fs.existsSync(path.join(OFFLINE_MODEL_DIR, "zh-en"));
+const offlineDraftJobs = new Map();
+let offlineDraftQueue = Promise.resolve();
+function generateDocumentDraft(body, owner) {
+  return OFFLINE_DOCUMENT_TRANSLATION
+    ? offlineDocumentTranslator.generate({ ...body, translationProvider: "offline" }, owner)
+    : documentTranslator.generate(body, owner);
+}
 const { createPaymentService } = require("./payment");
 const { createCosStorage } = require("./cos-storage");
 const { createReleaseRoutes } = require("./release-routes");
@@ -3713,7 +3723,30 @@ async function handleMaterialDraft(req, res) {
   try {
     const rawBody = await readBody(req);
     const body = JSON.parse(rawBody || "{}");
-    const payload = await documentTranslator.generate(body, session.openid);
+    if (OFFLINE_DOCUMENT_TRANSLATION) {
+      const now = Date.now();
+      for (const [id, job] of offlineDraftJobs) if (now - job.createdAt > 15 * 60 * 1000) offlineDraftJobs.delete(id);
+      if ([...offlineDraftJobs.values()].filter((job) => job.status === "pending").length >= 5) {
+        sendJson(res, 429, { error: "免费翻译队列已满，请稍后再试；当前填写内容不会丢失。" });
+        return;
+      }
+      const jobId = crypto.randomBytes(18).toString("hex");
+      const job = { id: jobId, owner: session.openid, status: "pending", createdAt: now, result: null, error: null };
+      offlineDraftJobs.set(jobId, job);
+      offlineDraftQueue = offlineDraftQueue.then(async () => {
+        try {
+          job.result = await offlineDocumentTranslator.generate({ ...body, translationProvider: "offline" }, session.openid);
+          job.status = "complete";
+          recordUsage(session, "document.generate", { toolKey: body.toolKey, language: body.language, translationComplete: job.result.translationComplete });
+        } catch (error) {
+          job.error = error.statusCode ? error.message : "免费翻译暂未完成，请稍后重试；已填写内容仍保留。";
+          job.status = "failed";
+        }
+      });
+      sendJson(res, 202, { ok: true, jobId, status: "pending", pollAfterMs: 2500 });
+      return;
+    }
+    const payload = await generateDocumentDraft(body, session.openid);
     recordUsage(session, "document.generate", { toolKey: body.toolKey, language: body.language, translationComplete: payload.translationComplete });
     sendJson(res, 200, payload);
   } catch (error) {
@@ -3723,6 +3756,18 @@ async function handleMaterialDraft(req, res) {
     }
     sendJson(res, error.statusCode || 502, { error: error.statusCode ? error.message : "材料初稿暂未生成，请检查必填内容后重试。" });
   }
+}
+
+function handleOfflineDraftJob(req, res, url) {
+  const session = requireSession(req, res);
+  if (!session) return;
+  const jobId = decodeURIComponent(url.pathname.slice("/api/mp/document-draft-jobs/".length));
+  const job = offlineDraftJobs.get(jobId);
+  if (!job || job.owner !== session.openid) {
+    sendJson(res, 404, { error: "生成任务不存在或已过期。" });
+    return;
+  }
+  sendJson(res, 200, { status: job.status, ...(job.status === "complete" ? { result: job.result } : {}), ...(job.status === "failed" ? { error: job.error } : {}) });
 }
 
 function pdfTextHex(value) {
@@ -4937,7 +4982,7 @@ async function prepareDocumentExport(session, body) {
   const title = normalizeBookingText(body.title || defaultTitle, 80);
   const canonicalDraft =
     kind === "draft" && toolKey && ["de", "en"].includes(language) && body.form && typeof body.form === "object"
-      ? await documentTranslator.generate({ toolKey, language, form: body.form, documentTranslationConsent: body.documentTranslationConsent }, session.openid)
+      ? await generateDocumentDraft({ toolKey, language, form: body.form, documentTranslationConsent: body.documentTranslationConsent, translationProvider: body.translationProvider }, session.openid)
       : null;
   const rawContent = normalizeLongText(canonicalDraft?.draft || body.content || "", 30000);
   if (kind === "draft" && ["de", "en"].includes(language) && /[\u3400-\u9fff]/u.test(rawContent)) {
@@ -5955,6 +6000,11 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === "GET" && url.pathname.startsWith("/api/mp/document-draft-jobs/")) {
+    handleOfflineDraftJob(req, res, url);
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/mp/material/upload") {
     handleMaterialUpload(req, res);
     return;
@@ -5999,7 +6049,7 @@ const server = http.createServer(async (req, res) => {
     if (!session) return;
     if (!isAdminSession(session)) { sendJson(res, 403, { error: "需要管理员权限。" }); return; }
     try {
-      const result = await documentTranslator.generate({ toolKey: "motivation", language: "de", documentTranslationConsent: true, form: { latinName: "TEST Applicant", schoolMajor: "我于2024年完成机械工程本科学习。", targetProgram: "机械工程硕士", germanyOrigin: "我希望学习机械设计。" } }, session.openid);
+      const result = await generateDocumentDraft({ toolKey: "motivation", language: "de", documentTranslationConsent: true, translationProvider: OFFLINE_DOCUMENT_TRANSLATION ? "offline" : "openai", form: { latinName: "TEST Applicant", schoolMajor: "我于2024年完成机械工程本科学习。", targetProgram: "机械工程硕士", germanyOrigin: "我希望学习机械设计。" } }, session.openid);
       sendJson(res, 200, { ok: true, draft: result.draft, source: result.source });
     } catch (error) { sendJson(res, error.statusCode || 503, { error: error.statusCode ? error.message : "测试失败，请稍后重试。" }); }
     return;

@@ -44,7 +44,7 @@ function createFactualDraft(form, language, toolKey, generatedAt, options = {}) 
     return source;
   }
   const name = value("latinName", true) || value("name", true) || (de ? "[Name ergänzen]" : "[Add name]");
-  const notice = de ? "Hinweis: KI-generierter Strukturentwurf. Keine erfundenen Angaben. Vor der Einreichung alle Fakten und die Zielsprache prüfen." : "Note: AI-generated structured draft. No invented facts. Verify all facts and the target language before submission.";
+  const notice = de ? "Entwurf zur Prüfung. Vor der Einreichung alle Fakten, Namen, Daten und die Sprache sorgfältig kontrollieren." : "Draft for review. Carefully verify all facts, names, dates and language before submission.";
   const personal = [name, value("currentCity", true), form.email ? `E-Mail: ${value("email", true)}` : "", form.phone ? `${de ? "Telefon" : "Phone"}: ${value("phone", true)}` : ""].filter(Boolean);
   let lines;
   if (toolKey === "cv") {

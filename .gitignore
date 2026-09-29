@@ -5,4 +5,6 @@ data/student-uploads/
 data/course-videos/
 data/transcript-templates.private.json
 node_modules/
+.offline-deps/
+.offline-models/
 miniprogram/project.private.config.json

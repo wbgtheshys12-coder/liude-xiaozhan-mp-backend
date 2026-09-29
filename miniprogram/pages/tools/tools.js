@@ -569,7 +569,7 @@ Page({
     const filledCount = countFilled(activeSections);
     const displayDraft = buildPreviewDraft(draft, this.data.materialAccessAllowed, outputLanguage);
     const languageReviewMessage = hasChineseInput(form)
-      ? "可使用中文填写。经授权后由 OpenAI 翻译成所选语言，再按模板整理；请老师核对全部事实及专有名词。"
+      ? "可使用中文填写。经授权后由小程序后台的本地翻译程序翻译成所选语言，再按模板整理；请老师核对全部事实及专有名词。"
       : "当前填写内容会按所选语言生成；正式提交前仍需核对专有名词、项目要求和全部事实。";
     this.setData({
       activeTool,
@@ -645,18 +645,29 @@ Page({
 
   async requestForeignDraft() {
     if (!this.documentTranslationConsent) {
-      const consent = await new Promise(resolve => wx.showModal({ title: "文书翻译授权", content: "生成文书需要将你填写的姓名、教育与经历等文书内容发送至 OpenAI 进行人工智能辅助翻译（境外服务）。邮箱和电话由服务器本地填入，不发送给模型。请勿填写证件号码等无关敏感信息。是否同意本次使用？", confirmText: "同意翻译", success: result => resolve(result.confirm), fail: () => resolve(false) }));
+      const consent = await new Promise(resolve => wx.showModal({ title: "本地翻译授权", content: "生成文书时，你填写的姓名、教育与经历等文书内容将由小程序后台部署的本地翻译程序处理，不会发送至第三方在线翻译服务。翻译结果可能存在错误，正式使用前必须由老师核对。请勿填写与文书无关的证件号码等敏感信息。是否同意本次处理？", confirmText: "同意并生成", success: result => resolve(result.confirm), fail: () => resolve(false) }));
       if (!consent) throw new Error("已取消翻译，填写内容仍保留。");
       this.documentTranslationConsent = true;
     }
-    return api
+    const initial = await api
       .generateMaterialDraft({
         toolKey: this.data.activeTool.key,
         language: this.data.outputLanguage,
         form: this.data.form,
-        documentTranslationConsent: true
+        documentTranslationConsent: true,
+        translationProvider: "offline"
       })
-      .then((result) => {
+    let result = initial;
+    if (initial.jobId) {
+      for (let attempt = 0; attempt < 180; attempt += 1) {
+        await new Promise(resolve => setTimeout(resolve, 2500));
+        const job = await api.getDocumentDraftJob(initial.jobId);
+        if (job.status === "complete") { result = job.result; break; }
+        if (job.status === "failed") throw new Error(job.error || "翻译暂未完成，填写内容仍保留。");
+        if (attempt === 179) throw new Error("翻译仍在处理中，请稍后重新打开草稿；填写内容仍保留。");
+      }
+    }
+    return Promise.resolve(result).then((result) => {
         const draft = clean(result && result.draft);
         if (!draft || result.foreignLanguageReady === false || /[\u3400-\u9fff]/.test(draft)) {
           throw new Error("目标语言初稿未通过完整性检查，请稍后重试或联系文书老师。");
@@ -766,7 +777,8 @@ Page({
           fileName: `${fileBase}.docx`,
           content: draft,
           form: this.data.form,
-          documentTranslationConsent: true
+          documentTranslationConsent: true,
+          translationProvider: "offline"
         })
       )
       .then((result) =>
@@ -798,7 +810,8 @@ Page({
           fileName: `${fileBase}-watermark.pdf`,
           content: draft,
           form: this.data.form,
-          documentTranslationConsent: true
+          documentTranslationConsent: true,
+          translationProvider: "offline"
         })
       )
       .then((result) =>
