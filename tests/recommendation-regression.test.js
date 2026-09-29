@@ -144,6 +144,33 @@ test("finance and accounting target does not rank pure engineering programmes ab
   assert.doesNotMatch(topThree, /Mechanical Engineering|Energy Engineering|Civil Engineering/);
 });
 
+test("electrical-engineering candidates retain evidence-based score differences when German proof is missing", async () => {
+  const result = await localEngine.createRecommendation({
+    major: "Agricultural Electrification",
+    gpa: "2.87/4.0",
+    targetDegree: "硕士",
+    targetField: "Electrical Engineering and Automation",
+    transcriptReviewed: true,
+    transcriptRows: [
+      { course: "Advanced Mathematics", credits: "5" },
+      { course: "Linear Algebra", credits: "3" },
+      { course: "Circuit Theory", credits: "4" },
+      { course: "Analog Electronics Technology", credits: "3" },
+      { course: "Power Electronics", credits: "3" },
+      { course: "Power System Analysis", credits: "4" },
+      { course: "Sensors and Detection Technology", credits: "3" },
+      { course: "Principles of Automatic Control", credits: "3" },
+    ],
+    recommendationCount: 6,
+  });
+
+  const scores = result.recommendations.map((item) => item.matchPercent);
+  assert.equal(scores.length, 6);
+  assert.ok(new Set(scores).size >= 3, `scores should reflect different programme evidence: ${scores}`);
+  assert.ok(scores.every((score) => score >= 35 && score <= 90));
+  assert.match(result.recommendations[0].program, /Electrical|Electronics|Automation|Control|Cybernetics/i);
+});
+
 test("health psychology target retains a health, psychology, neuroscience or life-science candidate", async () => {
   const result = await localEngine.createRecommendation({
     major: "Health Psychology",

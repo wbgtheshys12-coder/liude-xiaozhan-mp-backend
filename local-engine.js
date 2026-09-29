@@ -2338,7 +2338,9 @@ function scoreProgram(program, context) {
   const hasGermanEvidence =
     /德语|german|testdaf|dsh|goethe|telc|onset|ösd|b1|b2|c1|c2/.test(context.languageEvidence || "");
   if (requiresGerman && !hasGermanEvidence) {
-    cap = Math.min(cap, 82);
+    score -= 7;
+    addScoreBreakdown(breakdown, "缺少德语证明", -7);
+    cap = Math.min(cap, 89);
     risks.push("当前资料未看到德语证明，而该项目包含德语授课或德语准入要求");
   }
 
@@ -2359,7 +2361,9 @@ function scoreProgram(program, context) {
     risks.push("仅命中相邻方向，需顾问确认是否真的可申");
   }
   if (primaryTargetDomain && (!primaryTargetFit || primaryTargetFit.points < 18)) {
-    cap = Math.min(cap, 86);
+    score -= 12;
+    addScoreBreakdown(breakdown, "第一目标方向非直接匹配", -12);
+    cap = Math.min(cap, 79);
     risks.push(`第一目标方向“${domainLabel(primaryTargetDomain)}”未直接命中，已低于核心候选排序`);
   }
 
@@ -2370,6 +2374,23 @@ function scoreProgram(program, context) {
   }
   cap = Math.min(cap, crossRisk.cap);
   risks.push(...crossRisk.risks);
+  if (
+    targetDomains.some((domain) => ["life", "social"].includes(domain)) &&
+    !/psychology|psychological|neuro|health|life science|biology|biomedical|medical|cognitive|心理|健康|医学|生物|认知/.test(titleCorpus)
+  ) {
+    score -= 20;
+    cap = Math.min(cap, 64);
+    risks.push("健康/心理目标未在项目标题体现，不能仅凭介绍中的相邻关键词列为高匹配");
+    addScoreBreakdown(breakdown, "健康/心理主方向不符", -20);
+  }
+  if (
+    targetDomains.includes("social") &&
+    /psychology|psychological|cognitive|心理|认知/.test(context.primaryTargetText) &&
+    /psychology|psychological|cognitive|心理|认知/.test(titleCorpus)
+  ) {
+    score += 26;
+    addScoreBreakdown(breakdown, "心理学项目标题直接匹配", 26);
+  }
   if (
     /electrical|electronic\b|electronics|communication|telecommunication|information engineering|电气|电子|通信|信息工程/.test(context.primaryTargetText) &&
     !/electrical|electronic\b|electronics|communication|telecommunication|information technology|information engineering|signal|circuit|电气|电子|通信|信息|信号|电路/.test(titleCorpus)
@@ -2420,22 +2441,35 @@ function scoreProgram(program, context) {
   }
 
   if (evidence.score < 58) {
-    cap = Math.min(cap, 82);
+    score -= 4;
+    addScoreBreakdown(breakdown, "专业库证据不足", -4);
+    cap = Math.min(cap, 89);
     risks.push("专业库证据较少，需打开官网二次核对");
   }
   if (courseFit.required.length && courseFit.score < 45) {
-    cap = Math.min(cap, 78);
+    const missingCoursePenalty = 6 + Math.min(8, courseFit.missingRequired.length * 2);
+    score -= missingCoursePenalty;
+    addScoreBreakdown(breakdown, "关键课程缺口", -missingCoursePenalty);
+    cap = Math.min(cap, 86);
     risks.push(`成绩单暂未覆盖关键课程领域：${courseFit.missingLabels.slice(0, 3).join("、")}`);
   } else if (courseFit.required.length && courseFit.score < 72) {
-    cap = Math.min(cap, 88);
+    score -= 4;
+    addScoreBreakdown(breakdown, "课程覆盖不完整", -4);
+    cap = Math.min(cap, 90);
     risks.push(`关键课程覆盖不完整：${courseFit.missingLabels.slice(0, 2).join("、")}`);
   }
   if (context.transcriptConfidence === "低") {
-    cap = Math.min(cap, primaryTargetFit?.strength === "title" ? 90 : 84);
+    score -= 5;
+    addScoreBreakdown(breakdown, "课程证据有限", -5);
+    cap = Math.min(cap, primaryTargetFit?.strength === "title" ? 90 : 86);
     risks.push("成绩单/课程证据有限，已保守压低分数上限");
   }
 
-  const finalScore = Math.max(35, Math.min(cap, Math.round(score)));
+  // The evidence components are deliberately additive. Compress the raw total
+  // before applying safety caps so a shared missing document does not make
+  // unrelated programmes all display the same percentage.
+  const calibratedScore = Math.round(35 + (score - 35) * 0.48);
+  const finalScore = Math.max(35, Math.min(cap, calibratedScore));
   return {
     score: finalScore,
     evidenceScore: evidence.score,
