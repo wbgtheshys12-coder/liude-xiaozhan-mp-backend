@@ -708,10 +708,30 @@ async function extractTextFromPdfWithPageOcr(buffer) {
     return "";
   }
   try {
-    return await extractScannedPdfPages(paths);
+    return await extractScannedPdfPages(await prioritizeTranscriptPages(paths));
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
+}
+
+async function prioritizeTranscriptPages(paths) {
+  const sharp = loadSharpOptional();
+  if (!sharp || paths.length <= 2) return paths;
+  const scored = await Promise.all(paths.map(async (file, index) => {
+    try {
+      const { data, info } = await sharp(file).resize(200, 280, { fit: 'fill' }).grayscale().raw().toBuffer({ resolveWithObject: true });
+      let ink = 0;
+      for (let y = 35; y < 250; y += 1) {
+        for (let x = 20; x < 180; x += 1) {
+          if (data[y * info.width + x] < 170) ink += 1;
+        }
+      }
+      return { file, index, ink };
+    } catch { return { file, index, ink: 0 }; }
+  }));
+  // A transcript can follow several notarization pages. Prefer text-dense
+  // pages; keep the original order when density is equal.
+  return scored.sort((a, b) => b.ink - a.ink || a.index - b.index).map(item => item.file);
 }
 
 async function extractScannedPdfPages(paths) {
@@ -762,12 +782,12 @@ async function extractScannedPdfPages(paths) {
 
 async function extractTextFromPdf(buffer) {
   const extractedText = await extractTextFromPdfWithPdfJsText(buffer);
-  if (scoreOcrText(extractedText) >= 180) return extractedText;
+  if (scoreOcrText(extractedText) >= 180) return { text: extractedText, scanRows: [] };
   const fallbackText = await extractTextFromPdfWithPdftotext(buffer);
   const bestText = chooseBetterOcrText(extractedText, fallbackText);
-  if (scoreOcrText(bestText) >= 180) return bestText;
+  if (scoreOcrText(bestText) >= 180) return { text: bestText, scanRows: [] };
   const pageOcrText = await extractTextFromPdfWithPageOcr(buffer);
-  return chooseBetterOcrText(bestText, pageOcrText);
+  return { text: chooseBetterOcrText(bestText, pageOcrText), scanRows: extractTranscriptRowsFromText(pageOcrText) };
 }
 
 function loadSharpOptional() {
@@ -981,9 +1001,12 @@ async function parseUploadedFiles(files) {
     let text = "";
     let method = "待补充";
     let template = null;
+    let scanRows = [];
     if (mime.includes("pdf") || lowerName.endsWith(".pdf") || looksLikePdfBuffer(buffer)) {
       try {
-        text = await extractTextFromPdf(buffer);
+        const extracted = await extractTextFromPdf(buffer);
+        text = extracted.text;
+        scanRows = extracted.scanRows;
         method = text.length > 30 ? "PDF 课程整理" : "PDF 手动校对模式";
       } catch (error) {
         text = "";
@@ -1019,6 +1042,7 @@ async function parseUploadedFiles(files) {
       templateSchool: template?.school || "",
       templateMajor: template?.major || "",
       templateRows,
+      scanRows,
       templateSensitiveHidden: templateRows.some((row) => row.course.includes(SENSITIVE_TEXT_REPLACEMENT)),
     });
   }
@@ -1192,6 +1216,9 @@ function extractTranscriptRowsFromText(text) {
     if (term) { semester = `${term[1]}-${term[2]} 第${term[3]}学期`; continue; }
     const match = compact.match(/^\s*[|｜]*\s*(.{2,60}?)\s*(公共选修|专业选修|必修|选修|任选|限选|选读|必读)\s+(\d{1,2}(?:\.\d+)?)\s+((?:100|\d{1,2})(?:\.\d+)?|[A-F][+-]?|合格|及格|优秀|良好|中等)\s*[.。|｜]*\s*$/);
     if (!match) continue;
+    // On a 100-point transcript, a single OCR digit is usually a clipped
+    // two-digit score. Do not present it as a confirmed grade.
+    if (/^\d$/.test(match[4])) continue;
     const course = cleanText(match[1]).replace(/^[\]】|｜.,，。\s]+/, '');
     const row = {course, credits: match[3], grade:match[4], term:semester, note:`扫描成绩单分栏识别（${match[2]}），请对照原件核对，尤其是课程名及罗马数字`};
     if (!/[\u4e00-\u9fa5]/.test(course) && !/[A-Za-z]{4}/.test(course)) continue;
@@ -1437,7 +1464,8 @@ function buildTranscriptSummary(parsedFiles, profile = {}) {
   const profileRowsText = profileRows.map((row) => [row.course, row.grade, row.credits, row.term, row.note].join(" ")).join(" ");
   const templateRowsText = templateRows.map((row) => [row.course, row.grade, row.credits, row.term, row.note].join(" ")).join(" ");
   const transcriptText = cleanText([parsedFiles.map((file) => file.text).join(" "), templateRowsText, profileRowsText].join(" "));
-  const textRows = extractTranscriptRowsFromText(transcriptText);
+  const scanRows = parsedFiles.flatMap(file => Array.isArray(file.scanRows) ? file.scanRows : []);
+  const textRows = scanRows.length >= 3 ? scanRows : extractTranscriptRowsFromText(transcriptText);
   const courseNameRows = textRows.length >= 3 ? [] : extractCourseNameRowsFromText(transcriptText);
   const seenCourses = new Set(textRows.map((row) => normalizeText(row.course)));
   const ocrRows = [
@@ -3390,5 +3418,6 @@ module.exports = {
   testHelpers: {
     extractTranscriptRowsFromText,
     selectRepresentativeTranscriptRows,
+    prioritizeTranscriptPages,
   },
 };
