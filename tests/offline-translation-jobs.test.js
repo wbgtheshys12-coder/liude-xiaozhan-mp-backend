@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { selectMotivationSource } = require("../offline-document-translation");
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "liude-offline-job-"));
 const missingModelDir = fs.mkdtempSync(path.join(os.tmpdir(), "liude-missing-model-"));
@@ -82,4 +83,16 @@ test("legacy mini-program receives an update instruction instead of an unusable 
   assert.match(response.data.error, /更新小程序/);
   assert.equal(response.data.jobId, undefined);
   assert.doesNotMatch(JSON.stringify(response.data), new RegExp(privateMarker));
+});
+
+test("long motivation answers select source sentences without splitting decimal grades", () => {
+  assert.equal(
+    selectMotivationSource("interestedDirections", "我想学电气工程。大学期间参加了项目。我希望学习控制课程并参加实验。", 2),
+    "我想学电气工程。 我希望学习控制课程并参加实验。"
+  );
+  assert.equal(
+    selectMotivationSource("relevantCourses", "本科课程包括电路、电机、电力电子、控制、数学、统计、编程。我的绩点是2.87。", 2),
+    "本科课程包括电路、电机、电力电子等课程。"
+  );
+  assert.equal(selectMotivationSource("schoolMajor", "平均分82.19。绩点2.87。", 2), "平均分82.19。");
 });

@@ -764,7 +764,7 @@ test("user, booking, transcript, recommendation, course, upload, Word and PDF fl
   const matchingPageText = await matchingFirstPage.getTextContent();
   const matchingPageString = matchingPageText.items.map((item) => item.str || "").join(" ");
   assert.match(matchingPageString, /Technical Unive\s*rsity/);
-  assert.match(matchingPageString, /AI生成/);
+  assert.match(matchingPageString, /规则匹配/);
   assert.doesNotMatch(matchingPageString, /https?:\/\//i);
   assert.doesNotMatch(matchingPageString, /#{2,}/);
 

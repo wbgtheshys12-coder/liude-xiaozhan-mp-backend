@@ -571,7 +571,7 @@ Page({
     const filledCount = countFilled(activeSections);
     const displayDraft = buildPreviewDraft(draft, this.data.materialAccessAllowed, outputLanguage);
     const languageReviewMessage = hasChineseInput(form)
-      ? "可使用中文填写。经授权后由小程序后台的本地翻译程序翻译成所选语言，再按模板整理；请老师核对全部事实及专有名词。"
+      ? "可使用中文填写。经确认后由小程序后台翻译成所选语言，动机信长回答会按页数选用部分原文句子；请老师核对全部事实及专有名词。"
       : "当前填写内容会按所选语言生成；正式提交前仍需核对专有名词、项目要求和全部事实。";
     this.setData({
       activeTool,

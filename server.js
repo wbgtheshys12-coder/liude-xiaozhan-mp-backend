@@ -3935,12 +3935,12 @@ function formatDocumentDateTimeForLanguage(date = new Date(), language = "zh") {
 
 function documentFooterText(language, generatedAtText) {
   if (language === "de") {
-    return `KI-Entwurf vom ${generatedAtText}; nicht ungeprüft einreichen. Fakten, Eigennamen, Studiengang, Vorgaben, Wortgrenze und Sprache vor der Bewerbung selbst oder fachlich prüfen.`;
+    return `Vorlagenbasierter Entwurf vom ${generatedAtText}; nicht ungeprüft einreichen. Fakten, Eigennamen, Studiengang, Vorgaben, Wortgrenze und Sprache vor der Bewerbung selbst oder fachlich prüfen.`;
   }
   if (language === "en") {
-    return `AI-assisted draft generated on ${generatedAtText}; do not submit unchecked. Verify facts, proper names, programme details, prompts, word limits and language before applying.`;
+    return `Template-organized draft generated on ${generatedAtText}; do not submit unchecked. Verify facts, proper names, programme details, prompts, word limits and language before applying.`;
   }
-  return `本文件生成于 ${generatedAtText}，仅为 AI 辅助申请初稿，不能未经检查直接提交。申请前请核对事实、专有名词、目标项目、官网题目、字数和语言，建议由文书老师审核。`;
+  return `本文件生成于 ${generatedAtText}，仅为模板整理的申请初稿，不能未经检查直接提交。申请前请核对事实、专有名词、目标项目、官网题目、字数和语言，建议由文书老师审核。`;
 }
 
 function readJpegDimensions(buffer) {
@@ -4273,7 +4273,7 @@ function createLegacyMatchingTablePdf(title, matchingData, watermark, generatedA
         "0.33 0.39 0.47 rg",
         "BT",
         "1 0 0 1 40 537 Tm",
-        ...pdfMixedTextOperators("基于您提交的信息、成绩与课程资料生成的院校专业候选表（AI 辅助）", 8),
+        ...pdfMixedTextOperators("基于您提交的信息、成绩与课程资料生成的院校专业候选表（规则匹配）", 8),
         "ET"
       );
       const profile = matchingData.profile || {};
@@ -4410,7 +4410,7 @@ function createLegacyMatchingTablePdf(title, matchingData, watermark, generatedA
   const pageIds = [];
   pages.forEach((commands, pageIndex) => {
     const footerNotice =
-      "AI生成 · 分数由背景、课程与项目条件规则比对得出，并非录取概率，不保证申请成功；具体条件与日期以官网核验为准。";
+      "规则匹配 · 分数由背景、课程与项目条件规则比对得出，并非录取概率，不保证申请成功；具体条件与日期以官网核验为准。";
     commands.push("0.37 0.43 0.51 rg");
     commands.push("BT", "1 0 0 1 40 17 Tm", ...pdfMixedTextOperators(footerNotice, 6.2), "ET");
     const pageLabel = `Page ${pageIndex + 1} of ${pages.length}`;
@@ -4471,7 +4471,7 @@ function createPdfKitDocument(options = {}) {
     info: {
       Title: options.title || "LIUDE XIAOZHAN",
       Author: "LIUDE XIAOZHAN",
-      Subject: options.subject || "AI-assisted application preparation draft",
+      Subject: options.subject || "Template-organized application preparation draft",
       Creator: `LIUDE XIAOZHAN ${DOCUMENT_TEMPLATE_VERSION}`,
     },
     ...options,
@@ -4870,7 +4870,7 @@ function createMatchingTablePdf(title, matchingData, watermark, generatedAtText 
     layout: "landscape",
     margins: { top: 38, right: 40, bottom: 46, left: 40 },
     title,
-    subject: "院校专业匹配报告（AI 辅助）",
+    subject: "院校专业匹配报告（规则匹配）",
   });
   return collectPdfKitBuffer(document, (pdf) => {
     bindPdfKitWatermark(pdf, watermark);
@@ -4970,7 +4970,7 @@ function createMatchingTablePdf(title, matchingData, watermark, generatedAtText 
     });
     addPdfKitFooters(
       pdf,
-      "AI生成 · 分数由背景、课程与项目条件规则比对得出，并非录取概率，不保证申请成功；具体条件与日期以官网核验为准。",
+      "规则匹配 · 分数由背景、课程与项目条件规则比对得出，并非录取概率，不保证申请成功；具体条件与日期以官网核验为准。",
       generatedAtText,
       MATCHING_PDF_LAYOUT_VERSION
     );
@@ -5140,9 +5140,9 @@ async function createBrandedDocx(title, content, generatedAtText = formatDocumen
           : "德国留学申请材料初稿",
     description:
       language === "de"
-        ? "KI-gestützter Bewerbungsentwurf von LIUDE XIAOZHAN"
+        ? "Vorlagenbasierter Bewerbungsentwurf von LIUDE XIAOZHAN"
         : language === "en"
-          ? "AI-assisted application draft by LIUDE XIAOZHAN"
+          ? "Template-organized application draft by LIUDE XIAOZHAN"
           : "由留德小栈小程序生成的申请材料中文初稿",
     features: { updateFields: true },
     styles: {
@@ -5364,7 +5364,7 @@ async function createCvTableDocx(title, content, generatedAtText, language) {
     lastModifiedBy: "LIUDE XIAOZHAN",
     title,
     subject: language === "de" ? "Strukturierter Lebenslauf" : "Structured curriculum vitae",
-    description: language === "de" ? "KI-gestützter, prüfbarer Lebenslaufentwurf" : "AI-assisted, reviewable CV draft",
+    description: language === "de" ? "Vorlagenbasierter, prüfbarer Lebenslaufentwurf" : "Template-organized, reviewable CV draft",
     features: { updateFields: true },
     styles: {
       default: {
