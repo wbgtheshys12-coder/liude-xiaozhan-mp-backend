@@ -24,9 +24,9 @@ test('CV uses shared structured rows without duplicate text fields and clears re
   page.applyExperience({detail:{value:{education:[]}}});
   assert.equal(page.data.form.education,'');
 });
-test('matching removes duplicate thesis entry and motivation suppresses duplicate source list',()=>{
+test('matching removes duplicate thesis entry and generated drafts suppress the stale translation list',()=>{
   const read=p=>fs.readFileSync(path.join(__dirname,'../miniprogram',p),'utf8');
   assert.doesNotMatch(read('pages/advisor/advisor.wxml'),/data-field="thesisTopic"/);
   assert.doesNotMatch(read('utils/experience.js'),/中小学经历（单独填写）/);
-  assert.match(read('pages/tools/tools.wxml'),/activeTool.key != 'motivation' && sourceReview.length/);
+  assert.doesNotMatch(read('pages/tools/tools.wxml'),/原文核对与待翻译清单|sourceReview.length/);
 });

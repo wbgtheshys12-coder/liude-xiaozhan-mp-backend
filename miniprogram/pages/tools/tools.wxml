@@ -126,17 +126,9 @@
 
   <view class="draft-card">
     <view class="ai-review-notice"><text class="ai-review-title">模板整理初稿预览 · 待老师核对</text><text class="ai-review-description">以下内容依据你填写的信息逐段翻译并按模板整理，不代表录取承诺；正式提交前请老师核对事实、专有名词和语言表达。</text></view>
-    <view wx:if="{{activeTool.key != 'motivation' && sourceReview.length}}" class="form-section">
-      <text class="form-section-title">原文核对与待翻译清单</text>
-      <text class="form-section-desc">以下内容尚未完成目标语言翻译，原文完整保留。请返回对应填写项补充德语或英语，再重新生成；也可导出填写内容交由文书老师处理。</text>
-      <view wx:for="{{sourceReview}}" wx:key="key" class="form-field">
-        <text class="field-label">{{item.label}}</text>
-        <text class="document-paragraph" selectable="true">{{item.original}}</text>
-      </view>
-    </view>
     <text wx:if="{{generationReview}}" class="language-review">{{generationReview}}</text>
     <view class="draft-head">
-      <text class="draft-title">{{translationComplete === false ? '外语结构预览 · 翻译待补全' : '结构初稿预览 · 模板整理'}}</text>
+      <text class="draft-title">结构初稿预览 · 模板整理</text>
       <button class="copy-button" bindtap="copyDraft">复制</button>
     </view>
     <view wx:if="{{draftLocked}}" class="preview-lock">收费功能待开发：当前账号仅展示完整内容前 20%，可导出同等范围的 Word 或水印 PDF。</view>

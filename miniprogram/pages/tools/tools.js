@@ -678,10 +678,10 @@ Page({
     }
     return Promise.resolve(result).then((result) => {
         const draft = clean(result && result.draft);
-        if (!draft || result.foreignLanguageReady === false || /[\u3400-\u9fff]/.test(draft)) {
+        if (!draft || result.foreignLanguageReady === false || result.translationComplete === false || /[\u3400-\u9fff]/.test(draft)) {
           throw new Error("目标语言初稿未通过完整性检查，请稍后重试或联系文书老师。");
         }
-        this.setData({ generationReview: result.reviewMessage || "", translationComplete: result.translationComplete !== false });
+        this.setData({ generationReview: result.reviewMessage || "", translationComplete: true });
         this.refresh(this.data.activeTool, this.data.form, draft);
         this.persistCurrent(this.data.form, draft);
         return draft;

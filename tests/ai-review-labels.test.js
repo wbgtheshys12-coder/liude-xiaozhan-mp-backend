@@ -8,6 +8,8 @@ test('template disclosures are visible and state translation limits', () => {
   assert.match(tools, /填写内容翻译与模板整理/);
   assert.match(tools, /后台的翻译程序/);
   assert.doesNotMatch(tools, /OpenAI|人工智能生成|智能辅助翻译/);
+  assert.doesNotMatch(tools, /原文核对与待翻译清单|尚未完成目标语言翻译/);
+  assert.doesNotMatch(tools, /外语结构预览 · 翻译待补全/);
   assert.ok(tools.indexOf('模板整理初稿预览') < tools.indexOf('class="document-preview"'));
   const materials = read('pages/materials/materials.wxml');
   assert.match(materials, /模板整理 · 申请材料初稿/);
