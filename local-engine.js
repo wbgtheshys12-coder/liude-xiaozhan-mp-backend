@@ -3009,14 +3009,10 @@ function resolveCitizenship(value, language) {
 }
 
 function resolveBirthInfo(value, language) {
-  const text = cleanDraftValue(value, 500);
-  const date = text.match(/\b((?:19|20)\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})/);
-  const city = resolveCity(text, language);
-  if (!date) return city;
-  const formatted = language === "de"
-    ? `${String(date[3]).padStart(2, "0")}.${String(date[2]).padStart(2, "0")}.${date[1]}`
-    : `${date[1]}-${String(date[2]).padStart(2, "0")}-${String(date[3]).padStart(2, "0")}`;
-  return `${formatted}, ${city}`;
+  const birth = require("./miniprogram/utils/birth");
+  const facts = birth.details({ birthInfo: cleanDraftValue(value, 500) });
+  if (facts.error) throw Object.assign(new Error(facts.error), { statusCode: 400 });
+  return birth.formatInfo(facts, language, birth.knownPlace(facts.place));
 }
 
 function extractCredentialSummary(value, language) {
@@ -3246,7 +3242,7 @@ function buildForeignCvDraft(form, language, generatedAt) {
   const score = extractAcademicScore(form.education, language);
   const city = resolveCity(form.currentCity, language);
   const citizenship = resolveCitizenship(form.citizenship, language);
-  const birthInfo = resolveBirthInfo(form.birthInfo, language);
+  const birthInfo = resolveBirthInfo(require("./miniprogram/utils/birth").normalizeForm(form).birthInfo, language);
   const projects = buildForeignProjectStatements(form, domain, language).map((item) => `• ${item}`);
   const credentials = extractCredentialSummary(form.tests, language);
   const experience = buildForeignExperienceStatements(form, domain, language);

@@ -1,6 +1,7 @@
 "use strict";
 const crypto = require("crypto");
 const { createFactualDraft } = require("./factual-drafts");
+const birthTools = require("./miniprogram/utils/birth");
 const FIELDS = "name latinName currentCity citizenship birthInfo schoolMajor targetProgram germanyOrigin germanyMajorUnderstanding germanEducationUnderstanding interestedDirections relevantCourses projectsInternships furtherStudyPlan careerPlan education schooling exchange tests professionalExperience researchProjects publications honors activities skills gapExplanation".split(" ");
 const fail = (message, statusCode = 503) => Object.assign(new Error(message), { statusCode });
 
@@ -17,8 +18,11 @@ function createDocumentTranslator({ env = process.env, fetchImpl = fetch, now = 
     const form = body.form;
     if (!form || typeof form !== "object" || Array.isArray(form)) throw fail("请填写文书信息。", 400);
     const source = {};
+    const birth = birthTools.details(form);
+    if (body.toolKey === "cv" && birth.error) throw fail(birth.error, 400);
+    if (body.toolKey === "cv" && /[\u3400-\u9fff]/u.test(birthTools.knownPlace(birth.place))) throw fail("请将出生地填写为城市英文或拼音，例如 Hangzhou, Zhejiang, China，避免地名被误译。", 400);
     for (const key of FIELDS) {
-      const value = String(form[key] || "").trim();
+      const value = String(key === "birthInfo" && body.toolKey === "cv" ? birthTools.knownPlace(birth.place) : form[key] || "").trim();
       if (value.length > 5000) throw fail("单项内容不能超过 5000 字。", 400);
       if (value) source[key] = value;
     }
@@ -27,7 +31,7 @@ function createDocumentTranslator({ env = process.env, fetchImpl = fetch, now = 
     // Contact details are inserted locally and never sent to the model.
     const contact = { email: String(form.email || "").slice(0, 254), phone: String(form.phone || "").slice(0, 80) };
     const model = env.OPENAI_MODEL || "gpt-5-mini";
-    const id = crypto.createHash("sha256").update(JSON.stringify([owner, body.toolKey, body.language, source, contact, model])).digest("hex");
+    const id = crypto.createHash("sha256").update(JSON.stringify([owner, body.toolKey, body.language, source, contact, model, birth.date])).digest("hex");
     for (const [key, value] of cache) if (value.expires <= now()) cache.delete(key);
     if (cache.has(id)) return cache.get(id).value;
     if (pending.has(id)) return pending.get(id);
@@ -36,7 +40,7 @@ function createDocumentTranslator({ env = process.env, fetchImpl = fetch, now = 
     if ((counts.get(owner) || 0) >= 10 || total >= 100) throw fail("今日文书翻译次数已达上限，请明日再试或联系管理员。", 429);
     if (pending.size >= 2) throw fail("文书服务正忙，请稍后重试。", 429);
     counts.set(owner, (counts.get(owner) || 0) + 1); total += 1;
-    const task = translate(source, contact, body, model).then(value => {
+    const task = translate(source, contact, body, model, birth).then(value => {
       if (cache.size >= 100) cache.delete(cache.keys().next().value);
       cache.set(id, { value, expires: now() + 30 * 60 * 1000 });
       return value;
@@ -44,7 +48,7 @@ function createDocumentTranslator({ env = process.env, fetchImpl = fetch, now = 
     pending.set(id, task);
     return task;
   }
-  async function translate(source, contact, body, model) {
+  async function translate(source, contact, body, model, birth) {
     const keys = Object.keys(source);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 90000);
@@ -75,10 +79,15 @@ function createDocumentTranslator({ env = process.env, fetchImpl = fetch, now = 
       const text = (result.output || []).flatMap(item => item.content || []).filter(item => item.type === "output_text").map(item => item.text).join("");
       let translated;
       try { translated = JSON.parse(text); } catch { throw fail("翻译结果格式异常，请重试。"); }
+      if (body.toolKey === "cv" && source.birthInfo) translated.birthInfo = source.birthInfo;
       for (const key of keys) {
         if (typeof translated[key] !== "string" || !translated[key].trim() || /[\u3400-\u9fff]/u.test(translated[key])) throw fail("部分内容未完成目标语言翻译，请重试。");
       }
       if (source.latinName && !/[\u3400-\u9fff]/u.test(source.latinName)) translated.latinName = source.latinName;
+      if (body.toolKey === "cv") {
+        const place = source.birthInfo && !/[\u3400-\u9fff]/u.test(source.birthInfo) ? source.birthInfo : translated.birthInfo;
+        translated.birthInfo = birthTools.formatInfo(birth, body.language, place);
+      }
       const factual = createFactualDraft({ ...translated, ...contact }, body.language, body.toolKey, new Date(now()).toISOString().slice(0, 10), { translated: true });
       return { ok: true, draft: factual.draft, language: body.language, toolKey: body.toolKey, source: "openai-factual-translation-v1", foreignLanguageReady: true, translationComplete: true, untranslatedFields: [], sourceReview: [], warnings: [], reviewMessage: "AI 辅助翻译并按模板整理。请由老师核对姓名拼写、学校名称、日期、成绩和全部事实后再提交。" };
     } catch (error) {

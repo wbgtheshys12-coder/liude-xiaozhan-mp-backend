@@ -69,6 +69,7 @@
             bindinput="updateField"
             maxlength="{{-1}}"
           ></auto-textarea>
+          <picker wx:elif="{{field.type == 'date'}}" mode="date" start="1900-01-01" end="{{birthDateMax}}" value="{{field.value}}" data-key="{{field.key}}" bindchange="updateField"><view class="form-input">{{field.value || field.placeholder}}</view></picker>
           <input placeholder-class="input-placeholder"
             wx:else
             class="form-input"

@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { createFactualDraft } = require('./factual-drafts');
 const PERSONAL_FIELDS = 'name latinName currentCity citizenship birthInfo'.split(' ');
+const birthTools = require('./miniprogram/utils/birth');
 const MOTIVATION_FIELDS = 'schoolMajor targetProgram germanyOrigin germanyMajorUnderstanding germanEducationUnderstanding interestedDirections relevantCourses projectsInternships furtherStudyPlan careerPlan'.split(' ');
 const CV_FIELDS = 'education schooling exchange tests professionalExperience researchProjects publications honors activities skills gapExplanation'.split(' ');
 function sourceSentences(value) {
@@ -41,9 +42,13 @@ function createOfflineTranslator({env=process.env, spawnImpl=spawn}={}) {
     const modelDir=env.MP_OFFLINE_MODEL_DIR||path.join(__dirname,'.offline-models');
     if (!fs.existsSync(path.join(modelDir,'zh-en'))) throw fail('免费翻译模型尚未部署，请联系管理员。');
     const source={}, original={};
+    const birth = birthTools.details(body.form);
+    if (body.toolKey === 'cv' && birth.error) throw fail(birth.error, 400);
+    if (body.toolKey === 'cv' && /[\u3400-\u9fff]/.test(birthTools.knownPlace(birth.place))) throw fail('请将出生地填写为城市英文或拼音，例如 Hangzhou, Zhejiang, China，避免地名被误译。', 400);
+    const inputForm = body.toolKey === 'cv' ? { ...body.form, birthInfo: birthTools.knownPlace(birth.place) } : body.form;
     const fields=[...PERSONAL_FIELDS,...(body.toolKey==='motivation'?MOTIVATION_FIELDS:CV_FIELDS)];
     for(const key of fields){
-      const value=String(body.form?.[key]||'').trim();
+      const value=String(inputForm?.[key]||'').trim();
       if(value.length>5000) throw fail('单项内容超过5000字。',400);
       if(value) original[key]=value;
       const selected=body.toolKey==='motivation' && !['schoolMajor','targetProgram'].includes(key)
@@ -76,9 +81,15 @@ function createOfflineTranslator({env=process.env, spawnImpl=spawn}={}) {
         child.stdin.on('error',()=>{});
         child.stdin.end(JSON.stringify({language:body.language,fields:source}));
       });
+      if (body.toolKey === 'cv' && source.birthInfo) translated.birthInfo = source.birthInfo;
       for(const key of Object.keys(source)) if(typeof translated[key]!=='string'||!translated[key].trim()||/[\u3400-\u9fff]/.test(translated[key])) throw fail('译文不完整，请老师核对。');
+      if (body.toolKey === 'cv') {
+        const place = source.birthInfo && !/[\u3400-\u9fff]/.test(source.birthInfo) ? source.birthInfo : translated.birthInfo;
+        translated.birthInfo = birthTools.formatInfo(birth, body.language, place);
+        original.birthInfo = String(body.form.birthInfo || [birth.date, birth.place].filter(Boolean).join('，'));
+      }
       const factual=createFactualDraft({...translated,email:body.form.email,phone:body.form.phone},body.language,body.toolKey,new Date().toISOString().slice(0,10),{translated:true});
-      const condensed=Object.keys(original).some(key=>original[key]!==source[key]);
+      const condensed=body.toolKey==='motivation' && Object.keys(original).some(key=>original[key]!==source[key]);
       const result={ok:true,draft:factual.draft,source:'offline-mt-template-v1',language:body.language,toolKey:body.toolKey,foreignLanguageReady:true,translationComplete:true,teacherReviewRequired:true,sourceReview:Object.keys(source).map(key=>({key,original:original[key],selected:source[key],translation:translated[key]})),reviewMessage:condensed?'为符合所选页数，初稿只选用了部分原文句子；完整填写内容仍保留。机器译文未经老师核对，正式使用前请核对事实、术语、日期与取舍。':'免费机器翻译＋固定模板初稿，尚未经老师核对。专业术语、语法、日期、成绩及所有经历必须逐项核对，不可直接递交。'};
       if(cache.size>=20) cache.delete(cache.keys().next().value);
       cache.set(cacheKey,{expires:Date.now()+1800000,result}); return result;

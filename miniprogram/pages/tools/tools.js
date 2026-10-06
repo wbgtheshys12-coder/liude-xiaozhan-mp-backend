@@ -3,9 +3,10 @@ const api = require("../../utils/api");
 const progress = require("../../utils/progress");
 const experience = require("../../utils/experience");
 const formExit = require("../../utils/form-exit");
+const birth = require("../../utils/birth");
 
 const FORM_KEY_PREFIX = "liude_user_tool_form";
-const TOOL_SCHEMA_VERSION = "20260927-translated-facts-v8";
+const TOOL_SCHEMA_VERSION = "20261006-structured-birth-v9";
 
 const TOOL_DEFS = [
   {
@@ -78,7 +79,8 @@ const TOOL_DEFS = [
            { key: "phone", label: "电话", placeholder: "含国家/地区区号，例如 +86", required: true },
            { key: "currentCity", label: "现居城市", placeholder: "例如：杭州 / Hangzhou", required: true },
            { key: "citizenship", label: "国籍", placeholder: "例如：中国；此处不要填写身份证号或护照号", required: true },
-           { key: "birthInfo", label: "生日、出生地", placeholder: "例如：2002-03-18，杭州；无需填写身份证号", required: true }
+           { key: "birthDate", label: "出生日期", type: "date", placeholder: "请选择生日", required: true },
+           { key: "birthPlace", label: "出生地（城市英文或拼音）", placeholder: "例如：Hangzhou, Zhejiang, China；请勿填写详细住址", required: true }
         ]
       },
       {
@@ -320,7 +322,7 @@ function buildCvDraft(form, language = "de") {
       `Phone: ${clean(form.phone)}`,
       `Current city: ${clean(form.currentCity)}`,
       `Citizenship: ${clean(form.citizenship)}`,
-      `Date and place of birth: ${clean(form.birthInfo)}`,
+      `Date and place of birth: ${clean(birth.formatInfo(birth.details(form), "en", birth.knownPlace(birth.details(form).place)))}`,
       "",
       "EDUCATION",
       clean(form.education),
@@ -353,7 +355,7 @@ function buildCvDraft(form, language = "de") {
     `Telefon: ${clean(form.phone)}`,
     `Wohnort: ${clean(form.currentCity)}`,
     `Staatsangehörigkeit: ${clean(form.citizenship)}`,
-    `Geburtsdatum und -ort: ${clean(form.birthInfo)}`,
+    `Geburtsdatum und -ort: ${clean(birth.formatInfo(birth.details(form), "de", birth.knownPlace(birth.details(form).place)))}`,
     "",
     "AUSBILDUNG",
     clean(form.education),
@@ -549,7 +551,9 @@ Page({
     const form = { ...prefillForm(activeTool.key), ...Object.fromEntries(Object.entries(savedForm).filter(([, value]) => value !== "")), ...shared };
     const personal = require("../../utils/profile").getStored();
     const edits = require("../../utils/profile").getLocalEdits();
-    ["name", "latinName", "phone", "email", "currentCity", "citizenship", "birthInfo"].forEach(key => { if (personal[key] || Object.prototype.hasOwnProperty.call(edits, key)) form[key] = personal[key]; });
+    ["name", "latinName", "phone", "email", "currentCity", "citizenship", "birthInfo", "birthDate", "birthPlace"].forEach(key => { if (personal[key] || Object.prototype.hasOwnProperty.call(edits, key)) form[key] = personal[key]; });
+    Object.assign(form, birth.normalizeForm(form));
+    this.setData({ birthDateMax: new Date().toISOString().slice(0, 10) });
     const experienceData = experience.load();
     if (activeTool.key === "cv") Object.assign(form, experience.toForm(experienceData, saved.outputLanguage === "en" ? "en" : "de"));
     this.setData({ experienceData, pageLimit: Number(form.pageLimit) === 1 ? 1 : 2 });
@@ -593,11 +597,14 @@ Page({
 
   updateField(event) {
     const key = event.currentTarget.dataset.key;
-    if (["name", "latinName", "phone", "email", "currentCity", "citizenship", "birthInfo"].includes(key)) require("../../utils/profile").saveLocal({ [key]: event.detail.value });
     const form = {
       ...this.data.form,
       [key]: event.detail.value
     };
+    if (["birthDate", "birthPlace"].includes(key)) Object.assign(form, birth.normalizeForm(form));
+    if (["name", "latinName", "phone", "email", "currentCity", "citizenship", "birthDate", "birthPlace"].includes(key)) {
+      require("../../utils/profile").saveLocal(["birthDate", "birthPlace"].includes(key) ? { birthDate: form.birthDate, birthPlace: form.birthPlace, birthInfo: form.birthInfo } : { [key]: event.detail.value });
+    }
     this.refresh(this.data.activeTool, form, "");
     this.persistCurrent(form, "");
   },
@@ -605,7 +612,7 @@ Page({
   persistCurrent(form = this.data.form, draft = this.data.draft) {
     if (this.discardingDraft) return;
     if (!getApp().globalData.token) return;
-    const keys = ["name", "latinName", "phone", "email", "currentCity", "citizenship", "birthInfo"];
+    const keys = ["name", "latinName", "phone", "email", "currentCity", "citizenship", "birthInfo", "birthDate", "birthPlace"];
     const shared = wx.getStorageSync(env.scopedKey("liude-shared-personal-v1")) || {};
     keys.forEach((key) => { if (Object.prototype.hasOwnProperty.call(form, key)) shared[key] = form[key]; });
     wx.setStorageSync(env.scopedKey("liude-shared-personal-v1"), shared);
@@ -637,6 +644,11 @@ Page({
   validateRequiredFields() {
     if (!api.ensureLogin()) return false;
     if (this.data.activeTool.key === "cv") {
+      const birthError = birth.details(this.data.form).error;
+      if (birthError) { wx.showModal({ title: "请核对生日", content: birthError, showCancel: false }); return false; }
+      if (/[\u3400-\u9fff]/.test(birth.knownPlace(birth.details(this.data.form).place))) {
+        wx.showModal({ title: "请核对出生地拼写", content: "为避免地名被误译，请填写出生城市的英文或拼音，例如 Hangzhou, Zhejiang, China。只写城市、省份和国家，不需要详细住址。", showCancel: false }); return false;
+      }
       const errors = experience.validate(this.data.experienceData, new Date(), { ignoreGaps: true });
       if (errors.length) { wx.showModal({ title: "请核对经历时间", content: errors.join("\n"), showCancel: false }); return false; }
     }

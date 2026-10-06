@@ -106,7 +106,7 @@ def run():
         if field == 'targetProgram' and value.strip() == '电气工程硕士':
             rows.append([field, 'Master of Science in Electrical Engineering' if lang == 'en' else 'Masterstudium Elektrotechnik', None, '\n']); continue
         # Already Latin personal names must stay exact, never be translated.
-        if field in ('latinName','name') and not re.search('[\u3400-\u9fff]',value):
+        if field in ('latinName','name','birthInfo') and not re.search('[\u3400-\u9fff]',value):
             rows.append([field,value,None,'\n']); continue
         if field in ('education','schooling','tests','professionalExperience','researchProjects','publications','honors','activities','skills') and ' | ' in value:
             for line in value.splitlines():
