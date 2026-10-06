@@ -8,6 +8,29 @@ const birth = require('../miniprogram/utils/birth');
 const { createOfflineTranslator } = require('../offline-document-translation');
 const { createDocumentTranslator } = require('../document-translation');
 
+test('CV form uses a date picker, separates place and stores both for reuse', () => {
+  const vm = require('node:vm');
+  let page, saved;
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../miniprogram/pages/tools/tools.js'), 'utf8'), {
+    require: name => name.endsWith('/birth') ? birth : name.endsWith('/profile') ? { saveLocal: fields => { saved = fields; } } : {},
+    Page: value => { page = value; }, console
+  });
+  const personal = page.data.tools.find(tool => tool.key === 'cv').sections[0].fields;
+  assert.equal(personal.find(field => field.key === 'birthDate').type, 'date');
+  assert.ok(personal.find(field => field.key === 'birthPlace').placeholder.includes('Hangzhou'));
+  assert.ok(!personal.some(field => field.key === 'birthInfo'));
+  page.data.form = { birthInfo: '2002-03-18，杭州' };
+  page.refresh = (_, form) => { page.data.form = form; };
+  page.persistCurrent = () => {};
+  page.updateField({ currentTarget: { dataset: { key: 'birthDate' } }, detail: { value: '2003-04-19' } });
+  assert.equal(saved.birthDate, '2003-04-19');
+  assert.equal(saved.birthPlace, '杭州');
+  page.updateField({ currentTarget: { dataset: { key: 'birthPlace' } }, detail: { value: 'Hangzhou, China' } });
+  assert.equal(saved.birthInfo, '2003-04-19，Hangzhou, China');
+  const view = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/tools/tools.wxml'), 'utf8');
+  assert.match(view, /mode="date".*bindchange="updateField"/);
+});
+
 test('birthday validates calendar dates and migrates legacy input without duplication', () => {
   for (const input of ['2002-03-18', '2002年3月18日', '18.03.2002']) assert.equal(birth.parseDate(input), '2002-03-18');
   assert.equal(birth.parseDate('2000-02-29'), '2000-02-29');
