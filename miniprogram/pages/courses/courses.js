@@ -1,6 +1,7 @@
 const api = require("../../utils/api");
 const env = require("../../utils/env");
 
+
 function normalizeCourse(item) {
   const playable = Boolean(item.type === "recorded" && item.videoUrl);
   const liveReady = Boolean(item.type === "live" && item.liveUrl);
@@ -30,14 +31,15 @@ Page({
   },
 
   loadCourses() {
-    this.setData({ loading: true });
+    this.setData({ loading: true, courses: [], currentCourse: null, notice: "", protectNote: "" });
     api
       .getCourses()
       .then((result) => {
+        const courses = (result.records || []).map(normalizeCourse).filter((course) => course.available);
         this.setData({
-          courses: (result.records || []).map(normalizeCourse),
-          notice: result.bindingNote || "当前微信号即课程登录账号。",
-          protectNote: result.protectNote || "课程不提供下载入口。"
+          courses,
+          notice: courses.length ? (result.bindingNote || "选择课程开始学习。") : "该功能暂未开放",
+          protectNote: courses.length ? (result.protectNote || "课程不提供下载入口。") : "当前没有已公开发布的可播放课程。"
         });
       })
       .catch((error) => {

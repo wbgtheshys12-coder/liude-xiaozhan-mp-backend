@@ -1,6 +1,6 @@
 <view class="screen-page courses-page">
   <view class="hero">
-    <text class="eyebrow">免费课程 · 在线学习</text>
+    <text class="eyebrow">课程服务</text>
     <text class="title">网课中心</text>
     <text class="summary">{{notice}}</text>
     <text class="protect-note">{{protectNote}}</text>
@@ -26,7 +26,7 @@
       <button class="primary-button" disabled="{{!item.available}}" data-id="{{item.id}}" bindtap="openCourse">{{item.actionText}}</button>
       <button data-id="{{item.id}}" bindtap="sendFeedback">课程反馈 / 私信老师</button>
     </view>
-    <view wx:if="{{!courses.length}}" class="empty">暂无开放课程。</view>
+    <view wx:if="{{!courses.length}}" class="empty">该功能暂未开放，当前不提供视频播放。</view>
   </view>
 
   <view wx:if="{{currentCourse}}" class="player-mask">
