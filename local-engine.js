@@ -3401,6 +3401,13 @@ module.exports = {
       applicationDeadline: program.applicationDeadline || program.deadline || "",
       degree: program.degree || "",
       city: program.city || "",
+      duration: program.duration || "",
+      ects: program.ects || "",
+      languageOfInstruction: Array.isArray(program.languageOfInstruction) ? program.languageOfInstruction : [],
+      languageRequirements: program.languageRequirements || "",
+      applicationInfo: program.applicationInfo || "",
+      careerInfo: program.careerInfo || "",
+      tuitionRaw: program.tuition || "",
       keywords: program.keywords || [],
       domains: program.domains || [],
       sourceUrls: (program.sourcePaths || []).map((source) => source.url).filter((url) => /^https:\/\//.test(url || "")).slice(0, 4)

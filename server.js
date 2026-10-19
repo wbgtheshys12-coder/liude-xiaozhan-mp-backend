@@ -19,6 +19,11 @@ function generateDocumentDraft(body, owner) {
 const { createPaymentService } = require("./payment");
 const { createCosStorage } = require("./cos-storage");
 const { createReleaseRoutes } = require("./release-routes");
+const catalogRoutes = require("./catalog-api").createCatalogRoutes({
+  getPrograms: () => localEngine.getPublicCatalog(),
+  getSchools: () => require("./miniprogram/utils/schools").getSchools(),
+  sendJson
+});
 
 const PORT = Number(process.env.PORT || 3108);
 const WECHAT_APPID = process.env.WECHAT_APPID || "";
@@ -5790,6 +5795,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (await releaseRoutes(req, res, url)) return;
+  if (await catalogRoutes(req, res, url)) return;
 
   if (["GET", "HEAD"].includes(req.method) && url.pathname === "/api/mp/public/about-poster.jpg") {
     await sendAboutPoster(req, res);
