@@ -30,6 +30,8 @@ test('live HTTP rejects anonymous access and limits staff token to catalog reads
   assert.equal((await request('/api/mp/admin/uploads',secret)).status,401);
   assert.equal((await request('/api/catalog/v1/programs',secret,'POST')).status,405);
   const old=await request('/database');assert.equal(old.status,302);assert.equal(old.headers.get('location'),'/admin#catalog');
+  const adminPage=await request('/admin');assert.match(adminPage.headers.get('content-security-policy'),/frame-src 'self' blob:/);
+  assert.match(await adminPage.text(),/id="catalogFrame"/);
   const mini=await request('/api/mp/public/catalog');assert.equal(mini.status,200);
 });
 test.after(async()=>{await new Promise(resolve=>server.close(resolve));fs.rmSync(dir,{recursive:true,force:true});});

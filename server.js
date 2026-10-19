@@ -5764,7 +5764,7 @@ function sendAdminWebAsset(res, pathname) {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "no-referrer",
-    "Content-Security-Policy": "default-src 'self'; script-src 'self'; worker-src 'self'; style-src 'self'; font-src 'self' blob: data:; img-src 'self' data: blob:; frame-src blob:; media-src 'self' https:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self'; worker-src 'self'; style-src 'self'; font-src 'self' blob: data:; img-src 'self' data: blob:; frame-src 'self' blob:; media-src 'self' https:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
   });
   fs.createReadStream(filePath).pipe(res);
 }
