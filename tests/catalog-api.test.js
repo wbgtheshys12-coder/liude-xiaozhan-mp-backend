@@ -33,4 +33,7 @@ test('query page is isolated and renders untrusted fields as text',async()=>{
   assert.equal((await request('/database/style.css')).status,200);
   assert.equal((await request('/database','POST')).status,405);
   assert.equal((await request('/database/../../server.js')).handled,false);
+  const admin=require('node:fs').readFileSync(require('node:path').join(__dirname,'../admin-web/index.html'),'utf8');
+  assert.match(admin,/href="\/database"/);
+  assert.match(admin,/只读，无需管理令牌/);
 });

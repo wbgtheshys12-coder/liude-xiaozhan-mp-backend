@@ -19,6 +19,7 @@
     <main>
       <section id="loginPanel" class="panel login-panel">
         <h2>安全登录</h2>
+        <p>文书同事仅查询学校和专业资料，可直接打开 <a href="/database" target="_blank" rel="noopener">文书资料库（只读，无需管理令牌）</a>。</p>
         <p>输入 Render Secret 中的 MP_ADMIN_WEB_TOKEN。令牌只保存在本页会话中，关闭浏览器后自动清除。</p>
         <label>后台访问令牌<input id="tokenInput" type="password" autocomplete="off" placeholder="请输入后台令牌" /></label>
         <button id="loginButton" class="primary" type="button">进入后台</button>
@@ -34,6 +35,7 @@
           <button class="tab" data-tab="payments" type="button">支付订单</button>
           <button class="tab" data-tab="stats" type="button">统计</button>
           <button class="tab" data-tab="posts" type="button">资讯审核</button>
+          <a href="/database" target="_blank" rel="noopener">院校专业资料库 ↗</a>
         </nav>
 
         <p class="security-note">后台仅展示脱敏用户标识。请勿转发学生资料或将访问令牌写入聊天、代码和 GitHub。</p>

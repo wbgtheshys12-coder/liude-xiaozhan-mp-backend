@@ -2,6 +2,8 @@
 
 网页入口：https://liude-xiaozhan-mp-backend.onrender.com/database
 
+原电脑后台的登录页面和已登录导航中也有“文书资料库／院校专业资料库”链接。文书同事无需登录课程管理后台，可直接访问查询页；请勿向他们分发管理员令牌。
+
 API 基地址：https://liude-xiaozhan-mp-backend.onrender.com/api/catalog/v1
 
 这是公开资料的只读查询入口，不是数据库连接账号。使用现有 HTTPS 443 端口，不需要管理员令牌。接口不提供学生信息、课程管理、修改或删除权限。当前不提供调用方身份识别；如果后续需要公司内部访问控制，应另行设置专用身份认证，而不是分发管理员令牌。
