@@ -119,7 +119,6 @@
   }
 
   async function loadResource(resource) {
-    if (state.role === "catalog" && resource !== "catalog") return;
     setMessage("正在读取数据…", true);
     try {
       if (resource === "catalog") $("catalogFrame").src = "/admin/catalog";
@@ -307,14 +306,11 @@
 
   async function openSession() {
     const session = await api("/api/catalog/v1");
-    if (!["admin", "catalog"].includes(session.role)) throw new Error("口令无效");
+    if (session.role !== "admin") throw new Error("口令无效");
     state.role = session.role;
     sessionStorage.setItem("liude_admin_token", state.token);
-    document.querySelectorAll(".tab").forEach(item => item.classList.toggle("hidden", state.role === "catalog" && item.dataset.tab !== "catalog"));
-    $("testTranslationButton").classList.toggle("hidden", state.role === "catalog");
-    $("translationTestResult").classList.toggle("hidden", state.role === "catalog");
     showApp(true);
-    const resource = state.role === "catalog" || location.hash === "#catalog" ? "catalog" : "courses";
+    const resource = location.hash === "#catalog" ? "catalog" : "courses";
     document.querySelectorAll(".view").forEach(item => item.classList.add("hidden"));
     document.querySelectorAll(".tab").forEach(item => item.classList.toggle("active", item.dataset.tab === resource));
     $(`${resource}View`).classList.remove("hidden");
@@ -381,7 +377,6 @@
   document.addEventListener("click", (event) => {
     const tab = event.target.closest(".tab");
     if (tab) {
-      if (state.role === "catalog" && tab.dataset.tab !== "catalog") return;
       document.querySelectorAll(".tab").forEach((item) => item.classList.toggle("active", item === tab));
       document.querySelectorAll(".view").forEach((item) => item.classList.add("hidden"));
       $(`${tab.dataset.tab}View`).classList.remove("hidden");

@@ -8,15 +8,8 @@ Object.assign(TERMS, {'信息':'information informatics','科学':'science','硕
 const norm = value => String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9\u3400-\u9fff]+/g, ' ').trim();
 const plain = value => String(value || '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/[*#_]/g, '').trim();
 const take = (object, keys) => Object.fromEntries(keys.map(key => [key, object[key] ?? '']));
-function createCatalogAuthorization({env=process.env,isAdmin=()=>false}={}) {
-  return req => {
-    if(isAdmin(req))return 'admin';
-    const secret=String(env.MP_CATALOG_WEB_TOKEN||'').trim();
-    const token=String(req.headers?.authorization||'').match(/^Bearer\s+(.+)$/i)?.[1]||'';
-    if(secret.length<24||token.length>4096)return false;
-    const given=Buffer.from(token),expected=Buffer.from(secret);
-    return given.length===expected.length && crypto.timingSafeEqual(given,expected)?'catalog':false;
-  };
+function createCatalogAuthorization({isAdmin=()=>false}={}) {
+  return req => isAdmin(req)?'admin':false;
 }
 function createCatalogRoutes({ getPrograms, getSchools, sendJson, authorize=()=>false }) {
   // Only existing public data is projected here. No sessions, uploads or admin data.

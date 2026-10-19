@@ -35,7 +35,7 @@ test('query page is isolated and renders untrusted fields as text',async()=>{
   assert.equal((await request('/database/../../server.js')).handled,false);
   const admin=require('node:fs').readFileSync(require('node:path').join(__dirname,'../admin-web/index.html'),'utf8');
   assert.match(admin,/data-tab="catalog"/);
-  assert.match(admin,/文书只读口令/);
+  assert.match(admin,/无需为资料库再次输入口令/);
   assert.match(app.text,/Authorization/);
 });
 test('catalog fails closed without authorization for lists, metadata and details',async()=>{

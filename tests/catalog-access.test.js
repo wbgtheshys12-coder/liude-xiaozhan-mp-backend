@@ -1,9 +1,9 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const {createCatalogAuthorization}=require('../catalog-api');
 const secret='test-catalog-readonly-secret-32-chars';
-test('dedicated catalog token is optional, constant-length checked and not an admin token',()=>{
+test('catalog uses existing admin access only and ignores separate catalog secrets',()=>{
   const auth=createCatalogAuthorization({env:{MP_CATALOG_WEB_TOKEN:secret},isAdmin:req=>req.headers?.authorization==='Bearer test-admin'});
-  assert.equal(auth({headers:{authorization:`Bearer ${secret}`}}),'catalog');
+  assert.equal(auth({headers:{authorization:`Bearer ${secret}`}}),false);
   assert.equal(auth({headers:{authorization:'Bearer test-admin'}}),'admin');
   assert.equal(auth({headers:{authorization:'Bearer wrong'}}),false);
   assert.equal(auth({}),false);
@@ -18,17 +18,17 @@ async function request(route,token,method='GET'){
   if(!server.listening)await new Promise(resolve=>server.once('listening',resolve));
   return fetch(`http://127.0.0.1:${server.address().port}${route}`,{method,headers:token?{Authorization:`Bearer ${token}`}:{},redirect:'manual'});
 }
-test('live HTTP rejects anonymous access and limits staff token to catalog reads',async()=>{
+test('live HTTP reuses admin access and rejects anonymous or separate tokens',async()=>{
   for(const route of ['/api/catalog/v1','/api/catalog/v1/schools','/api/catalog/v1/programs']){
     assert.equal((await request(route)).status,401);
     assert.equal((await request(route,'wrong')).status,401);
   }
-  const staff=await request('/api/catalog/v1',secret);assert.equal(staff.status,200);assert.equal((await staff.json()).role,'catalog');assert.equal(staff.headers.get('cache-control'),'no-store');
-  const admin=await request('/api/catalog/v1',process.env.MP_ADMIN_WEB_TOKEN);assert.equal((await admin.json()).role,'admin');
-  const records=await (await request('/api/catalog/v1/programs?q=electrical',secret)).json();assert.ok(records.total>0);
+  const separate=await request('/api/catalog/v1',secret);assert.equal(separate.status,401);
+  const admin=await request('/api/catalog/v1',process.env.MP_ADMIN_WEB_TOKEN);assert.equal(admin.headers.get('cache-control'),'no-store');assert.equal((await admin.json()).role,'admin');
+  const records=await (await request('/api/catalog/v1/programs?q=electrical',process.env.MP_ADMIN_WEB_TOKEN)).json();assert.ok(records.total>0);
   assert.equal((await request('/api/mp/admin/courses',secret)).status,401);
   assert.equal((await request('/api/mp/admin/uploads',secret)).status,401);
-  assert.equal((await request('/api/catalog/v1/programs',secret,'POST')).status,405);
+  assert.equal((await request('/api/catalog/v1/programs',process.env.MP_ADMIN_WEB_TOKEN,'POST')).status,405);
   const old=await request('/database');assert.equal(old.status,302);assert.equal(old.headers.get('location'),'/admin#catalog');
   const adminPage=await request('/admin');assert.match(adminPage.headers.get('content-security-policy'),/frame-src 'self' blob:/);
   assert.match(await adminPage.text(),/id="catalogFrame"/);
