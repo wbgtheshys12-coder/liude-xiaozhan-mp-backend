@@ -22,6 +22,7 @@ const { createReleaseRoutes } = require("./release-routes");
 const catalogRoutes = require("./catalog-api").createCatalogRoutes({
   getPrograms: () => localEngine.getPublicCatalog(),
   getSchools: () => require("./miniprogram/utils/schools").getSchools(),
+  authorize: require("./catalog-api").createCatalogAuthorization({ isAdmin: req => Boolean(getSession(req) && isAdminSession(getSession(req))) }),
   sendJson
 });
 

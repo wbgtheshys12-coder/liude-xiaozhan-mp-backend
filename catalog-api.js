@@ -8,7 +8,17 @@ Object.assign(TERMS, {'信息':'information informatics','科学':'science','硕
 const norm = value => String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9\u3400-\u9fff]+/g, ' ').trim();
 const plain = value => String(value || '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/[*#_]/g, '').trim();
 const take = (object, keys) => Object.fromEntries(keys.map(key => [key, object[key] ?? '']));
-function createCatalogRoutes({ getPrograms, getSchools, sendJson }) {
+function createCatalogAuthorization({env=process.env,isAdmin=()=>false}={}) {
+  return req => {
+    if(isAdmin(req))return 'admin';
+    const secret=String(env.MP_CATALOG_WEB_TOKEN||'').trim();
+    const token=String(req.headers?.authorization||'').match(/^Bearer\s+(.+)$/i)?.[1]||'';
+    if(secret.length<24||token.length>4096)return false;
+    const given=Buffer.from(token),expected=Buffer.from(secret);
+    return given.length===expected.length && crypto.timingSafeEqual(given,expected)?'catalog':false;
+  };
+}
+function createCatalogRoutes({ getPrograms, getSchools, sendJson, authorize=()=>false }) {
   // Only existing public data is projected here. No sessions, uploads or admin data.
   const schools = getSchools().map(s => take(s, ['id','name','englishName','germanName','city','state','type','website','summary','strengths','application','language','materialTips']));
   const names = new Map();
@@ -35,7 +45,12 @@ function createCatalogRoutes({ getPrograms, getSchools, sendJson }) {
     const base='/api/catalog/v1';
     if(url.pathname==='/database' || url.pathname==='/database/') {
       if(req.method!=='GET'){sendJson(res,405,{error:'只支持 GET。'},{Allow:'GET'});return true;}
-      res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'",'X-Content-Type-Options':'nosniff'});
+      res.writeHead(302,{Location:'/admin#catalog','Cache-Control':'no-store'});res.end();return true;
+    }
+    if(url.pathname==='/admin/catalog') {
+      if(req.method!=='GET'){sendJson(res,405,{error:'只支持 GET。'},{Allow:'GET'});return true;}
+      // A shell only: data requires a Bearer token supplied from the logged-in tab.
+      res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'self'",'X-Content-Type-Options':'nosniff'});
       res.end(fs.readFileSync(path.join(__dirname,'catalog-web/index.html')));return true;
     }
     if(['/database/app.js','/database/style.css'].includes(url.pathname)) {
@@ -46,10 +61,13 @@ function createCatalogRoutes({ getPrograms, getSchools, sendJson }) {
     }
     if(url.pathname!==base && !url.pathname.startsWith(`${base}/`))return false;
     try {
+      res.setHeader?.('Cache-Control','no-store');
+      const role=authorize(req);
+      if(!role){sendJson(res,401,{ok:false,error:'请在电脑后台输入有效口令后查询资料。'});return true;}
       if(req.method!=='GET') {sendJson(res,405,{error:'只读接口仅支持 GET，不支持新增、修改或删除。'},{Allow:'GET'});return true;}
       const tail=url.pathname.slice(base.length);
       const common={ok:true,apiVersion:'v1',datasetVersion:version,notice:NOTICE};
-      if(tail===''||tail==='/') {sendJson(res,200,{...common,counts:{schools:schools.length,programs:programs.length},endpoints:['/api/catalog/v1/schools','/api/catalog/v1/schools/{id}','/api/catalog/v1/programs','/api/catalog/v1/programs/{id}'],authentication:'none-public-readonly',documentation:'/database'});return true;}
+      if(tail===''||tail==='/') {sendJson(res,200,{...common,role,counts:{schools:schools.length,programs:programs.length},endpoints:['/api/catalog/v1/schools','/api/catalog/v1/schools/{id}','/api/catalog/v1/programs','/api/catalog/v1/programs/{id}'],authentication:'bearer-readonly',documentation:'/admin#catalog'});return true;}
       const match=tail.match(/^\/(schools|programs)(?:\/([^/]+))?$/);
       if(!match)throw Object.assign(new Error('接口不存在。'),{statusCode:404});
       const type=match[1],all=type==='schools'?schools:programs;
@@ -75,4 +93,4 @@ function createCatalogRoutes({ getPrograms, getSchools, sendJson }) {
     return true;
   };
 }
-module.exports={createCatalogRoutes};
+module.exports={createCatalogRoutes,createCatalogAuthorization};

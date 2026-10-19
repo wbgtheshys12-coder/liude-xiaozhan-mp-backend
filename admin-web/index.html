@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex,nofollow" />
     <title>留德小栈 · 电脑后台</title>
-    <link rel="stylesheet" href="/admin/styles.css?v=20260906-preview" />
+    <link rel="stylesheet" href="/admin/styles.css?v=20261019-catalog-auth" />
   </head>
   <body>
     <header class="topbar">
@@ -19,9 +19,8 @@
     <main>
       <section id="loginPanel" class="panel login-panel">
         <h2>安全登录</h2>
-        <p>文书同事仅查询学校和专业资料，可直接打开 <a href="/database" target="_blank" rel="noopener">文书资料库（只读，无需管理令牌）</a>。</p>
-        <p>输入 Render Secret 中的 MP_ADMIN_WEB_TOKEN。令牌只保存在本页会话中，关闭浏览器后自动清除。</p>
-        <label>后台访问令牌<input id="tokenInput" type="password" autocomplete="off" placeholder="请输入后台令牌" /></label>
+        <p>请输入管理员口令或文书只读口令。文书口令仅可查询院校专业库，不能访问学生资料或管理课程。口令保存在当前标签页会话中，退出登录后清除。</p>
+        <label>后台访问口令<input id="tokenInput" type="password" autocomplete="off" placeholder="请输入访问口令" /></label>
         <button id="loginButton" class="primary" type="button">进入后台</button>
         <p id="loginMessage" class="message"></p>
       </section>
@@ -35,7 +34,7 @@
           <button class="tab" data-tab="payments" type="button">支付订单</button>
           <button class="tab" data-tab="stats" type="button">统计</button>
           <button class="tab" data-tab="posts" type="button">资讯审核</button>
-          <a href="/database" target="_blank" rel="noopener">院校专业资料库 ↗</a>
+          <button class="tab" data-tab="catalog" type="button">院校专业资料库</button>
         </nav>
 
         <p class="security-note">后台仅展示脱敏用户标识。请勿转发学生资料或将访问令牌写入聊天、代码和 GitHub。</p>
@@ -103,8 +102,11 @@
         <section id="statsView" class="view hidden">
           <div class="panel"><div class="section-head"><h2>使用统计</h2><button class="ghost refresh" data-resource="stats" type="button">刷新</button></div><div id="statsList" class="cards"></div></div>
         </section>
+        <section id="catalogView" class="view hidden">
+          <iframe id="catalogFrame" title="院校专业资料库，只读查询" class="catalog-frame" referrerpolicy="same-origin"></iframe>
+        </section>
       </section>
     </main>
-    <script src="/admin/app.js?v=20260929-translation-diagnostics" defer></script>
+    <script src="/admin/app.js?v=20261019-catalog-auth" defer></script>
   </body>
 </html>

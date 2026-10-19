@@ -1,6 +1,8 @@
 'use strict';
 const $=id=>document.getElementById(id);
 let page=1,requestId=0,totalPages=0;
+function token(){return sessionStorage.getItem('liude_admin_token')||'';}
+function requireLogin(){if(window.top===window)location.replace('/admin#catalog');else window.parent.postMessage({type:'catalog-auth-required'},location.origin);}
 function node(tag,text){const element=document.createElement(tag);if(text)element.textContent=text;return element;}
 function text(value){return Array.isArray(value)?value.join('；'):String(value||'').replace(/\[([^\]]+)\]\([^)]*\)/g,'$1').replace(/[*#_]/g,'').trim();}
 function section(parent,title,value){if(!text(value))return;parent.append(node('h3',title),node('pre',text(value)));}
@@ -18,6 +20,6 @@ async function load(){
   const id=++requestId;const kind=$('kind').value;const params=new URLSearchParams({q:$('query').value.trim(),page:String(page),pageSize:'20'});
   if(kind==='programs'){if($('degree').value)params.set('degree',$('degree').value);if($('language').value)params.set('language',$('language').value);}
   $('degree').disabled=kind==='schools';$('language').disabled=kind==='schools';$('status').textContent='正在查询…';$('results').replaceChildren();$('previous').disabled=true;$('next').disabled=true;
-  try{const response=await fetch(`/api/catalog/v1/${kind}?${params}`);const result=await response.json();if(id!==requestId)return;if(!response.ok)throw new Error(result.error||'查询失败');totalPages=result.totalPages;$('status').textContent=`共 ${result.total} 条 · 数据版本 ${result.datasetVersion}（版本不代表资料已实时更新）`;$('results').replaceChildren(...result.records.map(render));if(!result.records.length)$('results').append(node('p','没有找到对应记录，请尝试英文专业名称或其他关键词。'));$('page').textContent=`第 ${page} 页 / 共 ${totalPages} 页`;$('previous').disabled=page<=1;$('next').disabled=page>=totalPages;}catch(error){if(id===requestId)$('status').textContent=`${error.message}，请稍后重试。`;}
+  try{if(!token()){requireLogin();return;}const response=await fetch(`/api/catalog/v1/${kind}?${params}`,{headers:{Authorization:`Bearer ${token()}`},cache:'no-store'});if(response.status===401){requireLogin();return;}const result=await response.json();if(id!==requestId)return;if(!response.ok)throw new Error(result.error||'查询失败');totalPages=result.totalPages;$('status').textContent=`共 ${result.total} 条 · 数据版本 ${result.datasetVersion}（版本不代表资料已实时更新）`;$('results').replaceChildren(...result.records.map(render));if(!result.records.length)$('results').append(node('p','没有找到对应记录，请尝试英文专业名称或其他关键词。'));$('page').textContent=`第 ${page} 页 / 共 ${totalPages} 页`;$('previous').disabled=page<=1;$('next').disabled=page>=totalPages;}catch(error){if(id===requestId)$('status').textContent=`${error.message}，请稍后重试。`;}
 }
 $('search').addEventListener('submit',event=>{event.preventDefault();page=1;load();});$('kind').addEventListener('change',()=>{page=1;load();});$('previous').addEventListener('click',()=>{if(page>1){page--;load();}});$('next').addEventListener('click',()=>{if(page<totalPages){page++;load();}});load();

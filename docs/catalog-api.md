@@ -1,19 +1,21 @@
 # 文书同事学校与专业资料库
 
-网页入口：https://liude-xiaozhan-mp-backend.onrender.com/database
+网页入口：https://liude-xiaozhan-mp-backend.onrender.com/admin#catalog
 
-原电脑后台的登录页面和已登录导航中也有“文书资料库／院校专业资料库”链接。文书同事无需登录课程管理后台，可直接访问查询页；请勿向他们分发管理员令牌。
+资料库已融入原电脑后台，输入口令后点击“院校专业资料库”。旧 /database 地址会跳转到后台登录。文书只读口令登录后仅显示资料库，管理员口令仍保留全部后台功能。请勿向文书同事分发管理员令牌。
 
 API 基地址：https://liude-xiaozhan-mp-backend.onrender.com/api/catalog/v1
 
-这是公开资料的只读查询入口，不是数据库连接账号。使用现有 HTTPS 443 端口，不需要管理员令牌。接口不提供学生信息、课程管理、修改或删除权限。当前不提供调用方身份识别；如果后续需要公司内部访问控制，应另行设置专用身份认证，而不是分发管理员令牌。
+接口使用 HTTPS 443，必须在 Authorization 请求头携带有效口令。管理员通过 Render Secret 配置 `MP_CATALOG_WEB_TOKEN` 为至少24字符的随机只读口令（推荐32位以上）；未配置或过短时文书口令不可用，仅管理员原口令可登录。修改该 Secret 并部署后旧口令失效。口令不得放进网址、前端代码或提交到 Git。当前是共享口令权限控制，不是实名员工账户审计。
+
+保护范围是后台资料库模块和 /api/catalog/v1 接口。小程序原本公开的 /api/mp/public/catalog 仍供其院校检索功能使用；这不是将全部学校专业资料变为机密。如需连小程序公开资料也限制访问，需另行调整小程序登录与接口权限策略。
 
 ## 请求示例
 
 ```javascript
 const base = 'https://liude-xiaozhan-mp-backend.onrender.com/api/catalog/v1';
 const query = new URLSearchParams({ q: '电气工程', degree: 'Master', page: '1', pageSize: '20' });
-const response = await fetch(`${base}/programs?${query}`);
+const response = await fetch(`${base}/programs?${query}`, { headers: { Authorization: `Bearer ${process.env.CATALOG_TOKEN}` } });
 if (!response.ok) throw new Error(`查询失败：${response.status}`);
 const data = await response.json();
 for (const program of data.records) {
@@ -38,4 +40,4 @@ for (const program of data.records) {
 
 `tuitionRaw=public` 只是原始分类标记，不能解释为免费；`datasetVersion` 是资料内容哈希，不是核验时间。来源链接可能是采集快照，不应当作实时官网。所有招生条件、语言要求、学费及截止日期均须核对学校当期公告。
 
-错误码：400 参数错误；404 路由或记录不存在；405 不支持写入；500 服务异常。GET 可用于浏览器或服务器调用。不需要也不要传入微信登录令牌或管理令牌。当前服务可能休眠，首次访问需等待唤醒；调用端建议设置30～60秒超时，并对临时失败做少量退避重试。
+错误码：400 参数错误；401 口令缺失或无效；404 路由或记录不存在；405 不支持写入；500 服务异常。调用端使用文书专用只读口令，不应使用管理员令牌。当前服务可能休眠，首次访问需等待唤醒；调用端建议设置30～60秒超时，并对临时失败做少量退避重试。

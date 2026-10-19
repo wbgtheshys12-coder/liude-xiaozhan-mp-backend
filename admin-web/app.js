@@ -119,8 +119,10 @@
   }
 
   async function loadResource(resource) {
+    if (state.role === "catalog" && resource !== "catalog") return;
     setMessage("正在读取数据…", true);
     try {
+      if (resource === "catalog") $("catalogFrame").src = "/admin/catalog";
       if (resource === "courses") await loadCourses();
       if (resource === "bookings") await loadBookings();
       if (resource === "uploads") await loadUploads();
@@ -303,19 +305,32 @@
     if (!preview || !/^(application\/pdf|image\/)/i.test(blob.type)) link.remove();
   }
 
+  async function openSession() {
+    const session = await api("/api/catalog/v1");
+    if (!["admin", "catalog"].includes(session.role)) throw new Error("口令无效");
+    state.role = session.role;
+    sessionStorage.setItem("liude_admin_token", state.token);
+    document.querySelectorAll(".tab").forEach(item => item.classList.toggle("hidden", state.role === "catalog" && item.dataset.tab !== "catalog"));
+    $("testTranslationButton").classList.toggle("hidden", state.role === "catalog");
+    $("translationTestResult").classList.toggle("hidden", state.role === "catalog");
+    showApp(true);
+    const resource = state.role === "catalog" || location.hash === "#catalog" ? "catalog" : "courses";
+    document.querySelectorAll(".view").forEach(item => item.classList.add("hidden"));
+    document.querySelectorAll(".tab").forEach(item => item.classList.toggle("active", item.dataset.tab === resource));
+    $(`${resource}View`).classList.remove("hidden");
+    await loadResource(resource);
+  }
+
   async function login() {
     state.token = $("tokenInput").value.trim();
     if (!state.token) { $("loginMessage").textContent = "请输入后台访问令牌。"; return; }
     try {
-      const session = await api("/api/mp/session");
-      if (!session.authenticated || !session.isAdmin) throw new Error("请使用有效的管理员登录令牌。");
-      sessionStorage.setItem("liude_admin_token", state.token);
+      await openSession();
       $("tokenInput").value = "";
       $("loginMessage").textContent = "";
-      showApp(true);
-      await loadResource("courses");
     } catch (error) {
       state.token = "";
+      sessionStorage.removeItem("liude_admin_token");
       $("loginMessage").textContent = "令牌无效或后台未启用。";
     }
   }
@@ -324,6 +339,7 @@
     state.token = "";
     state.courses = [];
     sessionStorage.removeItem("liude_admin_token");
+    $("catalogFrame").src = "about:blank";
     showApp(false);
   }
 
@@ -349,6 +365,11 @@
   $("loginButton").addEventListener("click", login);
   $("tokenInput").addEventListener("keydown", (event) => { if (event.key === "Enter") login(); });
   $("logoutButton").addEventListener("click", logout);
+  window.addEventListener("message", event => {
+    if(event.origin===location.origin && event.source===$("catalogFrame").contentWindow && event.data?.type==="catalog-auth-required") {
+      logout(); $("loginMessage").textContent="资料库登录已失效，请重新输入口令。";
+    }
+  });
   $("resetCourseButton").addEventListener("click", resetCourseForm);
   $("uploadVideoButton").addEventListener("click", () => uploadVideo().catch((error) => {
     setVideoStatus({});
@@ -360,6 +381,7 @@
   document.addEventListener("click", (event) => {
     const tab = event.target.closest(".tab");
     if (tab) {
+      if (state.role === "catalog" && tab.dataset.tab !== "catalog") return;
       document.querySelectorAll(".tab").forEach((item) => item.classList.toggle("active", item === tab));
       document.querySelectorAll(".view").forEach((item) => item.classList.add("hidden"));
       $(`${tab.dataset.tab}View`).classList.remove("hidden");
@@ -404,9 +426,6 @@
     finally { button.disabled = false; }
   });
   if (state.token) {
-    api("/api/mp/session").then((session) => {
-      if (!session.authenticated || !session.isAdmin) throw new Error("管理员登录已失效");
-      showApp(true); loadResource("courses");
-    }).catch(logout);
+    openSession().catch(logout);
   }
 })();
