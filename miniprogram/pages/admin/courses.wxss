@@ -278,3 +278,5 @@
   text-align: center;
   font-size: 24rpx;
 }
+.student-picker { max-height: 380rpx; background: #f4f7fc; padding: 12rpx; box-sizing: border-box; }
+.student-choice { display:flex; align-items:center; gap:12rpx; padding:14rpx 0; font-size:23rpx; overflow-wrap:anywhere; }

@@ -49,10 +49,12 @@
               <input id="courseId" type="hidden" />
               <label>课程类型<select id="courseType"><option value="recorded">录播课</option><option value="live">直播课</option></select></label>
               <label>课程名称 *<input id="courseTitle" required maxlength="80" /></label>
+              <label>课程分类<input id="courseCategory" maxlength="40" list="courseCategoryOptions" placeholder="例如 A1全阶段、A2口语、留学申请" /><datalist id="courseCategoryOptions"></datalist></label>
               <label>课程简介<textarea id="courseSummary" maxlength="500"></textarea></label>
               <label>标签（逗号分隔）<input id="courseTags" placeholder="留德基础, 申请规划" /></label>
-              <label>状态<select id="courseStatus"><option value="draft">未发布／已下架（仅后台可见，保留视频）</option><option value="published">公开发布（需具备对应类目及资质）</option></select></label>
-              <label><input id="courseFree" type="checkbox" checked /> 免费公开课程（无需登录；不能同时限定学生）</label>
+              <label>状态<select id="courseStatus"><option value="draft">未发布／已下架（仅后台可见，保留视频）</option><option value="published">发布（按观看范围生效，需对应类目及资质）</option></select></label>
+              <label>观看范围<select id="courseAccess"><option value="assigned">仅指定学生可见</option><option value="members">全部登录学生可见</option><option value="public">免费公开（无需登录）</option></select></label>
+              <input id="courseFree" type="checkbox" class="hidden" aria-hidden="true" />
               <p class="fine-print">建课 → 上传视频 / 填直播入口 → 测试播放 → 保存发布。无视频或直播入口的课程不会作为已就绪课程公开。</p>
               <label>录播视频地址<input id="courseVideoUrl" type="text" placeholder="可填写 https://...，或在下方上传" /></label>
               <label>或分片上传本地视频（单个上限 512MB）<input id="courseVideoFile" type="file" accept="video/mp4,video/quicktime,video/x-m4v" /></label>
@@ -62,12 +64,13 @@
               <label>直播 HTTPS 入口<input id="courseLiveUrl" type="url" placeholder="https://..." /></label>
               <label>直播时间<input id="courseStartAt" placeholder="例如：2026-08-01 19:30" /></label>
               <label>时长<input id="courseDuration" placeholder="例如：90 分钟" /></label>
-              <label>限定学生 storageKey（逗号分隔；留空为全部登录用户）<textarea id="courseAllowedKeys"></textarea></label>
+              <div id="courseAssignment"><label>搜索学生<input id="courseStudentSearch" placeholder="姓名、学校、账号标识或手机尾号" /></label><label>选择授权学生（可多选）<select id="courseStudents" multiple class="course-students"></select></label><p id="courseStudentNotice" class="fine-print"></p><label>授权账号标识（可手动补充，逗号或换行分隔）<textarea id="courseAllowedKeys"></textarea></label><p class="fine-print">仅指定学生课程必须先选择学生才可发布；没有学生时可保存草稿。请仔细核对同名学生的学校和账号标识。</p></div>
               <button class="primary" type="submit">保存课程</button>
               <p id="courseStorageNote" class="fine-print">正在检查课程存储状态…</p>
             </form>
             <div class="panel">
               <div class="section-head"><h2>课程列表</h2><button class="ghost refresh" data-resource="courses" type="button">刷新</button></div>
+              <label>按分类查看<select id="courseCategoryFilter"><option value="">全部分类</option></select></label>
               <div id="coursesList" class="cards"></div>
             </div>
           </div>
@@ -82,7 +85,7 @@
         </section>
 
         <section id="messagesView" class="view hidden">
-          <div class="panel"><div class="section-head"><h2>客服消息</h2><button class="ghost refresh" data-resource="messages" type="button">刷新</button></div><div id="messagesList" class="cards"></div></div>
+          <div class="panel"><div class="section-head"><h2>客服消息</h2><button class="ghost refresh" data-resource="messages" type="button">刷新</button></div><p class="chat-guide">学生消息在左侧，老师回复在右侧。回复会出现在学生的小程序消息页，不是公众号原生客服会话。</p><div id="messagesList" class="cards"></div></div>
         </section>
 
         <section id="paymentsView" class="view hidden">
@@ -107,6 +110,6 @@
         </section>
       </section>
     </main>
-    <script src="/admin/app.js?v=20261019-catalog-auth" defer></script>
+    <script src="/admin/app.js?v=20261025-course-access" defer></script>
   </body>
 </html>

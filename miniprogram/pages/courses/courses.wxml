@@ -12,12 +12,14 @@
   </view>
 
   <view wx:else class="course-list">
+    <scroll-view wx:if="{{categories.length > 1}}" class="category-tabs" scroll-x><view class="category-row"><view wx:for="{{categories}}" wx:key="*this" class="category-chip {{activeCategory == item ? 'active' : ''}}" data-category="{{item}}" bindtap="chooseCategory">{{item}}</view></view></scroll-view>
     <view wx:for="{{courses}}" wx:key="id" class="course-card">
       <view class="course-head">
         <text class="course-type">{{item.typeText}}</text>
         <text class="course-status">{{item.availabilityText}}</text>
       </view>
       <text class="course-title">{{item.title}}</text>
+      <text class="course-meta">{{item.category || '未分类'}}</text>
       <text class="course-summary">{{item.summary}}</text>
       <view class="course-meta">
         <text>{{item.startAt || item.duration || '时间待定'}}</text>

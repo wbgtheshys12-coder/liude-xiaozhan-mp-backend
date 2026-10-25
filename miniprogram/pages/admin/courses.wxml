@@ -11,6 +11,9 @@
       <view class="input-like">课程类型：{{form.type == 'live' ? '直播课' : '录播课'}}</view>
     </picker>
     <input placeholder-class="input-placeholder" class="input" value="{{form.title}}" placeholder="课程标题" data-field="title" bindinput="updateField" />
+    <input class="input" value="{{form.category}}" placeholder="课程分类，例如 A1全阶段、A2口语" data-field="category" bindinput="updateField" maxlength="40" />
+    <picker range="{{accessOptions}}" value="{{accessIndex}}" bindchange="changeAccess"><view class="input-like">观看范围：{{accessOptions[accessIndex]}}</view></picker>
+    <picker range="{{['草稿 / 未发布','发布']}}" value="{{form.status == 'published' ? 1 : 0}}" bindchange="changeStatus"><view class="input-like">状态：{{form.status == 'published' ? '发布' : '草稿 / 未发布'}}</view></picker>
     <textarea placeholder-class="input-placeholder" class="textarea" value="{{form.summary}}" placeholder="课程简介" data-field="summary" bindinput="updateField" auto-height="true" />
     <input placeholder-class="input-placeholder" class="input" value="{{form.tagsText}}" placeholder="标签，用逗号分隔，例如：TU9，材料准备" data-field="tagsText" bindinput="updateField" />
     <view wx:if="{{form.type == 'recorded'}}" class="upload-panel">
@@ -39,7 +42,7 @@
     </view>
     <input placeholder-class="input-placeholder" class="input" value="{{form.startAt}}" placeholder="直播时间/开放时间，例如：每周三 20:00" data-field="startAt" bindinput="updateField" />
     <input placeholder-class="input-placeholder" class="input" value="{{form.duration}}" placeholder="时长，例如：60分钟" data-field="duration" bindinput="updateField" />
-    <textarea placeholder-class="input-placeholder" class="textarea" value="{{form.allowedStorageKeysText}}" placeholder="课程学员账号标识，用逗号分隔；留空表示所有已登录用户可学习" data-field="allowedStorageKeysText" bindinput="updateField" auto-height="true" />
+    <view wx:if="{{form.accessMode == 'assigned'}}"><text class="upload-note">选择授权学生（没有显示的账号可在下方手动补充）</text><scroll-view scroll-y class="student-picker"><checkbox-group bindchange="chooseStudents"><label wx:for="{{students}}" wx:key="storageKey" class="student-choice"><checkbox value="{{item.storageKey}}" checked="{{item.checked}}" /><text>{{item.name}} · {{item.school}} · {{item.contactHint}} · {{item.storageKey}}</text></label></checkbox-group></scroll-view><textarea placeholder-class="input-placeholder" class="textarea" value="{{form.allowedStorageKeysText}}" placeholder="授权账号标识，用逗号分隔；指定学生课程不能为空" data-field="allowedStorageKeysText" bindinput="updateField" auto-height="true" /></view>
     <text class="upload-note">学生可在“我的 → 账户与付费”复制账号标识。每个标识只对应一个微信账号，可用于逐人绑定课程权限。</text>
     <view class="button-row">
       <button class="secondary-button" bindtap="resetForm">清空</button>
@@ -54,6 +57,7 @@
     </view>
     <view wx:for="{{records}}" wx:key="id" class="course-row">
       <text class="course-title">{{item.title}}</text>
+      <text class="course-meta">分类：{{item.category || '未分类'}} · {{item.accessMode == 'assigned' ? '仅指定学生' : item.accessMode == 'public' ? '免费公开' : '全部登录学生'}}</text>
       <text class="course-meta">{{item.type == 'live' ? '直播课' : '录播课'}} · {{item.status}}</text>
       <text class="course-media {{item.mediaState}}">{{item.mediaText}}</text>
       <view class="course-actions">

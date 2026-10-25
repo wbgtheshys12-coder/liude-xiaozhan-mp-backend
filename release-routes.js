@@ -1,4 +1,5 @@
 "use strict";
+const coursePolicy = require('./course-policy');
 
 const clean = (value, limit) => String(value || "").trim().slice(0, limit);
 const httpError = (message, statusCode = 400) => Object.assign(new Error(message), { statusCode });
@@ -28,7 +29,7 @@ function createReleaseRoutes(ctx) {
           sendJson(res, 200, { ok: true, records });
         } else {
           const guest = { openid: "public-free-course-viewer" };
-          const records = readCourseRecords().filter((course) => course.status === "published" && course.free === true && !(course.allowedStorageKeys || []).length).map((course) => sanitizeCourse(course, guest, false, req)).filter((course) => course.type === "live" ? Boolean(course.liveUrl) : course.hasVideo).map((course) => ({ ...course, boundToWechat: false, accessText: "免费公开学习" }));
+          const records = readCourseRecords().filter((course) => course.free === true && coursePolicy.mode(course)==='public' && coursePolicy.canView(course,'',true)).map((course) => sanitizeCourse(course, guest, false, req)).filter((course) => course.type === "live" ? Boolean(course.liveUrl) : course.hasVideo).map((course) => ({ ...course, boundToWechat: false, accessText: "免费公开学习" }));
           sendJson(res, 200, { ok: true, records, bindingNote: "免费公开课无需登录。登录后可向老师发送课程反馈。", protectNote: "课程仅供学习使用，请勿擅自传播。" });
         }
         return true;

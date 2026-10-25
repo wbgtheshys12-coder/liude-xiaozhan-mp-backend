@@ -21,6 +21,9 @@ Page({
   data: {
     loading: true,
     courses: [],
+    allCourses: [],
+    categories: ["全部"],
+    activeCategory: "全部",
     notice: "",
     protectNote: "",
     currentCourse: null
@@ -31,13 +34,16 @@ Page({
   },
 
   loadCourses() {
-    this.setData({ loading: true, courses: [], currentCourse: null, notice: "", protectNote: "" });
+    this.setData({ loading: true, courses: [], allCourses: [], categories: ["全部"], currentCourse: null, notice: "", protectNote: "" });
     api
       .getCourses()
       .then((result) => {
         const courses = (result.records || []).map(normalizeCourse).filter((course) => course.available);
+        const categories=["全部",...new Set(courses.map(c=>c.category||"未分类"))];
+        const activeCategory=categories.includes(this.data.activeCategory)?this.data.activeCategory:"全部";
         this.setData({
-          courses,
+          allCourses:courses,categories,activeCategory,
+          courses:activeCategory==="全部"?courses:courses.filter(c=>(c.category||"未分类")===activeCategory),
           notice: courses.length ? (result.bindingNote || "选择课程开始学习。") : "该功能暂未开放",
           protectNote: courses.length ? (result.protectNote || "课程不提供下载入口。") : "当前没有已公开发布的可播放课程。"
         });
@@ -46,6 +52,12 @@ Page({
         wx.showToast({ title: error.message || "课程读取失败", icon: "none" });
       })
       .finally(() => this.setData({ loading: false }));
+  },
+
+  chooseCategory(event){
+    const category=event.currentTarget.dataset.category;
+    if(!this.data.categories.includes(category))return;
+    this.setData({activeCategory:category,currentCourse:null,courses:category==="全部"?this.data.allCourses:this.data.allCourses.filter(c=>(c.category||"未分类")===category)});
   },
 
   openCourse(event) {

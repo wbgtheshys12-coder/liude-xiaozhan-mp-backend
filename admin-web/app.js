@@ -1,7 +1,7 @@
 (() => {
   "use strict";
   const $ = (id) => document.getElementById(id);
-  const state = { token: sessionStorage.getItem("liude_admin_token") || "", courses: [], posts: [] };
+  const state = { token: sessionStorage.getItem("liude_admin_token") || "", courses: [], posts: [], students: [] };
   const loginPanel = $("loginPanel");
   const appPanel = $("appPanel");
   const globalMessage = $("globalMessage");
@@ -72,10 +72,39 @@
   }
 
   async function loadCourses() {
-    const payload = await api("/api/mp/admin/courses");
+    const [payload,students] = await Promise.all([api("/api/mp/admin/courses"),api("/api/mp/admin/course-students")]);
     state.courses = payload.records || [];
+    state.students=students.records||[];
+    $("courseStudentNotice").textContent=students.notice||"";
+    renderCourseStudents();
+    const selected=$("courseCategoryFilter").value;
+    const categories=[...new Set(state.courses.map(c=>c.category||'未分类'))].sort((a,b)=>a.localeCompare(b,'zh-CN'));
+    $("courseCategoryOptions").replaceChildren(...categories.map(category=>{const option=document.createElement('option');option.value=category;return option;}));
+    $("courseCategoryFilter").innerHTML='<option value="">全部分类</option>'+categories.map(category=>`<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`).join('');
+    $("courseCategoryFilter").value=categories.includes(selected)?selected:'';
     $("courseStorageNote").textContent = `${payload.storageNote || "课程管理与小程序使用同一数据源。"} 上传时会显示真实进度；正式长课建议使用云点播。`;
-    $("coursesList").innerHTML = state.courses.length ? state.courses.map(courseHtml).join("") : '<p class="meta">暂无课程。</p>';
+    renderCourseList();
+  }
+
+  function renderCourseList(){
+    const filter=$("courseCategoryFilter").value;
+    const records=state.courses.filter(c=>!filter||(c.category||'未分类')===filter);
+    $("coursesList").innerHTML=records.length?records.map(c=>`<p class="fine-print">分类：${escapeHtml(c.category||'未分类')} · ${{public:'免费公开',members:'全部登录学生',assigned:'仅指定学生'}[c.accessMode]||'原有授权范围'}${c.accessMode==='assigned'?`（${(c.allowedStorageKeys||[]).length}人）`:''}</p>`+courseHtml(c)).join(''):'<p class="meta">当前分类暂无课程。</p>';
+  }
+  function allowedKeys(){return [...new Set($("courseAllowedKeys").value.split(/[,，\s]+/).filter(Boolean))];}
+  function renderCourseStudents(){
+    const keys=allowedKeys(),q=$("courseStudentSearch").value.trim().toLowerCase();
+    const students=[...state.students];
+    for(const key of keys)if(!students.some(s=>s.storageKey===key))students.push({storageKey:key,name:'未登记姓名的已授权账号'});
+    $("courseStudents").replaceChildren(...students.filter(s=>[s.name,s.school,s.storageKey,s.contactHint].join(' ').toLowerCase().includes(q)).map(s=>{
+      const option=document.createElement('option');option.value=s.storageKey;option.textContent=[s.name,s.school,s.contactHint,s.storageKey].filter(Boolean).join(' · ');option.selected=keys.includes(s.storageKey);return option;
+    }));
+  }
+  function changeCourseAccess(){
+    const assigned=$("courseAccess").value==='assigned';
+    $("courseAssignment").classList.toggle('hidden',!assigned);
+    $("courseFree").checked=$("courseAccess").value==='public';
+    // Preserve the list while editing; reject it on save unless the teacher explicitly clears it.
   }
 
   async function loadBookings() {
@@ -139,7 +168,9 @@
   function resetCourseForm() {
     $("courseForm").reset();
     $("courseId").value = "";
-    $("courseStatus").value = "published";
+    $("courseStatus").value = "draft";
+    $("courseAccess").value = "assigned";
+    changeCourseAccess();renderCourseStudents();
     setVideoStatus({ videoUrl: "" });
   }
 
@@ -150,6 +181,8 @@
     $("courseType").value = course.type || "recorded";
     $("courseFree").checked = course.free === true;
     $("courseTitle").value = course.title || "";
+    $("courseCategory").value=course.category||'未分类';
+    $("courseAccess").value=course.accessMode||((course.allowedStorageKeys||[]).length?'assigned':course.free?'public':'members');
     $("courseSummary").value = course.summary || "";
     $("courseTags").value = (course.tags || []).join(", ");
     $("courseStatus").value = course.status || "draft";
@@ -158,6 +191,7 @@
     $("courseStartAt").value = course.startAt || "";
     $("courseDuration").value = course.duration || "";
     $("courseAllowedKeys").value = (course.allowedStorageKeys || []).join(", ");
+    changeCourseAccess();renderCourseStudents();
     setVideoStatus(course);
     setMessage("已载入课程，可修改后保存。", true);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -252,6 +286,8 @@
       id: $("courseId").value,
       type: $("courseType").value,
       title: $("courseTitle").value.trim(),
+      category: $("courseCategory").value.trim(),
+      accessMode: $("courseAccess").value,
       summary: $("courseSummary").value.trim(),
       tags: $("courseTags").value.split(/[,，]/).map((item) => item.trim()).filter(Boolean),
       status: $("courseStatus").value,
@@ -260,9 +296,10 @@
       liveUrl: $("courseLiveUrl").value.trim(),
       startAt: $("courseStartAt").value.trim(),
       duration: $("courseDuration").value.trim(),
-      allowedStorageKeys: $("courseAllowedKeys").value.split(/[,，\n]/).map((item) => item.trim()).filter(Boolean),
+      allowedStorageKeys: $("courseAccess").value==='assigned'?allowedKeys():[],
     };
     if (!payload.title) throw new Error("请填写课程名称。" );
+    if(payload.accessMode==='assigned'&&payload.status==='published'&&!payload.allowedStorageKeys.length)throw new Error('请先选择授权学生，或将课程保存为草稿。');
     if (payload.free && payload.allowedStorageKeys.length) throw new Error("免费公开课不能限定学生，请取消勾选免费或清空限定名单。");
     await api("/api/mp/admin/courses", { method: "POST", body: JSON.stringify(payload) });
     resetCourseForm();
@@ -367,6 +404,16 @@
     }
   });
   $("resetCourseButton").addEventListener("click", resetCourseForm);
+  $("courseAccess").addEventListener('change',changeCourseAccess);
+  $("courseCategoryFilter").addEventListener('change',renderCourseList);
+  $("courseStudentSearch").addEventListener('input',renderCourseStudents);
+  $("courseAllowedKeys").addEventListener('input',renderCourseStudents);
+  $("courseStudents").addEventListener('change',()=>{
+    const visible=[...$("courseStudents").options].map(o=>o.value);
+    const keep=allowedKeys().filter(key=>!visible.includes(key));
+    const selected=[...$("courseStudents").selectedOptions].map(o=>o.value);
+    $("courseAllowedKeys").value=[...new Set([...keep,...selected])].join(', ');
+  });
   $("uploadVideoButton").addEventListener("click", () => uploadVideo().catch((error) => {
     setVideoStatus({});
     setMessage(error.message);
@@ -420,6 +467,7 @@
     } catch (error) { $("translationTestResult").textContent = error.message; }
     finally { button.disabled = false; }
   });
+  changeCourseAccess();
   if (state.token) {
     openSession().catch(logout);
   }

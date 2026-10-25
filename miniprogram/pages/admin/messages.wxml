@@ -1,6 +1,7 @@
 <view class="screen-page admin-messages-page">
   <view class="hero">
     <text class="title">客服消息管理</text>
+    <text class="summary">学生消息在左侧，老师回复在右侧。学生在小程序“客服 / 消息”查看回复。</text>
     <text class="summary">共 {{count}} 个用户会话。老师、负责人和平台管理员可查看并回复。{{privacyNote}}</text>
   </view>
 

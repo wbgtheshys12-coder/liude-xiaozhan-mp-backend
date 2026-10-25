@@ -5,6 +5,7 @@ const path = require("path");
 const docx = require("docx");
 const PDFDocument = require("pdfkit");
 const localEngine = require("./local-engine");
+const coursePolicy = require("./course-policy");
 const documentTranslator = require("./document-translation").createDocumentTranslator();
 const offlineDocumentTranslator = require("./offline-document-translation").createOfflineTranslator();
 const OFFLINE_MODEL_DIR = process.env.MP_OFFLINE_MODEL_DIR || path.join(__dirname, ".offline-models");
@@ -1357,7 +1358,11 @@ async function sendCourseVideo(req, res, fileName, url) {
   // Check current publication state on every request, including previously signed URLs.
   if (!String(url.searchParams.get("u") || "").startsWith("admin-preview:") &&
       !readCourseRecords().some(course => course.status === "published" && getLocalCourseVideoFile(course.videoUrl) === safeName)) {
-    sendJson(res, 404, { error: "课程已下架或尚未发布。" });
+    sendJson(res,404,{error:"课程已下架或尚未发布。"});return;
+  }
+  if (!String(url.searchParams.get("u") || "").startsWith("admin-preview:") &&
+      !readCourseRecords().some(course => getLocalCourseVideoFile(course.videoUrl) === safeName && coursePolicy.canView(course, String(url.searchParams.get("u")||""), String(url.searchParams.get("u")||"")===createUserStorageKey("public-free-course-viewer")))) {
+    sendJson(res, 403, { error: "课程已下架或当前账号的课程授权已失效，请返回课程页刷新。" });
     return;
   }
   const videoInfo = resolveCourseVideoFile(safeName);
@@ -1557,6 +1562,8 @@ function sanitizeCourse(course, session, admin = false, req = null) {
     tags: Array.isArray(course.tags) ? course.tags.slice(0, 6).map((tag) => normalizeBookingText(tag, 20)) : [],
     status: course.status || "draft",
     free: course.free === true,
+    accessMode: coursePolicy.mode(course),
+    category: normalizeBookingText(course.category || "未分类", 40),
     startAt: normalizeBookingText(course.startAt, 60),
     duration: normalizeBookingText(course.duration, 40),
     videoUrl: hasVideo ? videoUrl : "",
@@ -2362,11 +2369,7 @@ function handleCourses(req, res) {
 
   const storageKey = getSessionStorageKey(session);
   const courses = readCourseRecords()
-    .filter((course) => course.status === "published")
-    .filter((course) => {
-      const allowList = Array.isArray(course.allowedStorageKeys) ? course.allowedStorageKeys.filter(Boolean) : [];
-      return !allowList.length || allowList.includes(storageKey);
-    })
+    .filter((course) => coursePolicy.canView(course, storageKey))
     .map((course) => sanitizeCourse(course, session, false, req));
 
   sendJson(res, 200, {
@@ -2392,15 +2395,14 @@ async function handleAdminCourseSave(req, res) {
     const now = new Date().toISOString();
     const id = normalizeBookingText(body.id || createRecordId("course"), 80);
     const existingCourse = readCourseRecords().find((item) => item.id === id);
-    const free = typeof body.free === "boolean" ? body.free : existingCourse?.free === true;
-    if (free && compactStringArray(body.allowedStorageKeys || []).length) {
-      sendJson(res, 400, { error: "免费公开课不能同时限定学生名单。" });
-      return;
-    }
+    const access = coursePolicy.normalize(body, existingCourse);
     const submittedVideoUrl = normalizeLongText(body.videoUrl || "", 300);
     const localVideoFile = getLocalCourseVideoFile(submittedVideoUrl);
     const videoUrl = localVideoFile ? getCourseVideoPath(localVideoFile) : submittedVideoUrl;
     const liveUrl = normalizeLongText(body.liveUrl || "", 300);
+    if(access.accessMode==='assigned' && (body.status||existingCourse?.status)==='published' && body.type!=='live' && videoUrl && !localVideoFile) {
+      sendJson(res,400,{error:"指定学生的录播课请使用后台上传的视频，外部直链无法由本系统控制观看权限。"}); return;
+    }
     if (!isAllowedCourseUrl(videoUrl, true)) {
       sendJson(res, 400, { error: "录播地址必须是 HTTPS 链接，或由本小程序后端上传生成。" });
       return;
@@ -2416,19 +2418,18 @@ async function handleAdminCourseSave(req, res) {
       summary: normalizeLongText(body.summary || "", 500),
       tags: compactStringArray(body.tags || []).slice(0, 8),
       status: ["draft", "published"].includes(body.status) ? body.status : (existingCourse?.status || "draft"),
-      free,
+      ...access,
       videoUrl,
       liveUrl,
       startAt: normalizeBookingText(body.startAt || "", 80),
       duration: normalizeBookingText(body.duration || "", 40),
       noDownload: true,
       noRecord: true,
-      allowedStorageKeys: compactStringArray(body.allowedStorageKeys || []),
       createdBy: {
         openid: maskOpenid(session.openid),
         storageKey: getSessionStorageKey(session),
       },
-      createdAt: body.createdAt || now,
+      createdAt: existingCourse?.createdAt || now,
       updatedAt: now,
     };
 
@@ -2440,7 +2441,7 @@ async function handleAdminCourseSave(req, res) {
       sendBadJson(res);
       return;
     }
-    sendJson(res, 500, { error: "课程保存暂时未完成，请稍后重试。" });
+    sendJson(res, error.statusCode || 500, { error: error.statusCode ? error.message : "课程保存暂时未完成，请稍后重试。" });
   }
 }
 
@@ -2840,6 +2841,19 @@ async function handleAdminCourseDelete(req, res) {
   }
 }
 
+function handleCourseStudents(req,res) {
+  const session=requireSession(req,res);if(!session)return;
+  if(!isAdminSession(session)){sendJson(res,403,{error:"需要课程管理权限。"});return;}
+  const users=new Map();
+  for(const row of [...buildAdminMessageConversations(),...readJsonlFile(MP_PROFILES_FILE)]) {
+    if(!row.storageKey)continue;
+    const key=String(row.storageKey),previous=users.get(key)||{};
+    const phone=String(row.phone||row.contact||'').replace(/\D/g,'');
+    users.set(key,{storageKey:key,name:normalizeBookingText(row.name||row.studentName||previous.name||'微信用户',40),school:normalizeBookingText(row.school||previous.school||'',80),major:normalizeBookingText(row.major||previous.major||'',80),contactHint:phone.length>=7?`尾号${phone.slice(-4)}`:previous.contactHint||''});
+  }
+  sendJson(res,200,{ok:true,records:[...users.values()].sort((a,b)=>a.name.localeCompare(b.name,'zh-CN')),notice:'仅列出已提交资料或联系过客服的账号。未显示的学生可先登录填写基本资料，或复制其账号标识手动授权。'});
+}
+
 async function handleAdminCourses(req, res) {
   const session = requireSession(req, res);
   if (!session) return;
@@ -3196,7 +3210,9 @@ function buildAdminMessageConversations() {
       });
     }
     const conversation = groups.get(storageKey);
-    conversation.messages.push(sanitizeCustomerMessage(record));
+    const message=sanitizeCustomerMessage(record);
+    if(message.direction==='user')message.senderLabel=conversation.studentName||'学生';
+    conversation.messages.push(message);
     conversation.lastMessageAt = record.createdAt || conversation.lastMessageAt;
   });
   return Array.from(groups.values())
@@ -6050,6 +6066,7 @@ const server = http.createServer(async (req, res) => {
     handleAdminCourses(req, res);
     return;
   }
+  if (req.method === "GET" && url.pathname === "/api/mp/admin/course-students") { handleCourseStudents(req,res);return; }
 
   if (req.method === "POST" && url.pathname === "/api/mp/admin/courses") {
     handleAdminCourseSave(req, res);

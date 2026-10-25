@@ -49,8 +49,10 @@ textarea { min-height: 88px; resize: vertical; }
 .fine-print { color: #687a90; font-size: 13px; }
 .message-history { display: grid; gap: 10px; max-height: 420px; margin: 14px 0; padding: 12px; overflow-y: auto; border: 1px solid #e1eaf5; border-radius: 12px; background: #f7faff; }
 .message-line { display: grid; width: min(84%, 680px); gap: 4px; padding: 10px 12px; border: 1px solid #d9e5f3; border-radius: 10px; background: #fff; overflow-wrap: anywhere; }
-.message-line.user { margin-left: auto; border-bottom-right-radius: 3px; background: #e8f2ff; }
-.message-line.staff { margin-right: auto; border-bottom-left-radius: 3px; }
+.message-line.user { margin-left: 0; margin-right: auto; border-bottom-left-radius: 3px; }
+.message-line.staff { margin-left: auto; margin-right: 0; border-bottom-right-radius: 3px; background: #e8f2ff; }
+.course-students { min-height:180px; }
+.chat-guide { color:#526174; font-size:13px; }
 .message-line strong { color: #176bc1; font-size: 12px; }
 .message-line span { white-space: pre-wrap; line-height: 1.55; }
 .message-line small { color: #7d8796; }

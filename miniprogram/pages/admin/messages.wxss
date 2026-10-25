@@ -13,8 +13,8 @@
 .last-time { max-width: 240rpx; text-align: right; }
 .message-list { height: 500rpx; margin-top: 20rpx; padding: 14rpx 18rpx; box-sizing: border-box; border: 1rpx solid #e5edf7; border-radius: 18rpx; background: #f7faff; }
 .message { width: 84%; box-sizing: border-box; margin: 14rpx 0; padding: 16rpx 18rpx; border: 1rpx solid #e5edf7; border-radius: 16rpx; background: #ffffff; overflow-wrap: anywhere; }
-.message.user { margin-left: auto; border-color: #d6e7fb; border-bottom-right-radius: 5rpx; background: #eaf3ff; }
-.message.staff { margin-right: auto; border-bottom-left-radius: 5rpx; }
+.message.user { margin-left: 0; margin-right: auto; border-bottom-left-radius: 5rpx; }
+.message.staff { margin-left: auto; margin-right: 0; border-color: #d6e7fb; border-bottom-right-radius: 5rpx; background: #eaf3ff; }
 .sender { color: #1f58a7; font-size: 21rpx; font-weight: 800; }
 .content { margin-top: 7rpx; color: #172235; font-size: 25rpx; line-height: 1.6; white-space: pre-wrap; }
 .time { margin-top: 7rpx; color: #526174; font-size: 20rpx; }

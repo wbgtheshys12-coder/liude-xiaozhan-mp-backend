@@ -8,6 +8,8 @@ function blankForm() {
     id: "",
     type: "recorded",
     title: "",
+    category: "",
+    accessMode: "assigned",
     summary: "",
     tagsText: "",
     videoUrl: "",
@@ -15,7 +17,7 @@ function blankForm() {
     allowedStorageKeysText: "",
     startAt: "",
     duration: "",
-    status: "published"
+    status: "draft"
   };
 }
 
@@ -58,6 +60,9 @@ Page({
     storagePersistent: false,
     storageNote: "正在检查课程存储状态…",
     typeOptions: TYPE_OPTIONS,
+    accessOptions: ["仅指定学生可见", "全部登录学生可见", "免费公开（无需登录）"],
+    accessIndex: 0,
+    students: [],
     records: [],
     form: blankForm()
   },
@@ -77,6 +82,9 @@ Page({
       }))
       .catch((error) => wx.showToast({ title: error.message || "课程读取失败", icon: "none" }))
       .finally(() => this.setData({ loading: false }));
+    api.request({url:'/api/mp/admin/course-students'}).then(result=>{
+      this.setData({students:result.records||[]});this.refreshStudentChecks();
+    }).catch(()=>{});
   },
 
   editCourse(event) {
@@ -89,6 +97,7 @@ Page({
       form: {
         ...blankForm(),
         ...course,
+        accessMode: course.accessMode || ((course.allowedStorageKeys||[]).length?'assigned':course.free?'public':'members'),
         tagsText: (course.tags || []).join("，"),
         allowedStorageKeysText: (course.allowedStorageKeys || []).join("，")
       },
@@ -103,6 +112,8 @@ Page({
             : "已读取外部 HTTPS 视频链接，可编辑或移除。"
           : VIDEO_PICKER_NOTE
     });
+    this.setData({accessIndex:['assigned','members','public'].indexOf(this.data.form.accessMode)});
+    this.refreshStudentChecks();
   },
 
   updateField(event) {
@@ -116,7 +127,19 @@ Page({
       changes.videoUploadNote = value.trim() ? "已填写视频地址，保存课程后学生端生效。" : "尚未配置视频。";
     }
     this.setData(changes);
+    if(field==='allowedStorageKeysText')this.refreshStudentChecks();
   },
+  refreshStudentChecks(){
+    const keys=this.data.form.allowedStorageKeysText.split(/[,，\s]+/).filter(Boolean);
+    this.setData({students:this.data.students.map(s=>({...s,checked:keys.includes(s.storageKey)}))});
+  },
+  chooseStudents(event){
+    const shown=this.data.students.map(s=>s.storageKey);
+    const old=this.data.form.allowedStorageKeysText.split(/[,，\s]+/).filter(key=>key&&!shown.includes(key));
+    this.setData({'form.allowedStorageKeysText':[...new Set([...old,...event.detail.value])].join('，')});this.refreshStudentChecks();
+  },
+  changeAccess(event){const index=Number(event.detail.value);this.setData({accessIndex:index,'form.accessMode':['assigned','members','public'][index]});},
+  changeStatus(event){this.setData({'form.status':Number(event.detail.value)===1?'published':'draft'});},
 
   changeType(event) {
     this.setData({ "form.type": Number(event.detail.value) === 1 ? "live" : "recorded" });
@@ -125,12 +148,14 @@ Page({
   resetForm() {
     this.setData({
       form: blankForm(),
+      accessIndex: 0,
       videoUploadNote: VIDEO_PICKER_NOTE,
       uploadProgress: 0,
       videoStatus: "empty",
       videoFileName: "",
       videoSizeText: ""
     });
+    this.refreshStudentChecks();
   },
 
   saveCourse() {
@@ -139,12 +164,15 @@ Page({
       wx.showToast({ title: "请填写课程标题", icon: "none" });
       return;
     }
+    const keys=form.accessMode==='assigned'?form.allowedStorageKeysText.split(/[，,\s]+/).filter(Boolean):[];
+    if(form.accessMode==='assigned'&&form.status==='published'&&!keys.length){wx.showToast({title:'请先指定学生或保存草稿',icon:'none'});return;}
     this.setData({ saving: true });
     api
       .saveAdminCourse({
         ...form,
+        free:form.accessMode==='public',
         tags: form.tagsText.split(/[，,]/).map((item) => item.trim()).filter(Boolean),
-        allowedStorageKeys: form.allowedStorageKeysText.split(/[，,\s]+/).map((item) => item.trim()).filter(Boolean)
+        allowedStorageKeys: keys
       })
       .then(() => {
         wx.showToast({ title: "课程已保存", icon: "success" });

@@ -163,3 +163,6 @@
   border-radius: 14rpx;
   overflow: hidden;
 }
+.category-row { display:flex; gap:16rpx; padding:12rpx 0 24rpx; }
+.category-chip { flex-shrink:0; padding:14rpx 28rpx; border:1rpx solid #cbd8e7; border-radius:999rpx; background:#fff; font-size:25rpx; }
+.category-chip.active { color:#fff; border-color:#295ca6; background:#295ca6; }
