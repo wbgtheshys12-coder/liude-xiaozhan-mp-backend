@@ -51,7 +51,10 @@ textarea { min-height: 88px; resize: vertical; }
 .message-line { display: grid; width: min(84%, 680px); gap: 4px; padding: 10px 12px; border: 1px solid #d9e5f3; border-radius: 10px; background: #fff; overflow-wrap: anywhere; }
 .message-line.user { margin-left: 0; margin-right: auto; border-bottom-left-radius: 3px; }
 .message-line.staff { margin-left: auto; margin-right: 0; border-bottom-right-radius: 3px; background: #e8f2ff; }
-.course-students { min-height:180px; }
+.course-students { max-height:300px; min-height:80px; overflow:auto; border:1px solid #d7e3f1; border-radius:8px; padding:8px; }
+.course-students label { display:flex; align-items:center; gap:10px; padding:10px 6px; cursor:pointer; border-bottom:1px solid #edf2f8; }
+.course-students input[type=checkbox] { width:20px; height:20px; flex-shrink:0; }
+.course-students span { overflow-wrap:anywhere; font-size:13px; }
 .chat-guide { color:#526174; font-size:13px; }
 .message-line strong { color: #176bc1; font-size: 12px; }
 .message-line span { white-space: pre-wrap; line-height: 1.55; }

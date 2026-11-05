@@ -3,7 +3,7 @@ const text = require("./text");
 
 const MAX_LOCAL_FILE_BYTES = 18 * 1024 * 1024;
 const MAX_STUDENT_MATERIAL_BYTES = 12 * 1024 * 1024;
-const MAX_COURSE_VIDEO_BYTES = 512 * 1024 * 1024;
+const MAX_COURSE_VIDEO_BYTES = 2 * 1024 * 1024 * 1024;
 const IMAGE_COMPRESS_THRESHOLD_BYTES = 16 * 1024 * 1024;
 
 let reauthPromise = null;
@@ -376,6 +376,7 @@ function uploadAdminCourseVideo(file, onProgress) {
     .then(() => request({
       url: "/api/mp/admin/course-video/complete",
       method: "POST",
+      timeout: 120000,
       data: { uploadId }
     }))
     .then((result) => {
@@ -787,7 +788,7 @@ function chooseCourseVideoFile() {
               return;
             }
             if (!size || size > MAX_COURSE_VIDEO_BYTES) {
-              reject(new Error("单个视频不能超过 512MB；更长的正式课程请使用云点播链接。"));
+              reject(new Error("单个视频不能超过 2GB；大文件建议在电脑后台上传，更大的视频请分节上传。"));
               return;
             }
             resolve({ ...file, path: filePath, tempFilePath: filePath, name, type, size });

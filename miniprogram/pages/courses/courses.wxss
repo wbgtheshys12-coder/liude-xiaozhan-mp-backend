@@ -166,3 +166,6 @@
 .category-row { display:flex; gap:16rpx; padding:12rpx 0 24rpx; }
 .category-chip { flex-shrink:0; padding:14rpx 28rpx; border:1rpx solid #cbd8e7; border-radius:999rpx; background:#fff; font-size:25rpx; }
 .category-chip.active { color:#fff; border-color:#295ca6; background:#295ca6; }
+.speed-row { display:flex; flex-wrap:wrap; align-items:center; gap:12rpx; padding:20rpx 0; font-size:26rpx; }
+.speed-button { margin:0; padding:0 18rpx; font-size:25rpx; line-height:2.2; background:#edf3fa; }
+.speed-button.selected { color:#fff; background:#295ca6; }

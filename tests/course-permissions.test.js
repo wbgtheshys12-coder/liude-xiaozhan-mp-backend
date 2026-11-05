@@ -42,6 +42,49 @@ test('assignment, revocation, guest links and category persist through real endp
   assert.equal((await json('/api/mp/admin/courses',admin,{...data,videoUrl:'https://example.com/private.mp4'})).status,400);
   assert.equal((await json('/api/mp/admin/courses',admin,{...data,status:'draft',allowedStorageKeys:[]})).status,200);
 });
+
+test('registered user with no submitted profile is selectable and demos are not enrolled',async()=>{
+  const profileFile=path.join(dir,'profiles.jsonl'),previous=fs.readFileSync(profileFile);
+  try {
+    fs.writeFileSync(profileFile,'');
+    const result=await json('/api/mp/admin/course-students',admin);
+    assert.ok(result.data.records.some(s=>s.storageKey===a.user.storageKey));
+    assert.ok(!result.data.records.some(s=>s.storageKey===b.user.storageKey));
+    const registry=fs.readFileSync(path.join(dir,'registered-users.jsonl'),'utf8');
+    assert.ok(!registry.includes('openid'));assert.ok(!registry.includes(a.token));
+  } finally {fs.writeFileSync(profileFile,previous);}
+});
+
+test('large upload accepts 600MB and 2GB metadata, rejects larger and can abort safely',async()=>{
+  for(const size of [600*1024*1024,2*1024*1024*1024]){
+    const init=await json('/api/mp/admin/course-video/init',admin,{name:'large.mp4',mimeType:'video/mp4',size});
+    assert.equal(init.status,200);assert.equal(init.data.maxBytes,2*1024*1024*1024);
+    assert.equal((await json('/api/mp/admin/course-video/abort',admin,{uploadId:init.data.uploadId})).status,200);
+  }
+  assert.equal((await json('/api/mp/admin/course-video/init',admin,{name:'large.mp4',mimeType:'video/mp4',size:2*1024*1024*1024+1})).status,413);
+});
+
+test('playback speed uses the current player, rejects arbitrary rates and resets per course',()=>{
+  let page,calls=[];
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../miniprogram/pages/courses/courses.js'),'utf8'),{Page:p=>page=p,require:()=>({recordUsage:()=>Promise.resolve()}),wx:{createVideoContext:(id)=>({playbackRate:rate=>calls.push([id,rate])}),showToast(){}}});
+  page.setData=v=>Object.assign(page.data,v);
+  page.data.currentCourse={id:'a'};
+  page.choosePlaybackRate({currentTarget:{dataset:{rate:1.5}}});
+  assert.equal(page.data.playbackRate,1.5);assert.deepEqual(calls,[['coursePlayer',1.5]]);
+  page.choosePlaybackRate({currentTarget:{dataset:{rate:9}}});assert.equal(calls.length,1);
+  page.data.courses=[{id:'b',type:'recorded',videoUrl:'/video'}];
+  page.openCourse({currentTarget:{dataset:{id:'b'}}});assert.equal(page.data.playbackRate,1);
+});
+
+test('mini student search preserves selected accounts outside the current filter',()=>{
+  let page;
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../miniprogram/pages/admin/courses.js'),'utf8'),{Page:p=>page=p,require:()=>({})});
+  page.setData=values=>{for(const [key,value] of Object.entries(values)){if(key==='form.allowedStorageKeysText')page.data.form.allowedStorageKeysText=value;else page.data[key]=value;}};
+  page.data.students=[{name:'甲',storageKey:'a',school:'一校'},{name:'乙',storageKey:'b',school:'二校'}];
+  page.data.form.allowedStorageKeysText='a';page.searchStudents({detail:{value:'二校'}});
+  page.chooseStudents({detail:{value:['b']}});assert.equal(page.data.form.allowedStorageKeysText,'a，b');assert.equal(page.data.selectedStudentCount,2);
+  page.chooseStudents({detail:{value:[]}});assert.equal(page.data.form.allowedStorageKeysText,'a');
+});
 test('teacher chat is right aligned and student category selection filters only available records',async()=>{
   for(const file of ['admin-web/styles.css','miniprogram/pages/admin/messages.wxss']){
     const css=fs.readFileSync(path.join(__dirname,'..',file),'utf8');assert.match(css,/\.(?:message-line|message)\.staff\s*\{[^}]*margin-left:\s*auto/);assert.match(css,/\.(?:message-line|message)\.user\s*\{[^}]*margin-right:\s*auto/);

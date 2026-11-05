@@ -59,6 +59,7 @@ const MP_BOOKINGS_FILE = process.env.MP_BOOKINGS_FILE || path.join(MP_DATA_DIR, 
 const MP_COURSES_FILE = process.env.MP_COURSES_FILE || path.join(MP_DATA_DIR, "courses.jsonl");
 const MP_UPLOADS_FILE = process.env.MP_UPLOADS_FILE || path.join(MP_DATA_DIR, "uploads.jsonl");
 const MP_PROFILES_FILE = process.env.MP_PROFILES_FILE || path.join(MP_DATA_DIR, "profiles.jsonl");
+const MP_REGISTERED_USERS_FILE = path.join(MP_DATA_DIR, "registered-users.jsonl");
 const MP_USAGE_FILE = process.env.MP_USAGE_FILE || path.join(MP_DATA_DIR, "usage.jsonl");
 const MP_MESSAGES_FILE = process.env.MP_MESSAGES_FILE || path.join(MP_DATA_DIR, "messages.jsonl");
 const MP_POSTS_FILE = path.join(MP_DATA_DIR, "posts.jsonl");
@@ -72,7 +73,7 @@ const MP_COS_METADATA_SYNC_INTERVAL_MS = Math.max(
 const BUNDLED_COURSE_VIDEO_DIR = path.join(__dirname, "assets", "course-videos");
 const BUNDLED_GERMAN_COURSE_VIDEO_FILE = "german-course.mp4";
 const MP_MAX_STORED_FILE_BYTES = Number(process.env.MP_MAX_STORED_FILE_BYTES || 12 * 1024 * 1024);
-const MP_MAX_COURSE_VIDEO_BYTES = Number(process.env.MP_MAX_COURSE_VIDEO_BYTES || 512 * 1024 * 1024);
+const MP_MAX_COURSE_VIDEO_BYTES = Number(process.env.MP_MAX_COURSE_VIDEO_BYTES || 2 * 1024 * 1024 * 1024);
 const MP_COURSE_VIDEO_CHUNK_BYTES = Math.max(
   512 * 1024,
   Math.min(Number(process.env.MP_COURSE_VIDEO_CHUNK_BYTES || 4 * 1024 * 1024), 8 * 1024 * 1024)
@@ -342,6 +343,7 @@ function metadataFilePaths() {
       MP_COURSES_FILE,
       MP_UPLOADS_FILE,
       MP_PROFILES_FILE,
+      MP_REGISTERED_USERS_FILE,
       MP_USAGE_FILE,
       MP_MESSAGES_FILE,
       MP_POSTS_FILE,
@@ -424,6 +426,7 @@ function getBearerToken(req) {
 }
 
 function createSession(session) {
+  registerCourseStudent(session);
   const now = Math.floor(Date.now() / 1000);
   const payload = {
     version: 1,
@@ -509,7 +512,17 @@ function requireSession(req, res) {
     sendJson(res, 401, { error: "请先登录小程序。" });
     return null;
   }
+  registerCourseStudent(session);
   return session;
+}
+
+// Persist only the account identifier, not credentials or raw OpenID. Existing
+// signed sessions are enrolled on their next authenticated request as well.
+function registerCourseStudent(session) {
+  if (session.mode !== "user" || !session.openid) return;
+  const storageKey = getSessionStorageKey(session);
+  if (readJsonlFile(MP_REGISTERED_USERS_FILE).some(row => row.storageKey === storageKey)) return;
+  appendJsonlRecord(MP_REGISTERED_USERS_FILE, {storageKey, registeredAt:new Date().toISOString()});
 }
 
 function readEntitlements() {
@@ -2845,13 +2858,13 @@ function handleCourseStudents(req,res) {
   const session=requireSession(req,res);if(!session)return;
   if(!isAdminSession(session)){sendJson(res,403,{error:"需要课程管理权限。"});return;}
   const users=new Map();
-  for(const row of [...buildAdminMessageConversations(),...readJsonlFile(MP_PROFILES_FILE)]) {
+  for(const row of [...readJsonlFile(MP_REGISTERED_USERS_FILE),...buildAdminMessageConversations(),...readJsonlFile(MP_PROFILES_FILE)]) {
     if(!row.storageKey)continue;
     const key=String(row.storageKey),previous=users.get(key)||{};
     const phone=String(row.phone||row.contact||'').replace(/\D/g,'');
     users.set(key,{storageKey:key,name:normalizeBookingText(row.name||row.studentName||previous.name||'微信用户',40),school:normalizeBookingText(row.school||previous.school||'',80),major:normalizeBookingText(row.major||previous.major||'',80),contactHint:phone.length>=7?`尾号${phone.slice(-4)}`:previous.contactHint||''});
   }
-  sendJson(res,200,{ok:true,records:[...users.values()].sort((a,b)=>a.name.localeCompare(b.name,'zh-CN')),notice:'仅列出已提交资料或联系过客服的账号。未显示的学生可先登录填写基本资料，或复制其账号标识手动授权。'});
+  sendJson(res,200,{ok:true,records:[...users.values()].sort((a,b)=>a.name.localeCompare(b.name,'zh-CN')),notice:'从已登录登记、提交资料或联系过客服的账号中选择。历史未登记用户重新登录或使用一次功能后会出现；未填姓名的账号请核对账号标识。勾选后需保存课程才生效。'});
 }
 
 async function handleAdminCourses(req, res) {

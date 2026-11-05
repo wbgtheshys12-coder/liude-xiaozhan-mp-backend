@@ -26,7 +26,8 @@ Page({
     activeCategory: "全部",
     notice: "",
     protectNote: "",
-    currentCourse: null
+    currentCourse: null,
+    playbackRates: [0.5, 0.75, 1, 1.25, 1.5, 2], playbackRate: 1
   },
 
   onShow() {
@@ -74,7 +75,7 @@ Page({
         return;
       }
       api.recordUsage("course.open.recorded", { id: course.id, title: course.title }).catch(() => {});
-      this.setData({ currentCourse: course });
+      this.setData({ currentCourse: course, playbackRate: 1 });
       return;
     }
     if (!course.liveUrl) {
@@ -99,6 +100,21 @@ Page({
 
   closePlayer() {
     this.setData({ currentCourse: null });
+  },
+
+  applyPlaybackRate() {
+    try {
+      const context=wx.createVideoContext('coursePlayer',this);
+      context.playbackRate(this.data.playbackRate);
+    } catch (_) {
+      this.setData({playbackRate:1});
+      wx.showToast({title:'当前微信版本暂不支持倍速，请更新微信后重试',icon:'none'});
+    }
+  },
+  choosePlaybackRate(event) {
+    const rate=Number(event.currentTarget.dataset.rate);
+    if(!this.data.currentCourse||!this.data.playbackRates.includes(rate))return;
+    this.setData({playbackRate:rate});this.applyPlaybackRate();
   },
 
   sendFeedback(event) {

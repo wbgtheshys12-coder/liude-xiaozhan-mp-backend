@@ -96,9 +96,14 @@
     const keys=allowedKeys(),q=$("courseStudentSearch").value.trim().toLowerCase();
     const students=[...state.students];
     for(const key of keys)if(!students.some(s=>s.storageKey===key))students.push({storageKey:key,name:'未登记姓名的已授权账号'});
-    $("courseStudents").replaceChildren(...students.filter(s=>[s.name,s.school,s.storageKey,s.contactHint].join(' ').toLowerCase().includes(q)).map(s=>{
-      const option=document.createElement('option');option.value=s.storageKey;option.textContent=[s.name,s.school,s.contactHint,s.storageKey].filter(Boolean).join(' · ');option.selected=keys.includes(s.storageKey);return option;
+    const filtered=students.filter(s=>[s.name,s.school,s.major,s.storageKey,s.contactHint].join(' ').toLowerCase().includes(q));
+    $("courseStudents").replaceChildren(...filtered.map(s=>{
+      const label=document.createElement('label'),box=document.createElement('input'),text=document.createElement('span');
+      box.type='checkbox';box.value=s.storageKey;box.checked=keys.includes(s.storageKey);
+      text.textContent=[s.name,s.school,s.major,s.contactHint,s.storageKey].filter(Boolean).join(' · ');
+      label.append(box,text);return label;
     }));
+    $("courseSelectedCount").textContent=`已选择 ${keys.length} 人 · 当前搜索 ${filtered.length} 人（保存课程后生效）`;
   }
   function changeCourseAccess(){
     const assigned=$("courseAccess").value==='assigned';
@@ -211,7 +216,7 @@
   async function uploadVideo() {
     const file = $("courseVideoFile").files[0];
     if (!file) throw new Error("请先选择本地视频。" );
-    if (file.size > 512 * 1024 * 1024) throw new Error("单个视频不能超过 512MB；正式长课请使用云点播链接。" );
+    if (file.size > 2 * 1024 * 1024 * 1024) throw new Error("单个视频不能超过 2GB；更大的视频请分节上传。" );
     if (!/\.(mp4|mov|m4v)$/i.test(file.name)) throw new Error("课程视频仅支持 MP4、MOV、M4V。" );
     setMessage("正在建立分片上传任务…", true);
     setVideoStatus({ uploading: true });
@@ -409,10 +414,11 @@
   $("courseStudentSearch").addEventListener('input',renderCourseStudents);
   $("courseAllowedKeys").addEventListener('input',renderCourseStudents);
   $("courseStudents").addEventListener('change',()=>{
-    const visible=[...$("courseStudents").options].map(o=>o.value);
+    const visible=[...$("courseStudents").querySelectorAll('input[type=checkbox]')].map(o=>o.value);
     const keep=allowedKeys().filter(key=>!visible.includes(key));
-    const selected=[...$("courseStudents").selectedOptions].map(o=>o.value);
+    const selected=[...$("courseStudents").querySelectorAll('input:checked')].map(o=>o.value);
     $("courseAllowedKeys").value=[...new Set([...keep,...selected])].join(', ');
+    renderCourseStudents();
   });
   $("uploadVideoButton").addEventListener("click", () => uploadVideo().catch((error) => {
     setVideoStatus({});

@@ -1,7 +1,7 @@
 const api = require("../../utils/api");
 
 const TYPE_OPTIONS = ["录播课", "直播课"];
-const VIDEO_PICKER_NOTE = "支持 MP4/MOV/M4V 分片上传，单个不超过 512MB；正式长课建议使用云点播链接。";
+const VIDEO_PICKER_NOTE = "支持 MP4/MOV/M4V 分片上传，单个不超过 2GB；大文件建议在电脑后台上传，手机选文件仍受微信限制。";
 
 function blankForm() {
   return {
@@ -63,6 +63,9 @@ Page({
     accessOptions: ["仅指定学生可见", "全部登录学生可见", "免费公开（无需登录）"],
     accessIndex: 0,
     students: [],
+    filteredStudents: [],
+    studentSearch: "",
+    selectedStudentCount: 0,
     records: [],
     form: blankForm()
   },
@@ -131,10 +134,13 @@ Page({
   },
   refreshStudentChecks(){
     const keys=this.data.form.allowedStorageKeysText.split(/[,，\s]+/).filter(Boolean);
-    this.setData({students:this.data.students.map(s=>({...s,checked:keys.includes(s.storageKey)}))});
+    const students=this.data.students.map(s=>({...s,checked:keys.includes(s.storageKey)}));
+    const query=this.data.studentSearch.trim().toLowerCase();
+    this.setData({students,selectedStudentCount:new Set(keys).size,filteredStudents:students.filter(s=>[s.name,s.school,s.major,s.contactHint,s.storageKey].join(' ').toLowerCase().includes(query))});
   },
+  searchStudents(event){this.setData({studentSearch:event.detail.value||''});this.refreshStudentChecks();},
   chooseStudents(event){
-    const shown=this.data.students.map(s=>s.storageKey);
+    const shown=this.data.filteredStudents.map(s=>s.storageKey);
     const old=this.data.form.allowedStorageKeysText.split(/[,，\s]+/).filter(key=>key&&!shown.includes(key));
     this.setData({'form.allowedStorageKeysText':[...new Set([...old,...event.detail.value])].join('，')});this.refreshStudentChecks();
   },
