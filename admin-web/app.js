@@ -147,6 +147,12 @@
   }
 
   async function loadPayments() {
+    const services=await api('/api/mp/admin/service-orders');
+    const labels={AWAITING_PAYMENT:'未付款',PAID:'已付款，待处理',REVIEWING:'老师核对中',NEEDS_INFO:'待学生补充',DELIVERED:'已交付',REFUND_REQUESTED:'退款申请待处理'};
+    $('serviceOrdersList').innerHTML=(services.records||[]).map(order=>{
+      const transitions={PAID:['REVIEWING','REFUND_REQUESTED'],REVIEWING:['NEEDS_INFO','DELIVERED','REFUND_REQUESTED'],NEEDS_INFO:['REVIEWING','REFUND_REQUESTED'],DELIVERED:['REVIEWING','REFUND_REQUESTED']}[order.status]||[];
+      return `<article class="card"><h3>${escapeHtml(order.title)} · ¥${(order.amountFen/100).toFixed(2)}</h3><p>${escapeHtml(labels[order.status]||order.status)}</p><p class="fine-print">订单 ${escapeHtml(order.id)} · 账号 ${escapeHtml(order.owner)}</p><details><summary>查看学生授权资料</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeHtml(JSON.stringify(order.snapshot,null,2))}</pre></details><p>${escapeHtml(order.teacherNote||'')}</p>${transitions.length?`<label>处理状态<select class="service-status">${transitions.map(s=>`<option value="${s}">${labels[s]}</option>`).join('')}</select></label><label>处理说明 / 交付内容<textarea class="service-note" maxlength="4000"></textarea></label><button class="service-update" data-id="${escapeHtml(order.id)}" data-revision="${order.revision}">保存处理结果</button>`:''}</article>`;
+    }).join('')||'<p>暂无服务订单。</p>';
     const payload = await api("/api/mp/admin/payment-orders");
     const statusLabels = { PAID: "已支付", PENDING: "待确认", CREATED: "创建中", CREATE_FAILED: "创建失败" };
     $("paymentsList").innerHTML = (payload.records || []).map((item) => `<article class="card"><div class="card-head"><h3>${escapeHtml(item.productTitle || item.productId || "支付订单")}</h3><span class="badge">${escapeHtml(statusLabels[item.status] || item.status || "未知")}</span></div><p class="meta">金额：${escapeHtml(item.priceText || "-")} · 用户标识：${escapeHtml(item.storageKey || "-")}</p><p class="meta">商户订单号：${escapeHtml(item.outTradeNo || "-")}</p><p class="meta">创建：${escapeHtml(item.createdAt || "-")}${item.paidAt ? ` · 支付：${escapeHtml(item.paidAt)}` : ""}</p></article>`).join("") || '<p class="meta">暂无支付订单。</p>';
@@ -428,6 +434,8 @@
   $("courseVideoUrl").addEventListener("input", () => setVideoStatus({}));
   $("courseForm").addEventListener("submit", (event) => saveCourse(event).catch((error) => setMessage(error.message)));
   document.addEventListener("click", (event) => {
+    const serviceButton=event.target.closest('.service-update');
+    if(serviceButton){const card=serviceButton.closest('article');serviceButton.disabled=true;api('/api/mp/admin/service-orders',{method:'POST',body:JSON.stringify({id:serviceButton.dataset.id,revision:Number(serviceButton.dataset.revision),status:card.querySelector('.service-status').value,note:card.querySelector('.service-note').value})}).then(loadPayments).catch(error=>setMessage(error.message)).finally(()=>{serviceButton.disabled=false;});return;}
     const tab = event.target.closest(".tab");
     if (tab) {
       document.querySelectorAll(".tab").forEach((item) => item.classList.toggle("active", item === tab));

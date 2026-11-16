@@ -2,7 +2,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 
-const ALLOWED_FEATURES = new Set(["materialAssistant", "recommendationCount"]);
+const ALLOWED_FEATURES = new Set(["materialAssistant", "recommendationCount", "serviceOrder"]);
 const WECHAT_PAY_API_BASE = "https://api.mch.weixin.qq.com";
 
 function normalizeText(value, maxLength = 127) {

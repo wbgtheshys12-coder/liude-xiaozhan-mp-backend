@@ -27,7 +27,8 @@ Page({
     accountStorageKey: "已登录",
     canManagePayment: false,
     payingProductId: "",
-    lastOrder: null
+    lastOrder: null,
+    serviceCatalog: null, serviceOrders: [], serviceNote: '', serviceBusy: false
   },
 
   onShow() {
@@ -39,6 +40,35 @@ Page({
       canManagePayment: Boolean(roles.isAdmin || roles.isOwner || roles.isTeacher || roles.canManageBookings)
     });
     this.loadProfile();
+    this.loadServices();
+  },
+
+  loadServices(){
+    Promise.all([api.request({url:'/api/mp/services/catalog'}),api.request({url:'/api/mp/service-orders'})]).then(([catalog,result])=>this.setData({serviceCatalog:catalog,serviceOrders:result.records||[]})).catch(()=>{});
+  },
+  editServiceNote(event){this.setData({serviceNote:event.detail.value||''});},
+  async supplementService(event){
+    if(this.data.serviceBusy)return;
+    const order=this.data.serviceOrders.find(o=>o.id===event.currentTarget.dataset.id);if(!order)return;
+    this.setData({serviceBusy:true});
+    try{await api.request({url:'/api/mp/service-orders/update',method:'POST',data:{id:order.id,revision:order.revision,snapshot:{profile:this.data.profile,note:this.data.serviceNote}}});this.loadServices();wx.showToast({title:'已补充，待老师处理',icon:'none'});}
+    catch(error){wx.showModal({title:'未能保存',content:error.message||'请刷新重试',showCancel:false});}finally{this.setData({serviceBusy:false});}
+  },
+  async reserveService(event){
+    if(this.data.serviceBusy)return;
+    const id=event.currentTarget.dataset.id,plan=this.data.serviceCatalog?.plans.find(p=>p.id===id);if(!plan)return;
+    const agreed=await new Promise(resolve=>wx.showModal({title:'确认服务范围与资料授权',content:`${plan.scope}\n价格：${plan.priceText}。${this.data.serviceCatalog.disclaimer}\n同意将本单填写资料和联系方式提供给本公司文书老师处理吗？当前准备阶段仅建单，不扣款。`,confirmText:'同意建单',success:r=>resolve(r.confirm),fail:()=>resolve(false)}));
+    if(!agreed)return;this.setData({serviceBusy:true});
+    try{
+      await api.request({url:'/api/mp/service-orders',method:'POST',data:{productId:id,clientRequestId:`service-${Date.now()}-${Math.random().toString(36).slice(2)}`,termsVersion:this.data.serviceCatalog.termsVersion,acceptedTerms:true,shareWithTeacher:true,snapshot:{profile:this.data.profile,note:this.data.serviceNote}}});
+      this.loadServices();wx.showToast({title:'已建单，尚未付款',icon:'none'});
+    }catch(error){wx.showModal({title:'未能建单',content:error.message||'请稍后重试',showCancel:false});}finally{this.setData({serviceBusy:false});}
+  },
+  async checkoutService(event){
+    if(this.data.serviceBusy)return;this.setData({serviceBusy:true});
+    try{const result=await api.request({url:'/api/mp/service-orders/checkout',method:'POST',data:{id:event.currentTarget.dataset.id}});await requestPayment(result.payment);await this.confirmOrder(result.order.outTradeNo);this.loadServices();}
+    catch(error){wx.showModal({title:'付款未完成',content:error.message||error.errMsg||'请稍后重试',showCancel:false});}
+    finally{this.setData({serviceBusy:false});}
   },
 
   loadProfile() {

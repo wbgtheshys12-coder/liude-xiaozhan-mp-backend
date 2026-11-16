@@ -6,6 +6,7 @@ const docx = require("docx");
 const PDFDocument = require("pdfkit");
 const localEngine = require("./local-engine");
 const coursePolicy = require("./course-policy");
+const { createServiceOrders } = require('./service-orders');
 const documentTranslator = require("./document-translation").createDocumentTranslator();
 const offlineDocumentTranslator = require("./offline-document-translation").createOfflineTranslator();
 const OFFLINE_MODEL_DIR = process.env.MP_OFFLINE_MODEL_DIR || path.join(__dirname, ".offline-models");
@@ -139,6 +140,7 @@ const paymentService = createPaymentService({
   env: process.env,
   persistentStorageConfigured,
 });
+const serviceOrders = createServiceOrders({file:path.join(MP_DATA_DIR,'service-orders.jsonl'),read:readJsonlFile,write:writeJsonlFile,enabled:()=>process.env.MP_SERVICE_CHECKOUT_ENABLED==='true'&&getPaymentConfiguration().ready});
 
 function splitCsv(value) {
   return String(value || "")
@@ -344,6 +346,7 @@ function metadataFilePaths() {
       MP_UPLOADS_FILE,
       MP_PROFILES_FILE,
       MP_REGISTERED_USERS_FILE,
+      serviceOrders.file,
       MP_USAGE_FILE,
       MP_MESSAGES_FILE,
       MP_POSTS_FILE,
@@ -5696,6 +5699,7 @@ async function handlePaymentCreate(req, res) {
   try {
     const rawBody = await readBody(req);
     const body = JSON.parse(rawBody || "{}");
+    if(paymentService.getProducts().some(p=>p.id===(body.productId||body.feature)&&p.feature==='serviceOrder')){sendJson(res,400,{error:'请从服务订单页确认资料及服务条款后付款。'});return;}
     const result = await paymentService.createOrder({
       openid: session.openid,
       productId: body.productId || body.feature,
@@ -5738,8 +5742,9 @@ function handlePaymentOrder(req, res, url) {
 async function handlePaymentNotification(req, res) {
   try {
     const rawBody = await readBody(req);
-    const result = await paymentService.handleNotification(req.headers, rawBody, ({ openid, feature }) => {
-      grantUserEntitlement(openid, feature);
+    const result = await paymentService.handleNotification(req.headers, rawBody, ({ openid, feature, order }) => {
+      if(feature==='serviceOrder')serviceOrders.paid({id:order.clientRequestId,productId:order.productId,amountFen:order.amountFen,paymentId:order.outTradeNo});
+      else grantUserEntitlement(openid, feature);
     });
     sendJson(res, 200, { code: "SUCCESS", message: "成功", processed: result.processed });
   } catch (error) {
@@ -5818,6 +5823,32 @@ const releaseRoutes = createReleaseRoutes({ sendJson, readBody, requireSession, 
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
+  if(url.pathname==='/api/mp/services/catalog'&&req.method==='GET'){sendJson(res,200,{...serviceOrders.catalog(),visible:process.env.MP_SERVICE_FRAMEWORK_VISIBLE==='true'});return;}
+  if(['/api/mp/service-orders','/api/mp/service-orders/checkout','/api/mp/service-orders/update','/api/mp/admin/service-orders'].includes(url.pathname)){
+    const session=requireSession(req,res);if(!session)return;
+    const admin=url.pathname==='/api/mp/admin/service-orders';
+    if(admin&&!isAdminSession(session)){sendJson(res,403,{error:'需要后台管理权限。'});return;}
+    try{
+      const owner=getSessionStorageKey(session);
+      if(req.method==='GET'&&(admin||url.pathname==='/api/mp/service-orders')){sendJson(res,200,{ok:true,records:serviceOrders.list(admin?undefined:owner)});return;}
+      if(req.method!=='POST'){sendJson(res,405,{error:'不支持的操作。'});return;}
+      const body=JSON.parse(await readBody(req)||'{}');let result;
+      if(admin)result=serviceOrders.update(owner,body.id,body,true);
+      else if(url.pathname==='/api/mp/service-orders')result=serviceOrders.create(owner,body);
+      else if(url.pathname.endsWith('/update'))result=serviceOrders.update(owner,body.id,body);
+      else {
+        const order=serviceOrders.owned(owner,body.id);
+        if(session.mode!=='user'){sendJson(res,403,{error:'演示账号不能发起真实支付。'});return;}
+        if(!serviceOrders.catalog().enabled){sendJson(res,503,{error:'正式收费尚未开放，请勿转账。',paymentReady:false});return;}
+        if(order.status!=='AWAITING_PAYMENT'){sendJson(res,409,{error:'当前订单无需重复付款。'});return;}
+        const product=paymentService.getProducts().find(p=>p.id===order.productId&&p.feature==='serviceOrder'&&p.amountFen===order.amountFen);
+        if(!product){sendJson(res,503,{error:'收费项目配置与本单不一致，请联系管理员。'});return;}
+        result=await paymentService.createOrder({openid:session.openid,productId:product.id,clientRequestId:order.id});
+      }
+      sendJson(res,200,{ok:true,...(result.payment?result:{order:result})});
+    }catch(error){sendJson(res,error.statusCode||400,{error:error.statusCode?error.message:'请求处理失败，请检查资料或稍后重试。'});}
+    return;
+  }
 
   if (req.method === "OPTIONS") {
     sendJson(res, 204, {});

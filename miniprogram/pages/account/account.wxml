@@ -12,6 +12,14 @@
   </view>
 
   <view class="panel payment-panel">
+    <view wx:if="{{serviceCatalog.visible}}" class="panel">
+      <text class="section-title">留学服务方案（{{serviceCatalog.enabled ? '可付款' : '准备中，仅建单不扣款'}}）</text>
+      <text class="tip">{{serviceCatalog.disclaimer}}</text>
+      <textarea class="textarea" value="{{serviceNote}}" bindinput="editServiceNote" maxlength="4000" placeholder="目标高校、专业及文书要求；不要填写证件号码。已保存的个人资料将随本单提供给老师。" />
+      <view wx:for="{{serviceCatalog.plans}}" wx:key="id" class="product-card"><text class="product-title">{{item.title}} · {{item.priceText}}</text><text class="tip">{{item.scope}}</text><button data-id="{{item.id}}" disabled="{{serviceBusy}}" bindtap="reserveService">确认范围并建单（不扣款）</button></view>
+      <text class="section-title">我的服务订单</text>
+      <view wx:for="{{serviceOrders}}" wx:key="id" class="order-card"><text>{{item.title}} · {{item.status == 'AWAITING_PAYMENT' ? '待付款' : item.status == 'PAID' ? '已付款，待处理' : item.status == 'REVIEWING' ? '老师核对中' : item.status == 'NEEDS_INFO' ? '待补充资料' : item.status == 'DELIVERED' ? '已交付' : '退款申请待处理'}}</text><text class="tip">{{item.teacherNote || '尚无老师处理说明'}}</text><button wx:if="{{item.status == 'AWAITING_PAYMENT'}}" disabled="{{!serviceCatalog.enabled || serviceBusy}}" data-id="{{item.id}}" bindtap="checkoutService">{{serviceCatalog.enabled ? '确认付款' : '支付待开通'}}</button><button wx:if="{{item.status == 'NEEDS_INFO'}}" disabled="{{serviceBusy}}" data-id="{{item.id}}" bindtap="supplementService">提交上方补充说明及最新已保存资料</button></view>
+    </view>
     <view class="status-row">
       <text class="section-title">{{payment.title}}</text>
       <text class="status-badge {{payment.paymentReady ? 'ready' : ''}}">{{payment.paymentReady ? '已开放' : payment.documentDownloadFree ? '免费内测' : '准备中'}}</text>
